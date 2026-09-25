@@ -35,7 +35,7 @@ This snapshot is the next executable preview after those milestones; features be
 | Hugging Face model downloader | Search public repositories/files, inspect license/tags/task/size, choose a GGUF, show progress, cancel safely, check known file size, resume with validated Range/ETag, save without overwrite and rescan | Checksums and optional authenticated access |
 | Chat | Persistent local history, restore text turns and unchanged local attachment references, rename/delete/export, streaming, stop/cancel, validated presets and per-chat model/backend/placement/generation settings, images for vision-capable models, bounded local document attachments | Retry/regenerate, audio attachments, Angular streaming client |
 | Agentic tools | Bounded read-only hardware/model/runtime calls, cancellation, redacted results and a bounded audit that omits argument values | Richer plans; any file actions require explicit user approval |
-| Voice | Detect optional local speech tools; configurable-duration recording, local audio-file transcription, selectable installed Whisper model and stoppable local TTS | Push-to-talk UI, streaming STT/TTS and speech voice selection |
+| Voice | Detect optional local speech tools; configurable-duration recording, push-to-talk, local audio-file transcription, selectable installed Whisper model and stoppable local TTS | Streaming STT/TTS and speech voice selection |
 | Other inputs/outputs | Local PNG/JPEG/WebP images and bounded local TXT/Markdown/text-PDF extraction | Audio attachments, export options and accessibility |
 
 ## Functional requirements to complete
@@ -72,11 +72,12 @@ This snapshot is the next executable preview after those milestones; features be
 ### Voice and accessibility
 
 - [x] Detect local speech recognition and speech synthesis engines without contacting a cloud service.
-- [x] Offer basic background microphone recording and transcription when local dependencies are present. Device selection, push-to-talk and correction remain pending.
+- [x] Offer background microphone recording and transcription, including press-and-hold push-to-talk with a bounded recording time; released speech is inserted into the draft and is not sent automatically. Device selection and correction remain pending.
 - [x] Speak assistant output locally when a supported TTS engine is present.
 - [x] Stop local speech output without blocking the chat window; discover already-installed Whisper models without downloading them.
 - [x] Select an installed Whisper model, choose microphone recording duration, and transcribe local audio files into the prompt.
-- [ ] Add push-to-talk and streaming STT/TTS plus speech voice selection.
+- [x] Add push-to-talk with local capture/transcription, bounded duration, and cancellation cleanup.
+- [ ] Add streaming STT/TTS plus speech voice selection.
 - [x] Add Ctrl+Enter send shortcut and a responsive resizable pane layout.
 - [ ] Improve keyboard navigation, readable status announcements and scalable layout.
 

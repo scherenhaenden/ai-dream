@@ -21,3 +21,10 @@ synchronous convenience method.
 On Linux install `espeak-ng`, `alsa-utils`, and `whisper.cpp` as needed. A
 Whisper model file is separately required for transcription. The application
 does not install system packages or fetch speech models automatically.
+
+In the desktop app, hold **Hold to talk** to capture local microphone audio and
+release the control to stop early and transcribe with the selected installed
+Whisper model. The maximum capture time follows the recording duration setting
+(1–120 seconds). The transcript is inserted into the prompt and is not sent
+automatically. Canceling the application stops capture and removes partial
+audio. The separate timed **Record & transcribe** control remains available.
