@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
+import threading
+from pathlib import Path
 
 
 class AIDreamWindow:
@@ -53,6 +55,7 @@ class AIDreamWindow:
         row.pack(fill=tk.X)
         ttk.Button(row, text="Add folder", command=self.add_folder).pack(side=tk.LEFT)
         ttk.Button(row, text="Scan", command=self.scan).pack(side=tk.LEFT, padx=4)
+        ttk.Button(row, text="Download from Hugging Face", command=self.open_hf_downloader).pack(side=tk.LEFT)
         ttk.Label(left, text="GGUF models").pack(anchor="w", pady=(8, 0))
         self.model_list = tk.Listbox(left, height=14, exportselection=False)
         self.model_list.pack(fill=tk.BOTH, expand=True, pady=2)
@@ -232,6 +235,148 @@ class AIDreamWindow:
             self._append_chat(f"Found {len(found)} GGUF model(s).")
         except (OSError, ValueError) as exc:
             messagebox.showerror("Scan failed", str(exc))
+
+    def open_hf_downloader(self):
+        """Open a non-blocking public Hub search/download window."""
+        from aidream.huggingface import HuggingFaceDownloader
+
+        win = tk.Toplevel(self.root)
+        win.title("Download GGUF from Hugging Face")
+        win.geometry("720x560")
+        service = HuggingFaceDownloader()
+        ttk.Label(win, text="Search public Hugging Face model repositories (GGUF)").pack(anchor="w", padx=10, pady=(10, 3))
+        search_row = ttk.Frame(win)
+        search_row.pack(fill=tk.X, padx=10)
+        query = tk.StringVar()
+        ttk.Entry(search_row, textvariable=query).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        search_button = ttk.Button(search_row, text="Search", command=lambda: search())
+        search_button.pack(side=tk.LEFT, padx=(6, 0))
+        repos = tk.Listbox(win, height=8, exportselection=False)
+        repos.pack(fill=tk.X, padx=10, pady=6)
+        ttk.Label(win, text="Repository GGUF files").pack(anchor="w", padx=10)
+        files = tk.Listbox(win, height=12, exportselection=False)
+        files.pack(fill=tk.BOTH, expand=True, padx=10, pady=4)
+        load_files = ttk.Button(win, text="List files", command=lambda: list_files())
+        load_files.pack(anchor="w", padx=10)
+        destrow = ttk.Frame(win)
+        destrow.pack(fill=tk.X, padx=10, pady=(8, 2))
+        default_folder = Path.home() / ".local" / "share" / "ai-dream" / "models"
+        default_folder.mkdir(parents=True, exist_ok=True)
+        destination = tk.StringVar(value=str(default_folder))
+        ttk.Label(destrow, text="Download folder").pack(side=tk.LEFT)
+        ttk.Entry(destrow, textvariable=destination).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=6)
+        ttk.Button(destrow, text="Choose…", command=lambda: choose_dest()).pack(side=tk.LEFT)
+        progress = ttk.Progressbar(win, mode="determinate", maximum=100)
+        progress.pack(fill=tk.X, padx=10, pady=4)
+        status = tk.StringVar(value="Only public repositories are supported. Existing files are never overwritten.")
+        ttk.Label(win, textvariable=status, wraplength=690).pack(anchor="w", padx=10, pady=3)
+        download_btn = ttk.Button(win, text="Download selected GGUF", command=lambda: download())
+        download_btn.pack(anchor="e", padx=10, pady=(2, 10))
+        repo_items = []
+        file_items = []
+
+        def choose_dest():
+            path = filedialog.askdirectory(title="Choose model download folder", mustexist=True, parent=win)
+            if path:
+                destination.set(path)
+
+        def busy(value):
+            state = tk.DISABLED if value else tk.NORMAL
+            search_button.configure(state=state)
+            load_files.configure(state=state)
+            download_btn.configure(state=state)
+
+        def search():
+            busy(True)
+            status.set("Searching Hugging Face…")
+            repos.delete(0, tk.END)
+            repo_items.clear()
+            def work():
+                try:
+                    result = service.search(query.get())
+                    def done():
+                        repo_items.extend(result)
+                        for item in result:
+                            repos.insert(tk.END, f"{item.repo_id}  ·  {item.downloads:,} downloads")
+                        status.set(f"Found {len(result)} public GGUF repositories.")
+                        busy(False)
+                    win.after(0, done)
+                except (OSError, ValueError, RuntimeError) as exc:
+                    error = str(exc)
+                    win.after(0, lambda error=error: (status.set(error), busy(False)))
+            threading.Thread(target=work, daemon=True).start()
+
+        def list_files():
+            selection = repos.curselection()
+            if not selection:
+                messagebox.showinfo("Select a repository", "Choose a repository from the search results.", parent=win)
+                return
+            repo_id = repo_items[selection[0]].repo_id
+            busy(True)
+            status.set(f"Listing GGUF files in {repo_id}…")
+            files.delete(0, tk.END)
+            file_items.clear()
+            def work():
+                try:
+                    result = service.list_gguf_files(repo_id)
+                    def done():
+                        file_items.extend(result)
+                        for name in result:
+                            files.insert(tk.END, name)
+                        status.set(f"Found {len(result)} GGUF file(s) in {repo_id}.")
+                        busy(False)
+                    win.after(0, done)
+                except (OSError, ValueError, RuntimeError) as exc:
+                    error = str(exc)
+                    win.after(0, lambda error=error: (status.set(error), busy(False)))
+            threading.Thread(target=work, daemon=True).start()
+
+        def download():
+            repo_selection, file_selection = repos.curselection(), files.curselection()
+            if not repo_selection or not file_selection:
+                messagebox.showinfo("Select a model file", "Choose a repository and one GGUF file.", parent=win)
+                return
+            repo_id = repo_items[repo_selection[0]].repo_id
+            file_name = file_items[file_selection[0]]
+            folder = Path(destination.get()).expanduser()
+            if not folder.is_dir():
+                messagebox.showerror("Invalid folder", "Choose an existing download folder.", parent=win)
+                return
+            progress.configure(value=0, maximum=100, mode="determinate")
+            busy(True)
+            status.set(f"Downloading {file_name}…")
+            def report(received, total):
+                def update():
+                    if total:
+                        progress.configure(mode="determinate", value=min(100, received * 100 / total))
+                        status.set(f"Downloading… {_gib(received)} / {_gib(total)} GiB")
+                    else:
+                        progress.configure(mode="indeterminate")
+                        progress.start(12)
+                        status.set(f"Downloaded {_gib(received)} GiB…")
+                win.after(0, update)
+            def work():
+                try:
+                    saved = service.download(repo_id, file_name, folder, report)
+                    def done():
+                        progress.stop()
+                        progress.configure(mode="determinate", value=100)
+                        try:
+                            self.catalog.add_source(folder)
+                            self.refresh()
+                        except (OSError, ValueError):
+                            pass
+                        status.set(f"Downloaded to {saved}")
+                        busy(False)
+                    win.after(0, done)
+                except (OSError, ValueError, RuntimeError) as exc:
+                    def failed():
+                        progress.stop()
+                        busy(False)
+                        status.set(str(exc))
+                        messagebox.showerror("Download failed", str(exc), parent=win)
+                    win.after(0, failed)
+            threading.Thread(target=work, daemon=True).start()
 
     def _append_chat(self, text: str):
         self.chat.configure(state=tk.NORMAL)
