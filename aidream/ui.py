@@ -21,8 +21,10 @@ class AIDreamWindow:
         self.models = []
         self.backends = self.registry.list_backends()
         self.backend_by_name = {b.name: b for b in self.backends}
-        self.active_backend = None
+        self.loaded_backend = None
+        self.loaded_key = None
         self._build()
+        self.root.protocol("WM_DELETE_WINDOW", self.close)
         self.refresh()
 
     def _build(self):
@@ -124,6 +126,10 @@ class AIDreamWindow:
         self.device_box.configure(state=tk.NORMAL if caps.device_selection else tk.DISABLED)
         self.gpu_layers_entry.configure(state=tk.NORMAL if caps.gpu_layers else tk.DISABLED)
         self.tensor_split_entry.configure(state=tk.NORMAL if caps.tensor_split else tk.DISABLED)
+        if not caps.gpu_layers:
+            self.gpu_layers_var.set("")
+        if not caps.tensor_split:
+            self.tensor_split_var.set("")
         if not caps.device_selection:
             self.device_var.set("")
             status += ". Device selection is not exposed by this runtime."
@@ -185,15 +191,33 @@ class AIDreamWindow:
         try:
             if not backend.can_load(model):
                 raise RuntimeError(f"{backend.name} cannot load this model.")
-            backend.load(model, placement)
-            self._append_chat(f"You: {prompt}\n[{backend.name} · {model.path}]")
+            placement_key = tuple(sorted((key, str(value)) for key, value in (placement or {}).items()))
+            model_key = getattr(model, "id", model.path)
+            requested_key = (id(backend), model_key, placement_key)
+            if self.loaded_key != requested_key:
+                self._unload_current()
+                backend.load(model, placement)
+                self.loaded_backend = backend
+                self.loaded_key = requested_key
+                self._append_chat(f"Loaded {model.path} with {backend.name}.")
+            self._append_chat(f"You: {prompt}")
             answer = backend.generate(prompt)
             self._append_chat(f"Assistant: {answer}")
         except (OSError, ValueError, RuntimeError) as exc:
+            self._unload_current()
             messagebox.showerror("Generation failed", str(exc))
         finally:
-            backend.unload()
             self.prompt.delete("1.0", tk.END)
+
+    def _unload_current(self):
+        backend, self.loaded_backend = self.loaded_backend, None
+        self.loaded_key = None
+        if backend:
+            backend.unload()
+
+    def close(self):
+        self._unload_current()
+        self.root.destroy()
 
 
 def _gib(n):
