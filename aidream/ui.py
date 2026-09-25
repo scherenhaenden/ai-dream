@@ -21,6 +21,7 @@ class AIDreamWindow:
         self.chat_store = ChatStore()
         self.voice = LocalVoice()
         sessions = self.chat_store.list_sessions()
+        self.sessions = sessions
         self.chat_session = sessions[0] if sessions else self.chat_store.create()
         self.last_answer = ""
         self.root.title("AI Dream")
@@ -121,7 +122,7 @@ class AIDreamWindow:
         ttk.Label(chat_tools, text="Conversation").pack(side=tk.LEFT)
         self.session_var = tk.StringVar(value=_session_label(self.chat_session))
         self.session_box = ttk.Combobox(chat_tools, textvariable=self.session_var,
-                                        values=[_session_label(item) for item in sessions],
+                                        values=[_session_label(item) for item in self.sessions],
                                         state="readonly", width=28)
         self.session_box.pack(side=tk.LEFT, padx=5)
         self.session_box.bind("<<ComboboxSelected>>", self.select_chat)
