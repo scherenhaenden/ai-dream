@@ -15,13 +15,17 @@ The root `AI Dream.desktop` one-click launcher opens the same browser app. The e
 Or use the CLI:
 
 ```sh
+python3 -m pip install -e .
 python3 -m aidream hardware
 python3 -m aidream models add ~/Models
 python3 -m aidream models scan
 python3 -m aidream models list
 python3 -m aidream backends
-python3 -m aidream run /path/to/model.gguf
+python3 -m aidream run /path/to/model.gguf --backend auto
+app-gui
 ```
+
+`app run` also accepts `--gpu-layers`, `--device`, and `--tensor-split` when the selected runtime supports them; `app backends` reports available controls. Device names are runtime-native identifiers rather than hardware-list indexes.
 
 The current dated Linux test build is generated under `build/linux/25.09.2026/`.
 
