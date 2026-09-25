@@ -22,11 +22,11 @@ Status snapshot: 25 September 2026. This file is the working checklist for the l
 
 | Area | First usable slice | Next increments |
 |---|---|---|
-| Hugging Face model downloader | Search public repositories/files, choose a GGUF, show progress, cancel safely, check known file size against free disk space, save without overwrite in a registered folder, then rescan | Resume, checksums, model metadata/license display, optional authenticated access |
-| Chat | Persistent local conversation history, saved-turn context restoration, rename/delete/export | Streaming tokens, cancellation, attachments, per-chat model/options |
-| Agentic tools | Bounded tool calls in chat over typed, read-only hardware/model/runtime APIs, with redacted result summaries | Cancellation, richer plans, full inspectable audit and user-approved file actions |
-| Voice | Detect optional local speech tools; local speech output and background recording/transcription where available | Push-to-talk UI, streaming STT/TTS, voice selection, interruption and device configuration |
-| Other inputs/outputs | Preserve a modality-ready message/attachment contract | Image input, document ingestion, audio attachments, export and accessibility |
+| Hugging Face model downloader | Search public repositories/files, choose a GGUF, show progress, cancel safely, check known file size, resume with validated Range/ETag, save without overwrite and rescan | Checksums, richer Hub metadata, optional authenticated access |
+| Chat | Persistent local history, restore text turns, rename/delete/export, streaming, stop/cancel, validated presets, local images for vision-capable llama.cpp models | Retry/regenerate, persist and restore image references, per-chat model/options, document/audio attachments |
+| Agentic tools | Bounded tool calls in chat over typed, read-only hardware/model/runtime APIs, with redacted result summaries and stop reasons | User-visible cancellation and richer bounded audit; any file actions require explicit approval |
+| Voice | Detect optional local speech tools; local speech output and background recording/transcription where available | Push-to-talk UI, streaming STT/TTS, voice selection, interruption/configuration (API work in progress) |
+| Other inputs/outputs | Local PNG/JPEG/WebP image attachments with size and count limits | Document ingestion, audio attachments, export options and accessibility |
 
 ## Functional requirements to complete
 
@@ -36,29 +36,32 @@ Status snapshot: 25 September 2026. This file is the working checklist for the l
 - [ ] Explain why a model/runtime/device combination is unavailable before starting a load.
 - [x] Scan multiple model folders without moving user files. Filtering/sorting remain pending.
 - [x] Download public Hugging Face GGUFs with progress, destination selection and safe filenames.
-- [x] Refuse existing destination filenames, publish downloads atomically, support cancellation cleanup and check free disk space when the Hub provides a size. Resume remains pending.
-- [ ] Surface model metadata (format, quantization, size, source and license when available).
+- [x] Refuse existing destination filenames, publish downloads atomically, support cancellation cleanup and check free disk space when the Hub provides a size.
+- [x] Resume interrupted public Hub downloads only when repository/file/revision/byte-count/ETag metadata validates; discard stale partial state and preserve atomic publication.
+- [x] Surface local model metadata (format, size, quantization, architecture, context, source and license when available). Missing metadata is shown as unknown.
 
 ### Chat and generation
 
 - [x] Create, persist and resume the visible chat transcript locally, including restoring old turns into runtime context; rename, delete and export as Markdown.
-- [ ] Add streaming generation, stop/cancel, retry and clear error states.
-- [x] Support system prompt, temperature, response limit, stop strings and a reasoning toggle. Context policy and reusable presets remain pending.
+- [x] Add streaming generation and stop/cancel. Retry/regenerate and richer error recovery remain pending.
+- [x] Support system prompt, temperature, response limit, stop strings, reasoning/context/load options and validated reusable presets.
 - [x] Keep conversation history consistent between saved chats and the backend on reload/model change.
-- [ ] Add attachment handling for images/documents/audio only when the selected backend supports it.
+- [x] Attach bounded local PNG/JPEG/WebP images to normal chat requests. Requires a vision-capable llama.cpp model; agent mode rejects image attachments. Image bytes are not restored from chat history after restart.
 
 ### Agentic operation
 
 - [x] Make agent mode visible in chat; the initial tools are read-only and need no write permissions, with bounded redacted result snippets in the transcript.
 - [x] Reject arbitrary shell execution and all unregistered or mutating tool names.
-- [x] Bound tool calls by time, count and output size. Cancellation and detailed result inspection remain pending.
+- [x] Bound tool calls by time, count and output size; record tool names, status, redacted result snippets and stop reason locally.
+- [ ] Propagate stop/cancel through the agent tool loop and add a more inspectable bounded audit (in progress).
 - [x] Record tool names, status, redacted result snippets and stop reason in the local chat transcript. Full arguments/results remain intentionally out of the log.
 
 ### Voice and accessibility
 
 - [x] Detect local speech recognition and speech synthesis engines without contacting a cloud service.
 - [x] Offer basic background microphone recording and transcription when local dependencies are present. Device selection, push-to-talk and correction remain pending.
-- [x] Speak assistant output locally when a supported TTS engine is present. Stop/interruption and voice configuration remain pending.
+- [x] Speak assistant output locally when a supported TTS engine is present.
+- [ ] Add stop/interruption controls and voice configuration (API work in progress; UI follow-up remains).
 - [ ] Add keyboard navigation, readable status announcements and scalable layout.
 
 ## Release checks

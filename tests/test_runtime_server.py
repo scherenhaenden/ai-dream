@@ -71,6 +71,32 @@ class PersistentServerTest(unittest.TestCase):
             fit_index = command_args.index('--fit')
             self.assertEqual(command_args[fit_index + 1], 'off')
 
+    def test_image_attachment_reaches_chat_completions_as_multimodal_content(self):
+        from aidream.image_input import load_image_attachment
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            executable = root / 'fake-server'
+            executable.write_text(FAKE_SERVER)
+            executable.chmod(0o755)
+            model = root / 'model.gguf'
+            model.write_bytes(b'mock')
+            image = root / 'photo.png'
+            image.write_bytes(b'\x89PNG\r\n\x1a\nsmall-image')
+            backend = LlamaCppBackend(str(executable), startup_timeout=3)
+            backend.load(model)
+            try:
+                attachment = load_image_attachment(image)
+                self.assertEqual(backend.generate('Describe this', {'images': [attachment]}), 'turn-1')
+                request = json.loads(Path(str(model) + '.requests').read_text().splitlines()[0])
+                content = request['messages'][-1]['content']
+                self.assertEqual(content[0], {'type': 'text', 'text': 'Describe this'})
+                self.assertEqual(content[1]['type'], 'image_url')
+                self.assertTrue(content[1]['image_url']['url'].startswith('data:image/png;base64,'))
+                self.assertEqual(backend._messages[-2]['content'], content)
+            finally:
+                backend.unload()
+
     def test_stream_delivers_chunks_and_cancellation_discards_partial_history(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

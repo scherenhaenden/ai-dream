@@ -72,6 +72,10 @@ class AIDreamWindow:
         ttk.Label(left, text="GGUF models").pack(anchor="w", pady=(8, 0))
         self.model_list = tk.Listbox(left, height=14, exportselection=False)
         self.model_list.pack(fill=tk.BOTH, expand=True, pady=2)
+        self.model_list.bind("<<ListboxSelect>>", self.show_model_details)
+        self.model_details = ttk.Label(left, text="Select a model to inspect its metadata.",
+                                       wraplength=340, justify=tk.LEFT)
+        self.model_details.pack(fill=tk.X, anchor="w", pady=(3, 0))
 
         right = ttk.Frame(pane, padding=8)
         pane.add(right, weight=2)
@@ -140,7 +144,8 @@ class AIDreamWindow:
         self.session_box.bind("<<ComboboxSelected>>", self.select_chat)
         self._generation_controls = [self.session_box, self.model_list, self.backend_box]
         for label, command in (("New chat", self.new_chat), ("Rename", self.rename_chat),
-                               ("Delete", self.delete_chat), ("Export", self.export_chat)):
+                               ("Delete", self.delete_chat), ("Export", self.export_chat),
+                               ("Presets", self.open_preset_manager)):
             button = ttk.Button(chat_tools, text=label, command=command)
             button.pack(side=tk.LEFT, padx=(4, 0) if label != "New chat" else 0)
             self._generation_controls.append(button)
@@ -185,6 +190,65 @@ class AIDreamWindow:
         entry.pack(side=tk.LEFT, padx=(0, 10))
         self._settings_widgets[capability] = entry
 
+    def _current_preset_settings(self):
+        def optional_int(variable, label):
+            value = variable.get().strip()
+            if not value:
+                return None
+            number = int(value)
+            if number < 1:
+                raise ValueError(f"{label} must be a positive whole number")
+            return number
+
+        temperature = float(self.temperature_var.get().strip())
+        stop = [line.strip() for line in self.stop_strings.get("1.0", tk.END).splitlines() if line.strip()]
+        placement = {}
+        if self.gpu_layers_var.get().strip():
+            placement["gpu_layers"] = int(self.gpu_layers_var.get().strip())
+        if self.device_var.get().strip():
+            placement["device"] = self.device_var.get().strip()
+        if self.tensor_split_var.get().strip():
+            placement["tensor_split"] = self.tensor_split_var.get().strip()
+        return {
+            "system_prompt": self.system_prompt_var.get(),
+            "reasoning": self.reasoning_var.get(),
+            "temperature": temperature,
+            "max_tokens": optional_int(self.max_tokens_var, "Maximum response tokens"),
+            "stop_strings": stop,
+            "context_size": optional_int(self.context_var, "Context size"),
+            "threads": optional_int(self.threads_var, "CPU threads"),
+            "batch_size": optional_int(self.batch_var, "Batch size"),
+            "placement": placement,
+            "structured_output": None,
+        }
+
+    def _apply_preset_settings(self, settings):
+        for variable_name, key in (("system_prompt_var", "system_prompt"),
+                                   ("temperature_var", "temperature"),
+                                   ("max_tokens_var", "max_tokens"),
+                                   ("context_var", "context_size"),
+                                   ("threads_var", "threads"), ("batch_var", "batch_size")):
+            value = settings.get(key)
+            getattr(self, variable_name).set("" if value is None else str(value))
+        self.reasoning_var.set(settings.get("reasoning", False))
+        self.stop_strings.configure(state=tk.NORMAL)
+        self.stop_strings.delete("1.0", tk.END)
+        self.stop_strings.insert("1.0", "\n".join(settings.get("stop_strings", [])))
+        placement = settings.get("placement", {})
+        self.gpu_layers_var.set(str(placement.get("gpu_layers", "")))
+        self.device_var.set(str(placement.get("device", "")))
+        self.tensor_split_var.set(str(placement.get("tensor_split", "")))
+
+    def open_preset_manager(self):
+        from aidream.preset_ui import PresetManagerDialog
+
+        try:
+            dialog = PresetManagerDialog(self.root, get_settings=self._current_preset_settings,
+                                         on_load=self._apply_preset_settings)
+            dialog.show()
+        except (OSError, ValueError, RuntimeError) as exc:
+            messagebox.showerror("Preset error", str(exc), parent=self.root)
+
     def refresh(self):
         snapshot = self.hardware.detect().to_dict()
         cpu = snapshot["cpu"]
@@ -200,9 +264,22 @@ class AIDreamWindow:
         self.models = self.catalog.list_models()
         self.model_list.delete(0, tk.END)
         for model in self.models:
-            name = model.metadata.get("general.name") or model.path.rsplit("/", 1)[-1]
-            self.model_list.insert(tk.END, f"{name} ({_gib(model.size)} GiB) — {model.path}")
+            info = model.display_info()
+            self.model_list.insert(tk.END, f"{info['name']} · {info['quantization']} · {info['size_human']}")
+        self.show_model_details()
         self._update_capabilities()
+
+    def show_model_details(self, _event=None):
+        selection = self.model_list.curselection()
+        if not selection or selection[0] >= len(self.models):
+            self.model_details.configure(text="Select a model to inspect its metadata.")
+            return
+        info = self.models[selection[0]].display_info()
+        context = info["context_length"] or "Unknown"
+        text = (f"{info['name']}\n{info['format']} · {info['quantization']} · {info['size_human']}\n"
+                f"Architecture: {info['architecture']} · Context: {context}\n"
+                f"License: {info['license']}\nSource: {info['source']}\n{info['path']}")
+        self.model_details.configure(text=text)
 
     def _update_capabilities(self):
         backend = self.backend_by_name.get(self.backend_var.get())
