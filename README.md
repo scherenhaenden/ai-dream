@@ -1,43 +1,46 @@
 # AI Dream
 
-AI Dream is a local-first application for discovering hardware and managing locally stored GGUF models. v0.1 targets Linux and provides a CLI plus a small Tk GUI over shared local services.
+AI Dream is a local-first Linux application for discovering hardware, managing GGUF models, downloading public Hugging Face GGUFs, and chatting with a local llama.cpp runtime. It includes local chat history, optional offline voice hooks and a safe read-only agent tool registry.
 
-## Run the v0.1 vertical slice
+## Run
 
-```sh
-python3 -m pip install -e .
-app hardware
-app models add ~/Models
-app models add /mnt/ssd/models
-app models scan
-app models list
-app backends
-app-gui
-```
-
-To chat with an existing indexed model or a direct GGUF path, install a compatible llama.cpp runtime and run:
+From the repository root:
 
 ```sh
-app run /path/to/model.gguf --backend auto
-app run /path/to/model.gguf --backend llama.cpp --device <runtime-device-name>
+./open-ai-dream
 ```
 
-The CLI also accepts `--gpu-layers N` and `--tensor-split 60,40` when the installed runtime advertises those controls. `app backends` reports available controls. A backend-specific device name is not a hardware discovery index; AI Dream does not guess that mapping.
+Or use the CLI:
 
-Configuration is stored under `~/.config/ai-dream/`. Model directories are indexed in place; files are not moved, renamed or modified.
+```sh
+python3 -m aidream hardware
+python3 -m aidream models add ~/Models
+python3 -m aidream models scan
+python3 -m aidream models list
+python3 -m aidream backends
+python3 -m aidream run /path/to/model.gguf
+```
 
-## Architecture
+The current dated Linux test build is generated under `build/linux/25.09.2026/`.
 
-- `aidream.hardware`: `HardwareService.detect() -> HardwareSnapshot`, including all detected devices and best-effort vendor, model, memory and backend information.
-- `aidream.models`: `ModelCatalog.add_source(path)`, `list_sources()`, `scan()` and `list_models()`. GGUF records include stable ID, path, size and best-effort metadata.
-- `aidream.runtime`: `InferenceBackend` exposes capabilities, model validation, load, generation and unload. It reports only controls available in the installed runtime.
-- `aidream.cli`: command parsing and presentation; delegates to domain services.
-- `aidream.ui`: `app-gui`, a minimal Tk interface for hardware, model directories, catalog, runtime selection and prompts.
+## Features in this preview
 
-## Milestones
+- Hardware and accelerator discovery; scan multiple existing GGUF folders without moving model files.
+- Public Hugging Face GGUF search and download with progress, validation and no-overwrite behavior.
+- Persistent llama.cpp server with chat completions, runtime capability detection and context/thread/batch/placement settings.
+- Explicit multi-GPU tensor splits automatically disable llama.cpp auto-fit by default. This avoids a reproduced server abort in the installed llama.cpp build. Set the `fit` load option explicitly when using the Python API to override it.
+- Local JSON conversation history and conversation switching in the UI.
+- Optional offline voice output via `espeak-ng`/`espeak`; recording and transcription via `arecord`, `whisper-cli`/`whisper-cpp`, and a local Whisper model.
+- `aidream.agent_tools.AgentToolRegistry` exposes only typed, read-only hardware, model and runtime queries. It does not execute arbitrary commands.
 
-v0.1: hardware + GGUF catalog + CLI/GUI + local inference. v0.2: Hugging Face search and download. v0.3: placement estimates and controls. v0.4: launch profiles. Do not add later milestone features to v0.1.
+Hugging Face access in this preview covers public repositories only. Voice programs are optional system dependencies; AI Dream does not send microphone audio to a cloud service.
 
-## Known v0.1 limits
+Chat transcripts reopen in the UI. Restoring old transcript turns into the model's active context after a process restart remains pending.
 
-Hardware discovery and GGUF metadata are best-effort. GPU names and controls vary by vendor tools and llama.cpp build. Device selection accepts a runtime-native name only when the runtime exposes it; hardware index mapping is not implemented. Real inference requires a compatible llama.cpp executable installed locally.
+## Storage
+
+Model sources are indexed in place and remain untouched. Chat JSON files live under `$XDG_DATA_HOME/ai-dream/chats`, normally `~/.local/share/ai-dream/chats`.
+
+## More
+
+See [ROADMAP.md](ROADMAP.md) for the implemented and pending functions.

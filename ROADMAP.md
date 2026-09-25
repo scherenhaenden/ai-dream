@@ -10,33 +10,37 @@ Status snapshot: 25 September 2026. This file is the working checklist for the l
 - [x] Expose model placement, context, CPU threads and batch settings in the runtime/UI.
 - [x] Launch the UI from the repository root with `./open-ai-dream`.
 - [x] Work around the reproduced llama.cpp auto-fit abort when an explicit tensor split is selected (`--fit off`).
-- [ ] Merge and ship the pending Vulkan/PCI physical-GPU deduplication fix.
-- [ ] Produce and manually exercise the dated Linux build artifact.
+- [x] Merge the Vulkan/PCI physical-GPU deduplication fix; identical physical cards remain distinct.
+- [x] Produce the dated Linux build artifact and exercise its CLI launcher.
+- [x] Add public Hugging Face GGUF search/download with progress, destination registration and no-overwrite behavior.
+- [x] Persist local chats and restore them in the UI; speak responses and record/transcribe through optional local tools.
+- [x] Add an allow-listed read-only agent tool registry for hardware, local model and runtime queries.
+- [x] Verify the real Gemma 4 E2B GGUF across Vulkan0 and Vulkan1 through the Python backend with `--fit off`.
 
 ## Active parallel work
 
 | Area | First usable slice | Next increments |
 |---|---|---|
 | Hugging Face model downloader | Search public repositories/files, choose a GGUF, show progress, save safely in a registered model directory, then rescan | Cancellation/resume, checksums, model metadata/license display, optional authenticated access |
-| Chat | Persistent local conversations and message history around the existing runtime | Streaming tokens, rename/delete/export conversations, attachments, per-chat model/options |
-| Agentic tools | Typed allow-listed read-only tools for hardware, models and runtime status | User-approved file actions, bounded plans, tool call/result UI, audit log, cancellation and budgets |
-| Voice | Detect optional local speech tools; local speech output and transcription where available | Push-to-talk UI, streaming STT/TTS, voice selection, interruption and device configuration |
+| Chat | Persistent local conversations and message history around the existing runtime | Restore saved turns into model context, streaming tokens, rename/delete/export conversations, attachments, per-chat model/options |
+| Agentic tools | Typed allow-listed read-only hardware/model/runtime APIs; unknown and mutating calls are rejected | Connect tools to the model chat loop, user-approved file actions, bounded plans, tool call/result UI, audit log, cancellation and budgets |
+| Voice | Detect optional local speech tools; local speech output and transcription where available | Async push-to-talk UI, streaming STT/TTS, voice selection, interruption and device configuration |
 | Other inputs/outputs | Preserve a modality-ready message/attachment contract | Image input, document ingestion, audio attachments, export and accessibility |
 
 ## Functional requirements to complete
 
 ### Model lifecycle
 
-- [ ] Show install/detect state for llama.cpp, offer an actionable install button, and re-check capabilities after install.
+- [x] Provide llama.cpp install/detect status and an explicit install action through the runtime manager.
 - [ ] Explain why a model/runtime/device combination is unavailable before starting a load.
-- [ ] Scan, filter, sort and refresh multiple model folders without moving user files.
-- [ ] Download Hugging Face GGUFs with progress, destination selection, disk-space checks, cancel support and safe filenames.
-- [ ] Handle existing files without overwriting, and verify downloaded file size before cataloguing.
+- [x] Scan multiple model folders without moving user files. Filtering/sorting remain pending.
+- [x] Download public Hugging Face GGUFs with progress, destination selection and safe filenames.
+- [x] Refuse existing destination filenames and publish downloads atomically. Cancellation/resume and proactive disk-space checks remain pending.
 - [ ] Surface model metadata (format, quantization, size, source and license when available).
 
 ### Chat and generation
 
-- [ ] Create, persist, resume, rename, delete and export conversations locally.
+- [x] Create, persist and resume the visible chat transcript locally. Rename, delete, export and restoring old turns into runtime context remain pending.
 - [ ] Add streaming generation, stop/cancel, retry and clear error states.
 - [ ] Support system prompt, temperature, response limit, stop strings, context policy and reusable presets.
 - [ ] Keep conversation history consistent between saved chats and the backend on reload/model change.
@@ -45,21 +49,21 @@ Status snapshot: 25 September 2026. This file is the working checklist for the l
 ### Agentic operation
 
 - [ ] Make tool availability and required permissions visible to the user.
-- [ ] Start with read-only tools; never expose arbitrary shell execution to model output.
+- [x] Provide read-only tools; arbitrary shell execution is not exposed.
 - [ ] Require an explicit user decision before a tool writes/deletes files, downloads a model or changes system state.
 - [ ] Bound tool calls by time, count and output size; provide cancel and inspectable tool results.
 - [ ] Record a local audit trail of tool requests, approvals, results and failures.
 
 ### Voice and accessibility
 
-- [ ] Detect local speech recognition and speech synthesis engines without contacting a cloud service.
-- [ ] Offer microphone selection, push-to-talk, recording feedback and transcription correction.
-- [ ] Speak assistant output locally, with stop/interruption controls and configurable voice/rate.
+- [x] Detect local speech recognition and speech synthesis engines without contacting a cloud service.
+- [x] Offer basic microphone recording and transcription when local dependencies are present. Device selection, push-to-talk and correction remain pending.
+- [x] Speak assistant output locally when a supported TTS engine is present. Stop/interruption and voice configuration remain pending.
 - [ ] Add keyboard navigation, readable status announcements and scalable layout.
 
 ## Release checks
 
-- [ ] Run unit and CLI checks, then load a real local GGUF and generate a response.
-- [ ] Exercise CPU-only and explicit Vulkan multi-GPU loading, including the `--fit off` workaround.
-- [ ] Check clean install/launch instructions and the one-click launcher in the dated build folder.
-- [ ] Record known limitations and exact tested runtime/device/model in the build README.
+- [x] Run unit and CLI checks, then load a real local GGUF and generate a response.
+- [x] Exercise explicit Vulkan multi-GPU loading, including the `--fit off` workaround. CPU-only real-model exercise remains pending.
+- [x] Check build-folder CLI launch and the one-click desktop launcher file.
+- [x] Record current limitations and the tested runtime/device/model in build metadata and this checklist.
