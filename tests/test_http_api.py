@@ -172,6 +172,14 @@ class HTTPAPITests(unittest.TestCase):
             "Origin": origin, "Content-Type": "application/json"},
             data=json.dumps(value).encode("utf-8"))
 
+    def patch_json(self, path, value, *, origin="http://127.0.0.1:5173"):
+        return self.request(path, method="PATCH", headers={
+            "Origin": origin, "Content-Type": "application/json"},
+            data=json.dumps(value).encode("utf-8"))
+
+    def delete_chat_request(self, path, *, origin="http://127.0.0.1:5173"):
+        return self.request(path, method="DELETE", headers={"Origin": origin})
+
     def test_binds_ipv4_loopback_and_exposes_fixed_json_endpoints(self):
         self.assertEqual(self.server.server_address[0], "127.0.0.1")
         expected = {
@@ -245,7 +253,7 @@ class HTTPAPITests(unittest.TestCase):
         with self.request("/api/chat", method="OPTIONS",
                           headers={"Origin": "http://127.0.0.1:5173"}) as response:
             self.assertEqual(response.status, 204)
-            self.assertEqual(response.headers.get("Access-Control-Allow-Methods"), "POST, OPTIONS")
+            self.assertEqual(response.headers.get("Access-Control-Allow-Methods"), "POST, PATCH, DELETE, OPTIONS")
         with self.assertRaises(HTTPError) as caught:
             self.request("/api/models", method="OPTIONS",
                          headers={"Origin": "http://127.0.0.1:5173"})
@@ -345,6 +353,100 @@ class HTTPAPITests(unittest.TestCase):
             self.assertEqual(backend.history[0]["attachments"][0]["path"], "/private/photos/secret.png")
             self.assertEqual(backend.loaded, 1)
             self.assertEqual(backend.unloaded, 0)
+
+    def test_chat_rename_delete_and_attachment_files_are_preserved(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            store = ChatStore(root / "chats")
+            backend = self.set_chat_services(store)
+            chat_id = store.create("Original title")["id"]
+            attachment_file = root / "keep-this-image.png"
+            attachment_file.write_bytes(b"image bytes")
+            import hashlib
+            attachment = {"kind": "image", "path": str(attachment_file), "name": attachment_file.name,
+                          "size_bytes": attachment_file.stat().st_size,
+                          "mtime_ns": attachment_file.stat().st_mtime_ns,
+                          "sha256": hashlib.sha256(attachment_file.read_bytes()).hexdigest()}
+            store.append(chat_id, "user", "See attached", [attachment])
+
+            with self.patch_json(f"/api/chats/{chat_id}", {"title": "Renamed chat"}) as response:
+                self.assertEqual(response.status, 200)
+                renamed = json.loads(response.read())["data"]["chat"]
+            self.assertEqual(renamed["title"], "Renamed chat")
+            self.assertEqual(store.load(chat_id)["messages"][0]["attachments"][0]["path"], str(attachment_file))
+
+            with self.delete_chat_request(f"/api/chats/{chat_id}") as response:
+                self.assertEqual(response.status, 200)
+                self.assertTrue(json.loads(response.read())["data"]["deleted"])
+            self.assertFalse(store._path(chat_id).exists())
+            self.assertEqual(attachment_file.read_bytes(), b"image bytes")
+            self.assertIsNone(self.server.services._active_binding)
+
+    def test_chat_rename_delete_validate_ids_and_titles(self):
+        with TemporaryDirectory() as temp:
+            store = ChatStore(Path(temp) / "chats")
+            self.set_chat_services(store)
+            chat_id = store.create()["id"]
+            with self.request(f"/api/chats/{chat_id}", method="OPTIONS",
+                              headers={"Origin": "http://127.0.0.1:5173"}) as response:
+                self.assertEqual(response.status, 204)
+                self.assertIn("PATCH", response.headers.get("Access-Control-Allow-Methods", ""))
+                self.assertIn("DELETE", response.headers.get("Access-Control-Allow-Methods", ""))
+            with self.assertRaises(HTTPError) as caught:
+                self.patch_json(f"/api/chats/{chat_id}", {"title": "No origin"}, origin="http://evil.example")
+            self.assertEqual(caught.exception.code, 403)
+            caught.exception.close()
+            with self.assertRaises(HTTPError) as caught:
+                self.request(f"/api/chats/{chat_id}", method="DELETE", headers={"Host": "evil.example", "Origin": "http://127.0.0.1:5173"})
+            self.assertEqual(caught.exception.code, 400)
+            caught.exception.close()
+            with self.assertRaises(HTTPError) as caught:
+                self.request(f"/api/chats/{chat_id}", method="DELETE")
+            self.assertEqual(caught.exception.code, 403)
+            caught.exception.close()
+            for title in ("", " " * 3, "x" * 121, None):
+                with self.subTest(title=title):
+                    with self.assertRaises(HTTPError) as caught:
+                        self.patch_json(f"/api/chats/{chat_id}", {"title": title})
+                    self.assertEqual(caught.exception.code, 400)
+                    caught.exception.close()
+            with self.assertRaises(HTTPError) as caught:
+                self.patch_json("/api/chats/not-a-chat-id", {"title": "Valid"})
+            self.assertIn(caught.exception.code, (400, 404, 405))
+            caught.exception.close()
+            with self.assertRaises(HTTPError) as caught:
+                self.delete_chat_request("/api/chats/00000000000000000000000000000000")
+            self.assertEqual(caught.exception.code, 404)
+            caught.exception.close()
+            with self.assertRaises(HTTPError) as caught:
+                self.patch_json(f"/api/chats/{chat_id}", {"title": "Not allowed", "messages": []})
+            self.assertEqual(caught.exception.code, 400)
+            caught.exception.close()
+
+    def test_chat_mutations_are_rejected_during_active_turn_then_delete_unloads_binding(self):
+        with TemporaryDirectory() as temp:
+            store = ChatStore(Path(temp) / "chats")
+            backend = self.set_chat_services(store)
+            chat_id = store.create()["id"]
+            run = self.server.services.prepare_chat(chat_id, "safe-model", "holding lock")
+            for method, path, data in (
+                ("PATCH", f"/api/chats/{chat_id}", json.dumps({"title": "blocked"}).encode()),
+                ("DELETE", f"/api/chats/{chat_id}", None),
+            ):
+                with self.subTest(method=method):
+                    headers = {"Origin": "http://127.0.0.1:5173"}
+                    if data is not None:
+                        headers["Content-Type"] = "application/json"
+                    with self.assertRaises(HTTPError) as caught:
+                        self.request(path, method=method, headers=headers, data=data)
+                    self.assertEqual(caught.exception.code, 409)
+                    caught.exception.close()
+            self.assertTrue(store._path(chat_id).exists())
+            run.close()
+            with self.delete_chat_request(f"/api/chats/{chat_id}") as response:
+                self.assertEqual(response.status, 200)
+            self.assertEqual(backend.unloaded, 1)
+            self.assertIsNone(self.server.services._active_binding)
 
     def test_chat_model_id_is_catalog_only_and_browser_write_origin_is_required(self):
         with TemporaryDirectory() as temp:

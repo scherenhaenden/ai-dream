@@ -20,6 +20,10 @@ type ChatEvent = { text?: string; chat_id?: string; assistant?: string | { role?
             @for (chat of chats(); track chat.id) { <option [value]="chat.id">{{ chat.title || 'New chat' }}</option> }
           </select>
           <button class="chat-new-button" (click)="createChat()" [disabled]="busy() || !api.connected()" title="Start a new conversation">＋ <span>New chat</span></button>
+          @if (selectedChatId()) {
+            <button class="chat-action-button" (click)="renameChat()" [disabled]="busy() || !api.connected()" title="Rename this conversation">Rename</button>
+            <button class="chat-action-button chat-delete-button" (click)="deleteChat()" [disabled]="busy() || !api.connected()" title="Delete this conversation">Delete</button>
+          }
           <button class="chat-action-button" (click)="exportTranscript()" [disabled]="messages().length === 0 || streaming()" title="Download this conversation as Markdown">Export</button>
         </div>
       </header>
@@ -81,6 +85,7 @@ export class ChatPage implements OnInit {
   readonly chatsLoading = signal(false);
   readonly transcriptLoading = signal(false);
   readonly creatingChat = signal(false);
+  readonly mutatingChat = signal(false);
   readonly modelsLoading = signal(false);
   readonly turnError = signal('');
   readonly apiError = signal('');
@@ -174,8 +179,52 @@ export class ChatPage implements OnInit {
     });
   }
 
-  busy(): boolean { return this.streaming() || this.sending() || this.creatingChat(); }
-  canCompose(): boolean { return this.api.connected() && !!this.selectedChatId() && !this.streaming() && !this.sending() && !this.creatingChat(); }
+  renameChat(): void {
+    const id = this.selectedChatId();
+    const current = this.chats().find(chat => chat.id === id);
+    if (!id || this.busy()) return;
+    const answer = window.prompt('Enter a name for this conversation:', current?.title || 'New chat');
+    if (answer === null) return;
+    const title = answer.trim();
+    if (!title || title.length > 120) {
+      this.apiError.set('Conversation names must contain 1 to 120 characters.');
+      return;
+    }
+    this.mutatingChat.set(true);
+    this.apiError.set('');
+    this.api.patch<unknown>(`/api/chats/${encodeURIComponent(id)}`, { title }).subscribe({
+      next: (response) => {
+        this.mutatingChat.set(false);
+        const data = unwrap(response) as any;
+        const chat = data?.chat || data;
+        if (typeof chat?.title !== 'string') { this.apiError.set('The conversation was renamed but the server returned no title.'); return; }
+        this.chats.update(chats => chats.map(item => item.id === id ? { ...item, title: chat.title } : item));
+      },
+      error: (error) => { this.mutatingChat.set(false); this.apiError.set(error?.error?.error || error?.message || 'Could not rename this conversation.'); }
+    });
+  }
+
+  deleteChat(): void {
+    const id = this.selectedChatId();
+    const current = this.chats().find(chat => chat.id === id);
+    if (!id || this.busy()) return;
+    if (!window.confirm(`Delete “${current?.title || 'New chat'}”? The saved conversation will be removed. Local files referenced as attachments will not be deleted.`)) return;
+    const remaining = this.chats().filter(chat => chat.id !== id);
+    this.mutatingChat.set(true);
+    this.apiError.set('');
+    this.api.delete<unknown>(`/api/chats/${encodeURIComponent(id)}`).subscribe({
+      next: () => {
+        this.mutatingChat.set(false);
+        this.messages.set([]);
+        this.selectedChatId.set('');
+        this.loadChats(remaining[0]?.id);
+      },
+      error: (error) => { this.mutatingChat.set(false); this.apiError.set(error?.error?.error || error?.message || 'Could not delete this conversation.'); }
+    });
+  }
+
+  busy(): boolean { return this.streaming() || this.sending() || this.creatingChat() || this.mutatingChat(); }
+  canCompose(): boolean { return this.api.connected() && !!this.selectedChatId() && !this.busy(); }
   canSend(): boolean { return this.canCompose() && !!this.selectedModelId() && !!this.prompt().trim() && !this.modelsLoading(); }
 
   onComposerKey(event: KeyboardEvent): void {

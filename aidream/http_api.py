@@ -107,6 +107,10 @@ class APINotFound(APIError):
     status = 404
 
 
+class APIConflict(APIError):
+    status = 409
+
+
 class APILimit(APIError):
     status = 413
 
@@ -271,6 +275,49 @@ class ReadOnlyAPI:
 
     def get_chat(self, chat_id: str):
         return {"data": {"chat": self.public_transcript(self._safe_load_chat(chat_id))}}
+
+    def rename_chat(self, chat_id: str, title: str):
+        if not isinstance(chat_id, str) or not CHAT_ID_RE.fullmatch(chat_id):
+            raise APIError("Invalid chat id")
+        if not isinstance(title, str) or not title.strip() or len(title) > 120:
+            raise APIError("title must contain 1 to 120 characters")
+        if not self._chat_lock.acquire(blocking=False):
+            raise APIConflict("A model turn is active; try again after it finishes")
+        try:
+            self._safe_load_chat(chat_id)
+            try:
+                session = self.chat_store.rename(chat_id, title)
+            except FileNotFoundError as exc:
+                raise APINotFound("Chat not found") from exc
+            except ValueError as exc:
+                raise APIError(str(exc)) from exc
+            return {"data": {"chat": self._public_summary(session)}}
+        finally:
+            self._chat_lock.release()
+
+    def delete_chat(self, chat_id: str):
+        if not isinstance(chat_id, str) or not CHAT_ID_RE.fullmatch(chat_id):
+            raise APIError("Invalid chat id")
+        if not self._chat_lock.acquire(blocking=False):
+            raise APIConflict("A model turn is active; try again after it finishes")
+        try:
+            self._safe_load_chat(chat_id)
+            try:
+                self.chat_store.delete(chat_id)
+            except FileNotFoundError as exc:
+                raise APINotFound("Chat not found") from exc
+            # The retained runtime binding is tied to this conversation's history.
+            if self._active_binding and self._active_binding[2] == chat_id:
+                try:
+                    self._unload_active()
+                except Exception:
+                    # Deletion has succeeded; keep the API state clear even if a
+                    # runtime process reports an unload error during cleanup.
+                    self._active_backend = None
+                    self._active_binding = None
+            return {"data": {"deleted": True, "id": chat_id}}
+        finally:
+            self._chat_lock.release()
 
     def prepare_chat(self, chat_id: str, model_id: str, prompt: str) -> ChatRun:
         if self._closed:
@@ -913,7 +960,26 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
             self._reject_write()
 
         def do_PATCH(self):
-            self._reject_write()
+            if not self._valid_host():
+                self._send_json(400, {"error": "Invalid Host header"})
+                return
+            if not self._write_origin_ok():
+                self._send_json(403, {"error": "A permitted Origin is required"})
+                return
+            match = re.fullmatch(r"/api/chats/([^/?#]+)", self.path)
+            if not match:
+                self._reject_write()
+                return
+            try:
+                body = self._read_json_body()
+                if set(body) != {"title"}:
+                    raise APIError("Only the title field is accepted")
+                result = self.server.services.rename_chat(match.group(1), body["title"])
+                self._send_json(200, result)
+            except (APIError, ValueError) as exc:
+                self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
+            except OSError:
+                self._send_json(503, {"error": "Could not update the local chat"})
 
         def do_DELETE(self):
             if not self._valid_host():
@@ -923,14 +989,24 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
                 self._send_json(403, {"error": "A permitted Origin is required"})
                 return
             match = re.fullmatch(r"/api/downloads/([a-f0-9]{32})/cancel", self.path)
-            if not match:
-                self._reject_write()
+            if match:
+                try:
+                    item = self.server.services.cancel_download(match.group(1))
+                    self._send_json(200, {"data": item})
+                except APIError as exc:
+                    self._send_json(exc.status, {"error": str(exc)})
                 return
-            try:
-                item = self.server.services.cancel_download(match.group(1))
-                self._send_json(200, {"data": item})
-            except APIError as exc:
-                self._send_json(exc.status, {"error": str(exc)})
+            match = re.fullmatch(r"/api/chats/([^/?#]+)", self.path)
+            if match:
+                try:
+                    result = self.server.services.delete_chat(match.group(1))
+                    self._send_json(200, result)
+                except (APIError, ValueError) as exc:
+                    self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
+                except OSError:
+                    self._send_json(503, {"error": "Could not delete the local chat"})
+                return
+            self._reject_write()
 
         def do_TRACE(self):
             self._reject_write()
@@ -1190,14 +1266,14 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
             if not self._write_origin_ok():
                 self._send_json(403, {"error": "A permitted Origin is required"})
                 return
-            if self.path not in {"/api/chat", "/api/agent", "/api/chats", "/api/downloads"} and not re.fullmatch(r"/api/downloads/[a-f0-9]{32}/cancel", self.path):
+            if self.path not in {"/api/chat", "/api/agent", "/api/chats", "/api/downloads"} and not re.fullmatch(r"/api/downloads/[a-f0-9]{32}/cancel", self.path) and not re.fullmatch(r"/api/chats/[a-f0-9]{32}", self.path):
                 self._send_json(404, {"error": "Not found"})
                 return
             self.send_response(204)
-            self.send_header("Allow", "POST, OPTIONS")
+            self.send_header("Allow", "POST, PATCH, DELETE, OPTIONS")
             self.send_header("Content-Length", "0")
             self.send_header("Cache-Control", "no-store")
-            self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Methods", "POST, PATCH, DELETE, OPTIONS")
             self.send_header("Access-Control-Allow-Headers", "Content-Type")
             self._write_cors_headers()
             self.end_headers()
