@@ -18,7 +18,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
         with open(sys.argv[sys.argv.index('-m') + 1] + '.requests', 'a') as f:
-            f.write(json.dumps(body) + '\\n')
+            f.write(json.dumps(body) + '\n')
         answer = 'turn-' + str(len(body['messages']))
         data = json.dumps({'choices':[{'message':{'content':answer}}]}).encode()
         self.send_response(200); self.send_header('Content-Type','application/json')
@@ -40,9 +40,9 @@ class PersistentServerTest(unittest.TestCase):
             self.assertTrue(backend.capabilities().available)
             backend.load(model, {'gpu_layers': 2, 'device': 'GPU0', 'tensor_split': '1,1'},
                          {'context_size': 4096, 'threads': 4, 'batch_size': 128})
-            pid = backend._process.pid
+            process = backend._process
             self.assertEqual(backend.generate('hello', {'temperature': 0.2, 'max_tokens': 77,
-                                                        'system_prompt': 'Be concise', 'stop': ['END']}), 'turn-1')
+                                                        'system_prompt': 'Be concise', 'stop': ['END']}), 'turn-2')
             self.assertEqual(backend.generate('follow up'), 'turn-3')
             self.assertEqual([m['role'] for m in backend._messages], ['user', 'assistant', 'user', 'assistant'])
             requests = [json.loads(line) for line in (Path(str(model) + '.requests')).read_text().splitlines()]
@@ -53,6 +53,7 @@ class PersistentServerTest(unittest.TestCase):
             self.assertEqual([m['role'] for m in requests[1]['messages']],
                              ['user', 'assistant', 'user'])
             backend.unload()
+            self.assertIsNotNone(process.poll())
 
     def test_rejects_unsupported_and_invalid_options(self):
         with tempfile.TemporaryDirectory() as td:
@@ -75,9 +76,6 @@ class PersistentServerTest(unittest.TestCase):
             self.assertIsNone(backend._process)
             with self.assertRaises(RuntimeError):
                 backend.generate('after unload')
-            with self.assertRaises(ProcessLookupError):
-                import os
-                os.kill(pid, 0)
             backend.unload()
 
 if __name__ == '__main__':
