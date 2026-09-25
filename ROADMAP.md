@@ -2,6 +2,15 @@
 
 Status snapshot: 25 September 2026. This file is the working checklist for the local-first desktop application.
 
+## Milestone map
+
+- **v0.1 — usable local runtime:** complete. Hardware discovery, multiple GGUF sources, CLI/GUI, explicit runtime/device controls and local generation are present. The tested machine completed real multi-GPU Gemma inference.
+- **v0.2 — model hubs:** public Hugging Face search, repository inspection and GGUF download are complete, including progress, cancellation, resume and automatic catalog registration. Checksums and private-repository authentication remain later work.
+- **v0.3 — device placement:** explicit GPU layers, runtime device name and tensor split are present when supported, with validation and honest capability reporting. VRAM estimates and an automatic placement proposal remain pending.
+- **v0.4 — saved configurations:** reusable validated presets and per-chat model/runtime/generation settings are present. Binding a named launch profile directly to a model as a first-class object remains a follow-up.
+
+This snapshot is the next executable preview after those milestones; features beyond the map are tracked below rather than folded into the v0.1 baseline.
+
 ## Current baseline
 
 - [x] Detect CPU, RAM, accelerators, local model directories, GGUF files and llama.cpp availability.
@@ -23,7 +32,7 @@ Status snapshot: 25 September 2026. This file is the working checklist for the l
 | Area | First usable slice | Next increments |
 |---|---|---|
 | Hugging Face model downloader | Search public repositories/files, inspect license/tags/task/size, choose a GGUF, show progress, cancel safely, check known file size, resume with validated Range/ETag, save without overwrite and rescan | Checksums and optional authenticated access |
-| Chat | Persistent local history, restore text turns, rename/delete/export, streaming, stop/cancel, validated presets and per-chat model/backend/placement/generation settings, images for vision-capable models, bounded local document attachments | Retry/regenerate, persist and restore attachment references, audio attachments |
+| Chat | Persistent local history, restore text turns and unchanged local attachment references, rename/delete/export, streaming, stop/cancel, validated presets and per-chat model/backend/placement/generation settings, images for vision-capable models, bounded local document attachments | Retry/regenerate, audio attachments |
 | Agentic tools | Bounded read-only hardware/model/runtime calls, cancellation, redacted results and a bounded audit that omits argument values | Richer plans; any file actions require explicit user approval |
 | Voice | Detect optional local speech tools; configurable-duration recording, local audio-file transcription, selectable installed Whisper model and stoppable local TTS | Push-to-talk UI, streaming STT/TTS and speech voice selection |
 | Other inputs/outputs | Local PNG/JPEG/WebP images and bounded local TXT/Markdown/text-PDF extraction | Audio attachments, export options and accessibility |
@@ -48,8 +57,8 @@ Status snapshot: 25 September 2026. This file is the working checklist for the l
 - [x] Support system prompt, temperature, response limit, stop strings, reasoning/context/load options and validated reusable presets.
 - [x] Persist backend, model identity/path, placement, load options and generation settings separately for every chat while retaining compatibility with old chat files.
 - [x] Keep conversation history consistent between saved chats and the backend on reload/model change.
-- [x] Attach bounded local PNG/JPEG/WebP images to normal chat requests. Requires a vision-capable llama.cpp model; agent mode rejects image attachments. Image bytes are not restored from chat history after restart.
-- [x] Extract bounded local TXT/Markdown and text-PDF references, with untrusted text delimiters and clear scanned-PDF/optional-dependency errors. Extracted contents are not persisted in chat history after restart.
+- [x] Attach bounded local PNG/JPEG/WebP images to normal chat requests. Requires a vision-capable llama.cpp model; agent mode rejects image attachments. Chat history stores bounded local file references and restores unchanged, revalidated images after restart without copying image bytes into the transcript.
+- [x] Extract bounded local TXT/Markdown and text-PDF references, with untrusted text delimiters and clear scanned-PDF/optional-dependency errors. Chat history stores local file references and re-reads unchanged documents after restart; extracted text is not copied into the transcript.
 
 ### Agentic operation
 

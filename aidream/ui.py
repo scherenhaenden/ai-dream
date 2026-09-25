@@ -1054,6 +1054,13 @@ class AIDreamWindow:
             return
         if image_attachments:
             generation_options["images"] = image_attachments
+        try:
+            from aidream.conversation import make_attachment_reference
+            attachment_refs = ([make_attachment_reference("image", item.path) for item in image_attachments]
+                               + [make_attachment_reference("document", item.path) for item in document_attachments])
+        except (OSError, ValueError, RuntimeError) as exc:
+            messagebox.showerror("Attachment could not be saved", str(exc), parent=self.root)
+            return
         session_id = self.chat_session["id"]
         prior = [message.copy() for message in self.chat_session.get("messages", [])
                  if message.get("role") in ("user", "assistant")]
@@ -1073,6 +1080,7 @@ class AIDreamWindow:
             saved_prompt = (prompt + "\n" if prompt else "") + f"[Attached {'; '.join(labels)}]"
         self._pending_generation = {"session_id": session_id, "prompt": prompt,
                                     "saved_prompt": saved_prompt,
+                                    "attachment_refs": attachment_refs,
                                     "image_paths": list(self._pending_images),
                                     "document_paths": list(self._pending_documents),
                                     "parts": [], "agent_note": None, "backend": backend}
@@ -1219,7 +1227,9 @@ class AIDreamWindow:
                 else:
                     cancelled = kind == "cancelled"
                     if kind == "complete" and self.chat_session.get("id") == pending["session_id"]:
-                        self.chat_session = self.chat_store.append(pending["session_id"], "user", pending["saved_prompt"])
+                        self.chat_session = self.chat_store.append(
+                            pending["session_id"], "user", pending["saved_prompt"],
+                            attachments=pending.get("attachment_refs", []))
                         if pending["agent_note"]:
                             self.chat_session = self.chat_store.append(pending["session_id"], "system", pending["agent_note"])
                         self.chat_session = self.chat_store.append(pending["session_id"], "assistant", value)
