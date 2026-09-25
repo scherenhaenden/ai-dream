@@ -13,7 +13,7 @@ Open <http://127.0.0.1:5173>. For a production bundle, run `npm run build`.
 
 ## Local API
 
-The browser checks `GET http://127.0.0.1:8765/api/health`. Change the base URL in Settings. Hardware, Models, and Runtime request `GET /api/hardware`, `/api/models`, and `/api/runtime`. GET responses may be raw JSON or `{ "data": ... }`; both are accepted and shown as returned data. Hub, Downloads, and Chat are not wired to backend actions yet. Chat remains disabled until its streaming endpoint is available. Screens do not invent model, device, download, or runtime data.
+The browser checks `GET http://127.0.0.1:8765/api/health`. Change the base URL in Settings (only `http://127.0.0.1:<port>` and `http://localhost:<port>` are accepted; port must be 1–65535). Hardware, Models, and Runtime request `GET /api/hardware`, `/api/models`, and `/api/runtime`. Chat loads sessions from `GET /api/chats`, creates them with `POST /api/chats`, and reads `GET /api/chats/:id`. It sends `{chat_id, model_id, prompt}` to `POST /api/chat` and parses SSE `delta`, `complete`, and `error` events; Stop aborts the stream. Interrupted turns are discarded by the backend and the prompt is restored in the composer. GET responses may be raw JSON or `{ "data": ... }`; both are accepted. Hub and Downloads are not wired to backend actions yet. Screens do not invent model, device, download, or runtime data.
 
 ## Performance and dependencies
 
