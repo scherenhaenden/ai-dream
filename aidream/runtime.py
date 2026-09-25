@@ -24,14 +24,18 @@ class BackendCapabilities:
     device_selection: bool = False
     tensor_split: bool = False
     details: str = ""
+    context_size: bool = False
+    threads: bool = False
+    batch_size: bool = False
+    chat_completions: bool = False
 
 
 class InferenceBackend(Protocol):
     name: str
     def capabilities(self) -> BackendCapabilities: ...
     def can_load(self, model: Any) -> bool: ...
-    def load(self, model: Any, placement: Any = None) -> None: ...
-    def generate(self, prompt: str) -> str: ...
+    def load(self, model: Any, placement: Any = None, options: Mapping[str, Any] | None = None) -> None: ...
+    def generate(self, prompt: str, options: Mapping[str, Any] | None = None) -> str: ...
     def unload(self) -> None: ...
 
 
@@ -69,8 +73,15 @@ class LlamaCppBackend:
         gpu = "-ngl" in self._help or "--n-gpu-layers" in self._help
         device = "--device" in self._help
         split = "--tensor-split" in self._help or "--tensor_split" in self._help
-        return BackendCapabilities(True, self.executable, gpu, device, split,
-            "A persistent server process holds the model until unload. Placement reflects flags advertised by this executable.")
+        return BackendCapabilities(
+            True, self.executable, gpu, device, split,
+            "A persistent server process holds the model until unload. Runtime controls reflect flags advertised by this executable.",
+            "-c" in self._help or "--ctx-size" in self._help,
+            "-t" in self._help or "--threads" in self._help,
+            "-b" in self._help or "--batch-size" in self._help,
+            ("/v1/chat/completions" in self._help or "chat completions" in self._help.lower()
+             or Path(self.executable).name in self.candidates),
+        )
 
     @staticmethod
     def _path(model: Any) -> Path | None:
@@ -113,15 +124,38 @@ class LlamaCppBackend:
             sock.bind(("127.0.0.1", 0))
             return sock.getsockname()[1]
 
-    def load(self, model: Any, placement: Any = None) -> None:
+    def _load_options(self, options: Mapping[str, Any] | None) -> list[str]:
+        if options is None:
+            return []
+        if not isinstance(options, Mapping):
+            raise ValueError("load options must be a mapping")
+        caps, result = self.capabilities(), []
+        specs = (("context_size", caps.context_size, ("-c", "--ctx-size")),
+                 ("threads", caps.threads, ("-t", "--threads")),
+                 ("batch_size", caps.batch_size, ("-b", "--batch-size")))
+        for key, supported, flags in specs:
+            if key not in options:
+                continue
+            if not supported:
+                raise ValueError(f"This llama.cpp server does not advertise {key}")
+            value = _positive_int(options[key], key)
+            flag = next((f for f in flags if f in self._help), flags[0])
+            result.extend((flag, str(value)))
+        unknown = set(options) - {key for key, _, _ in specs}
+        if unknown:
+            raise ValueError(f"Unsupported load option(s): {', '.join(sorted(unknown))}")
+        return result
+
+    def load(self, model: Any, placement: Any = None, options: Mapping[str, Any] | None = None) -> None:
         path = self._path(model)
         if not self.can_load(model):
             raise ValueError("llama.cpp server can load only an existing GGUF model when available")
         self.unload()
-        options = self._placement_options(placement)
+        runtime_options = self._load_options(options)
+        placement_options = self._placement_options(placement)
         port = self.port or self._free_port()
         self._log = tempfile.TemporaryFile(mode="w+t", encoding="utf-8")
-        command = [self.executable, "-m", str(path.resolve()), "--host", "127.0.0.1", "--port", str(port), *options]
+        command = [self.executable, "-m", str(path.resolve()), "--host", "127.0.0.1", "--port", str(port), *placement_options, *runtime_options]
         try:
             self._process = subprocess.Popen(command, stdout=self._log, stderr=subprocess.STDOUT, text=True)
         except OSError:
@@ -138,7 +172,7 @@ class LlamaCppBackend:
                 with urlopen(self._base_url + "/health", timeout=0.5) as response:
                     if 200 <= response.status < 300:
                         self._loaded_model = path.resolve()
-                        self._placement = options
+                        self._placement = placement_options + runtime_options
                         self._messages = []
                         return
             except (OSError, URLError):
@@ -146,12 +180,45 @@ class LlamaCppBackend:
         self.unload()
         raise RuntimeError("Timed out waiting for llama-server readiness")
 
-    def generate(self, prompt: str) -> str:
+    def generate(self, prompt: str, options: Mapping[str, Any] | None = None) -> str:
         if not self._process or self._process.poll() is not None or self._loaded_model is None or not self._base_url:
             raise RuntimeError("No model is loaded")
+        opts = {} if options is None else options
+        if not isinstance(opts, Mapping):
+            raise ValueError("generation options must be a mapping")
+        unknown = set(opts) - {"temperature", "max_tokens", "system_prompt", "stop"}
+        if unknown:
+            raise ValueError(f"Unsupported generation option(s): {', '.join(sorted(unknown))}")
+        if not self.capabilities().chat_completions:
+            raise ValueError("This llama.cpp server does not advertise the chat completions endpoint")
+        temperature = opts.get("temperature", 0.7)
+        if isinstance(temperature, bool) or not isinstance(temperature, (int, float)) or temperature < 0:
+            raise ValueError("temperature must be a non-negative number")
+        payload_messages = list(self._messages)
+        system_prompt = opts.get("system_prompt")
+        if system_prompt is not None:
+            if not isinstance(system_prompt, str):
+                raise ValueError("system_prompt must be a string")
+            if system_prompt:
+                if payload_messages and payload_messages[0]["role"] == "system":
+                    payload_messages[0] = {"role": "system", "content": system_prompt}
+                else:
+                    payload_messages.insert(0, {"role": "system", "content": system_prompt})
+        if not isinstance(prompt, str):
+            raise ValueError("prompt must be a string")
+        payload_messages.append({"role": "user", "content": prompt})
+        payload = {"messages": payload_messages, "temperature": temperature}
+        if "max_tokens" in opts:
+            payload["max_tokens"] = _positive_int(opts["max_tokens"], "max_tokens")
+        if "stop" in opts:
+            stop = opts["stop"]
+            if isinstance(stop, str):
+                stop = [stop]
+            if not isinstance(stop, (list, tuple)) or not all(isinstance(x, str) for x in stop):
+                raise ValueError("stop must be a string or a list of strings")
+            payload["stop"] = list(stop)
         self._messages.append({"role": "user", "content": prompt})
-        payload = json.dumps({"messages": self._messages, "temperature": 0.7}).encode()
-        request = Request(self._base_url + "/v1/chat/completions", data=payload,
+        request = Request(self._base_url + "/v1/chat/completions", data=json.dumps(payload).encode(),
                           headers={"Content-Type": "application/json"}, method="POST")
         try:
             with urlopen(request, timeout=self.timeout) as response:
@@ -199,3 +266,15 @@ class RuntimeRegistry:
         self._backends = backends if backends is not None else [LlamaCppBackend()]
     def list_backends(self) -> list[InferenceBackend]:
         return list(self._backends)
+
+
+def _positive_int(value: Any, name: str) -> int:
+    if isinstance(value, bool):
+        raise ValueError(f"{name} must be a positive integer")
+    try:
+        result = int(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"{name} must be a positive integer") from exc
+    if result <= 0 or result != value:
+        raise ValueError(f"{name} must be a positive integer")
+    return result
