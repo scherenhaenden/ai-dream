@@ -31,8 +31,9 @@ This snapshot is the next executable preview after those milestones; features be
 
 | Area | First usable slice | Next increments |
 |---|---|---|
+| Angular web interface | User-provided dark local-AI-studio design is the reference; Angular standalone shell is in progress with lazy screens and real loopback API data | Connect chat streaming and Hugging Face downloads; complete model/runtime controls, then move the launcher to the local web shell |
 | Hugging Face model downloader | Search public repositories/files, inspect license/tags/task/size, choose a GGUF, show progress, cancel safely, check known file size, resume with validated Range/ETag, save without overwrite and rescan | Checksums and optional authenticated access |
-| Chat | Persistent local history, restore text turns and unchanged local attachment references, rename/delete/export, streaming, stop/cancel, validated presets and per-chat model/backend/placement/generation settings, images for vision-capable models, bounded local document attachments | Retry/regenerate, audio attachments |
+| Chat | Persistent local history, restore text turns and unchanged local attachment references, rename/delete/export, streaming, stop/cancel, validated presets and per-chat model/backend/placement/generation settings, images for vision-capable models, bounded local document attachments | Retry/regenerate, audio attachments, Angular streaming client |
 | Agentic tools | Bounded read-only hardware/model/runtime calls, cancellation, redacted results and a bounded audit that omits argument values | Richer plans; any file actions require explicit user approval |
 | Voice | Detect optional local speech tools; configurable-duration recording, local audio-file transcription, selectable installed Whisper model and stoppable local TTS | Push-to-talk UI, streaming STT/TTS and speech voice selection |
 | Other inputs/outputs | Local PNG/JPEG/WebP images and bounded local TXT/Markdown/text-PDF extraction | Audio attachments, export options and accessibility |
@@ -85,3 +86,9 @@ This snapshot is the next executable preview after those milestones; features be
 - [x] Exercise explicit Vulkan multi-GPU loading, including the `--fit off` workaround. CPU-only real-model exercise remains pending.
 - [x] Check build-folder CLI launch and the one-click desktop launcher file.
 - [x] Record current limitations and the tested runtime/device/model in build metadata and this checklist.
+
+## Angular interface direction
+
+The supplied `local-ai-studio.zip` is a React demonstration. Use it as a visual reference for a dense dark console layout, persistent navigation/status, and a command palette; implement the product UI in Angular as requested. Treat any fake telemetry, preselected models, and aspirational ModelScope/RAG/API screens in the reference as non-functional mockups. The Angular frontend must render live local data or an explicit unavailable/empty state.
+
+The UI will be served by the local Python process in production so the browser and API share one origin. Local development may use a narrowly allowlisted loopback dev origin. Keep the application loopback-only, lazy-load screen routes, avoid a heavyweight state/chart stack, and use streaming updates for chat and download progress rather than periodic fake telemetry. The current Linux desktop build remains available while the web interface is integrated.
