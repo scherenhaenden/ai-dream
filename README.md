@@ -26,7 +26,7 @@ The current dated Linux test build is generated under `build/linux/25.09.2026/`.
 ## Features in this preview
 
 - Hardware and accelerator discovery; scan multiple existing GGUF folders without moving model files.
-- Public Hugging Face GGUF search and download with progress, validation and no-overwrite behavior.
+- Public Hugging Face GGUF search and download with progress, cancellation, free-space checks, validation and no-overwrite behavior.
 - Persistent llama.cpp server with chat completions, runtime capability detection and context/thread/batch/placement settings.
 - Explicit multi-GPU tensor splits automatically disable llama.cpp auto-fit by default. This avoids a reproduced server abort in the installed llama.cpp build. Set the `fit` load option explicitly when using the Python API to override it.
 - Thinking is disabled by default in the GUI because the installed Gemma build otherwise spends a short response budget only in its private reasoning channel; the checkbox exposes the runtime's reasoning on/off setting.

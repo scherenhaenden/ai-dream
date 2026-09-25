@@ -22,7 +22,7 @@ Status snapshot: 25 September 2026. This file is the working checklist for the l
 
 | Area | First usable slice | Next increments |
 |---|---|---|
-| Hugging Face model downloader | Search public repositories/files, choose a GGUF, show progress, save safely in a registered model directory, then rescan | Cancellation/resume, checksums, model metadata/license display, optional authenticated access |
+| Hugging Face model downloader | Search public repositories/files, choose a GGUF, show progress, cancel safely, check known file size against free disk space, save without overwrite in a registered folder, then rescan | Resume, checksums, model metadata/license display, optional authenticated access |
 | Chat | Persistent local conversations, saved-turn context restoration and message history around the existing runtime | Streaming tokens, rename/delete/export conversations, attachments, per-chat model/options |
 | Agentic tools | Bounded tool calls in chat over typed, read-only hardware/model/runtime APIs; unknown and mutating calls are rejected | Visible tool results, cancellation, richer plans, audit log and user-approved file actions |
 | Voice | Detect optional local speech tools; local speech output and transcription where available | Async push-to-talk UI, streaming STT/TTS, voice selection, interruption and device configuration |
@@ -36,7 +36,7 @@ Status snapshot: 25 September 2026. This file is the working checklist for the l
 - [ ] Explain why a model/runtime/device combination is unavailable before starting a load.
 - [x] Scan multiple model folders without moving user files. Filtering/sorting remain pending.
 - [x] Download public Hugging Face GGUFs with progress, destination selection and safe filenames.
-- [x] Refuse existing destination filenames and publish downloads atomically. Cancellation/resume and proactive disk-space checks remain pending.
+- [x] Refuse existing destination filenames, publish downloads atomically, support cancellation cleanup and check free disk space when the Hub provides a size. Resume remains pending.
 - [ ] Surface model metadata (format, quantization, size, source and license when available).
 
 ### Chat and generation
