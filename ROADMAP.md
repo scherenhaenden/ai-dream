@@ -43,7 +43,7 @@ Status snapshot: 25 September 2026. This file is the working checklist for the l
 ### Chat and generation
 
 - [x] Create, persist and resume the visible chat transcript locally, including restoring old turns into runtime context; rename, delete and export as Markdown.
-- [x] Add streaming generation and stop/cancel. Retry/regenerate and richer error recovery remain pending.
+- [x] Add streaming generation and stop/cancel; restore the draft and image attachments after cancellation or generation errors. Regenerate completed responses remains pending.
 - [x] Support system prompt, temperature, response limit, stop strings, reasoning/context/load options and validated reusable presets.
 - [x] Keep conversation history consistent between saved chats and the backend on reload/model change.
 - [x] Attach bounded local PNG/JPEG/WebP images to normal chat requests. Requires a vision-capable llama.cpp model; agent mode rejects image attachments. Image bytes are not restored from chat history after restart.
@@ -52,8 +52,8 @@ Status snapshot: 25 September 2026. This file is the working checklist for the l
 
 - [x] Make agent mode visible in chat; the initial tools are read-only and need no write permissions, with bounded redacted result snippets in the transcript.
 - [x] Reject arbitrary shell execution and all unregistered or mutating tool names.
-- [x] Bound tool calls by time, count and output size; record tool names, status, redacted result snippets and stop reason locally.
-- [ ] Propagate stop/cancel through the agent tool loop and add a more inspectable bounded audit (in progress).
+- [x] Bound tool calls by time, count and output size; record sequence, duration, redacted result snippet, argument field names (never values), result byte count and stop reason locally.
+- [x] Propagate stop/cancel through model calls and read-only tool waits in the agent loop.
 - [x] Record tool names, status, redacted result snippets and stop reason in the local chat transcript. Full arguments/results remain intentionally out of the log.
 
 ### Voice and accessibility
@@ -63,7 +63,8 @@ Status snapshot: 25 September 2026. This file is the working checklist for the l
 - [x] Speak assistant output locally when a supported TTS engine is present.
 - [x] Stop local speech output without blocking the chat window; discover already-installed Whisper models without downloading them.
 - [ ] Add voice selection/configuration, push-to-talk and streaming STT/TTS.
-- [ ] Add keyboard navigation, readable status announcements and scalable layout.
+- [x] Add Ctrl+Enter send shortcut and a responsive resizable pane layout.
+- [ ] Improve keyboard navigation, readable status announcements and scalable layout.
 
 ## Release checks
 

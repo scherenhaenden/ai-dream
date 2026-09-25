@@ -168,6 +168,7 @@ class AIDreamWindow:
         self.attach_images_button.pack(side=tk.LEFT, padx=5)
         self.clear_images_button = ttk.Button(voice_row, text="Clear images", command=self.clear_images, state=tk.DISABLED)
         self.clear_images_button.pack(side=tk.LEFT)
+        self._generation_controls.extend([self.attach_images_button, self.clear_images_button])
         self.images_status = ttk.Label(voice_row, text="")
         self.images_status.pack(side=tk.LEFT, padx=6)
         self.chat = tk.Text(right, state=tk.DISABLED, wrap=tk.WORD)
@@ -177,6 +178,7 @@ class AIDreamWindow:
         prompt_row.pack(fill=tk.X)
         self.prompt = tk.Text(prompt_row, height=4, wrap=tk.WORD)
         self.prompt.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.prompt.bind("<Control-Return>", self._send_shortcut)
         self.send_button = ttk.Button(prompt_row, text="Load and send", command=self.send)
         self.send_button.pack(side=tk.LEFT, padx=(6, 0), fill=tk.Y)
         self.stop_button = ttk.Button(prompt_row, text="Stop", command=self.stop_generation, state=tk.DISABLED)
@@ -187,6 +189,10 @@ class AIDreamWindow:
         widget.delete("1.0", tk.END)
         widget.insert("1.0", text)
         widget.configure(state=tk.DISABLED)
+
+    def _send_shortcut(self, _event=None):
+        self.send()
+        return "break"
 
     def _setting_entry(self, parent, label, variable, capability, width):
         ttk.Label(parent, text=label).pack(side=tk.LEFT, padx=(0, 3))
@@ -784,6 +790,7 @@ class AIDreamWindow:
             saved_prompt = (prompt + "\n" if prompt else "") + f"[Attached image(s): {labels}]"
         self._pending_generation = {"session_id": session_id, "prompt": prompt,
                                     "saved_prompt": saved_prompt,
+                                    "image_paths": list(self._pending_images),
                                     "parts": [], "agent_note": None, "backend": backend}
         self.send_button.configure(state=tk.DISABLED)
         self.stop_button.configure(state=tk.NORMAL)
@@ -913,16 +920,20 @@ class AIDreamWindow:
                         self._restore_chat()
                     elif kind == "error":
                         self._unload_current()
+                        self._restore_chat()
+                        self._restore_composer_input(pending)
                         messagebox.showerror("Generation failed", value, parent=self.root)
                     else:
                         # Remove the temporary, potentially partial response from display.
                         if self.chat_session.get("id") == pending["session_id"]:
                             self._restore_chat()
+                        if cancelled:
+                            self._restore_composer_input(pending)
                     self.voice_status.configure(text="Generation stopped" if cancelled else "Ready")
                     self._generation_busy = False
                     self._generation_event = None
                     self._pending_generation = None
-                    if kind in {"complete", "cancelled"}:
+                    if kind == "complete":
                         self._pending_images.clear()
                         self.images_status.configure(text="")
                         self.clear_images_button.configure(state=tk.DISABLED)
@@ -931,10 +942,19 @@ class AIDreamWindow:
                     for widget in self._generation_controls:
                         widget.configure(state=(tk.READONLY if widget in (self.session_box, self.backend_box)
                                                 else tk.NORMAL))
+                    self.clear_images_button.configure(state=tk.NORMAL if self._pending_images else tk.DISABLED)
         except queue.Empty:
             pass
         if self.root.winfo_exists():
             self.root.after(40, self._poll_generation_results)
+
+    def _restore_composer_input(self, pending):
+        self.prompt.delete("1.0", tk.END)
+        self.prompt.insert("1.0", pending.get("prompt", ""))
+        self._pending_images = list(pending.get("image_paths", []))
+        if self._pending_images:
+            self.images_status.configure(text=f"{len(self._pending_images)} image(s) attached for retry")
+            self.clear_images_button.configure(state=tk.NORMAL)
 
     def _unload_current(self):
         backend, self.loaded_backend = self.loaded_backend, None
