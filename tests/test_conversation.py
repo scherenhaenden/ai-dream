@@ -74,6 +74,64 @@ class ChatStoreTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.store.append(session["id"], "user", " ")
 
+    def test_legacy_session_gets_defaults_without_requiring_settings_key(self):
+        session = self.store.create("Legacy")
+        path = Path(self.temp.name) / f"{session['id']}.json"
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload.pop("settings", None)
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        self.assertEqual(self.store.list_sessions()[0]["id"], session["id"])
+        settings = self.store.get_session_settings(session["id"])
+        self.assertEqual(settings["backend_name"], "")
+        self.assertEqual(settings["runtime"], {"placement": {}, "load": {}})
+        self.assertEqual(settings["generation"]["temperature"], 0.7)
+        self.assertIsNone(settings["preset_id"])
+
+    def test_session_settings_partial_nested_update_round_trip(self):
+        session = self.store.create()
+        updated = self.store.update_session_settings(session["id"], {
+            "backend_name": "llama.cpp", "model_id": "repo/model-GGUF",
+            "model_path": "/models/model.gguf",
+            "runtime": {"placement": {"gpu_layers": 64, "device": "Vulkan0"},
+                        "load": {"context_size": 8192, "flash_attention": True}},
+            "generation": {"temperature": 0.2, "max_tokens": 400, "stop_strings": ["END"]},
+            "preset_id": "a" * 32,
+        })
+        self.assertEqual(updated["runtime"]["placement"]["gpu_layers"], 64)
+        self.assertEqual(updated["runtime"]["load"]["context_size"], 8192)
+        self.assertEqual(updated["generation"]["temperature"], 0.2)
+        # Nested maps merge, so setting one generation option preserves other defaults.
+        self.assertFalse(updated["generation"]["reasoning"])
+        loaded = self.store.load(session["id"])
+        self.assertEqual(loaded["settings"], updated)
+
+    def test_session_settings_reject_unknown_or_unsafe_values_without_write(self):
+        session = self.store.create()
+        before = (Path(self.temp.name) / f"{session['id']}.json").read_text(encoding="utf-8")
+        invalid_updates = [
+            {"unexpected": True}, {"backend_name": "x\x00y"},
+            {"runtime": {"load": {"context_size": True}}},
+            {"runtime": {"placement": {"gpu_layers": 2049}}},
+            {"generation": {"temperature": float("nan")}},
+            {"generation": {"stop_strings": [""]}},
+            {"preset_id": "not-an-id"},
+        ]
+        for invalid in invalid_updates:
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                self.store.update_session_settings(session["id"], invalid)
+        after = (Path(self.temp.name) / f"{session['id']}.json").read_text(encoding="utf-8")
+        self.assertEqual(after, before)
+
+    def test_failed_settings_replace_preserves_file_and_cleans_temp(self):
+        session = self.store.create()
+        path = Path(self.temp.name) / f"{session['id']}.json"
+        before = path.read_text(encoding="utf-8")
+        with patch("aidream.conversation.os.replace", side_effect=OSError("simulated")):
+            with self.assertRaises(OSError):
+                self.store.update_session_settings(session["id"], {"backend_name": "llama.cpp"})
+        self.assertEqual(path.read_text(encoding="utf-8"), before)
+        self.assertEqual(list(Path(self.temp.name).glob(".ai-dream-*.tmp")), [])
+
 
 if __name__ == "__main__":
     unittest.main()
