@@ -50,4 +50,4 @@ Model sources are indexed in place and remain untouched. Chat JSON files live un
 
 See [ROADMAP.md](ROADMAP.md) for the implemented and pending functions.
 
-- Optional local JSON API for the browser client: `python3 -m aidream.cli serve` (or `app serve` after installing the package). It binds only to `127.0.0.1`; see [docs/local-http-api.md](docs/local-http-api.md).
+- Optional local API for the browser client: `python3 -m aidream.cli serve` (or `app serve` after installing the package). It binds only to `127.0.0.1` and provides health, hardware, local model catalog, runtime availability, saved chats and streaming local chat. See [docs/local-http-api.md](docs/local-http-api.md).
