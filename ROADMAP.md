@@ -15,7 +15,7 @@ Status snapshot: 25 September 2026. This file is the working checklist for the l
 - [x] Add public Hugging Face GGUF search/download with progress, destination registration and no-overwrite behavior.
 - [x] Persist local chats, restore saved turns into the runtime, and speak/record/transcribe through optional local tools.
 - [x] Keep projector GGUFs catalogued but prevent loading them as standalone chat models.
-- [x] Add an allow-listed read-only agent tool registry for hardware, local model and runtime queries.
+- [x] Add a bounded read-only agent loop in chat, backed by hardware, local model and runtime queries.
 - [x] Verify the real Gemma 4 E2B GGUF across Vulkan0 and Vulkan1 through the Python backend with `--fit off` and `--reasoning off`.
 
 ## Active parallel work
@@ -24,7 +24,7 @@ Status snapshot: 25 September 2026. This file is the working checklist for the l
 |---|---|---|
 | Hugging Face model downloader | Search public repositories/files, choose a GGUF, show progress, save safely in a registered model directory, then rescan | Cancellation/resume, checksums, model metadata/license display, optional authenticated access |
 | Chat | Persistent local conversations, saved-turn context restoration and message history around the existing runtime | Streaming tokens, rename/delete/export conversations, attachments, per-chat model/options |
-| Agentic tools | Typed allow-listed read-only hardware/model/runtime APIs; unknown and mutating calls are rejected | Connect tools to the model chat loop, user-approved file actions, bounded plans, tool call/result UI, audit log, cancellation and budgets |
+| Agentic tools | Bounded tool calls in chat over typed, read-only hardware/model/runtime APIs; unknown and mutating calls are rejected | Visible tool results, cancellation, richer plans, audit log and user-approved file actions |
 | Voice | Detect optional local speech tools; local speech output and transcription where available | Async push-to-talk UI, streaming STT/TTS, voice selection, interruption and device configuration |
 | Other inputs/outputs | Preserve a modality-ready message/attachment contract | Image input, document ingestion, audio attachments, export and accessibility |
 
@@ -49,11 +49,10 @@ Status snapshot: 25 September 2026. This file is the working checklist for the l
 
 ### Agentic operation
 
-- [ ] Make tool availability and required permissions visible to the user.
-- [x] Provide read-only tools; arbitrary shell execution is not exposed.
-- [ ] Require an explicit user decision before a tool writes/deletes files, downloads a model or changes system state.
-- [ ] Bound tool calls by time, count and output size; provide cancel and inspectable tool results.
-- [ ] Record a local audit trail of tool requests, approvals, results and failures.
+- [x] Make agent mode visible in chat; the initial tools are read-only and need no write permissions.
+- [x] Reject arbitrary shell execution and all unregistered or mutating tool names.
+- [x] Bound tool calls by time, count and output size. Cancellation and detailed result inspection remain pending.
+- [x] Record tool names and stop reason in the local chat transcript. Full tool arguments/results remain pending.
 
 ### Voice and accessibility
 
@@ -64,7 +63,7 @@ Status snapshot: 25 September 2026. This file is the working checklist for the l
 
 ## Release checks
 
-- [x] Run unit and CLI checks, then load a real local GGUF and generate a response.
+- [x] Run unit/CLI checks, generate with a real local GGUF, and perform a real local hardware tool call through the agent loop.
 - [x] Exercise explicit Vulkan multi-GPU loading, including the `--fit off` workaround. CPU-only real-model exercise remains pending.
 - [x] Check build-folder CLI launch and the one-click desktop launcher file.
 - [x] Record current limitations and the tested runtime/device/model in build metadata and this checklist.

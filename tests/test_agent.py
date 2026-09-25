@@ -95,6 +95,17 @@ class LocalAgentTests(unittest.TestCase):
         self.assertEqual(result.stop_reason, "tool_calls_unsupported")
         self.assertIn("ordinary chat", result.text.lower())
 
+    def test_includes_bounded_saved_chat_history(self):
+        backend = FakeToolBackend([{"role": "assistant", "content": "Follow-up answer."}])
+        LocalAgent(backend, make_registry()).run(
+            "And the runtime?", history=[
+                {"role": "user", "content": "Show my GPU."},
+                {"role": "assistant", "content": "You have two GPUs."},
+            ])
+        messages = backend.requests[0][0]
+        self.assertEqual([item["role"] for item in messages], ["system", "user", "assistant", "user"])
+        self.assertEqual(messages[1]["content"], "Show my GPU.")
+
     def test_gracefully_degrades_when_server_rejects_tools(self):
         class UnsupportedBackend:
             def chat_with_tools(self, messages, tools, timeout):

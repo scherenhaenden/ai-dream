@@ -126,6 +126,8 @@ class AIDreamWindow:
         self.session_box.pack(side=tk.LEFT, padx=5)
         self.session_box.bind("<<ComboboxSelected>>", self.select_chat)
         ttk.Button(chat_tools, text="New chat", command=self.new_chat).pack(side=tk.LEFT)
+        self.agent_mode_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(chat_tools, text="Read-only agent tools", variable=self.agent_mode_var).pack(side=tk.LEFT, padx=6)
         self.voice_status = ttk.Label(chat_tools, text=self.voice.capabilities.setup_help())
         self.voice_status.pack(side=tk.RIGHT)
         voice_row = ttk.Frame(right)
@@ -534,8 +536,21 @@ class AIDreamWindow:
                                if message.get("role") in ("user", "assistant", "system")]
                     backend.restore_history(history)
                 self._append_chat(f"Loaded {model.path} with {backend.name}.")
-            answer = backend.generate(prompt, options=generation_options)
+            agent_note = None
+            if self.agent_mode_var.get():
+                from aidream.agent import LocalAgent
+                prior = [message for message in self.chat_session.get("messages", [])
+                         if message.get("role") in ("user", "assistant")]
+                result = LocalAgent(backend).run(prompt, history=prior)
+                answer = result.text
+                used = ", ".join(result.tools_called) if result.tools_called else "none"
+                support = "supported" if result.tool_calls_supported else "not supported by this model/runtime"
+                agent_note = f"Read-only tools: {used}; tool-call support: {support}; stop: {result.stop_reason}."
+            else:
+                answer = backend.generate(prompt, options=generation_options)
             self.chat_session = self.chat_store.append(self.chat_session["id"], "user", prompt)
+            if agent_note:
+                self.chat_session = self.chat_store.append(self.chat_session["id"], "system", agent_note)
             self.chat_session = self.chat_store.append(self.chat_session["id"], "assistant", answer)
             self.last_answer = answer
             self.session_var.set(_session_label(self.chat_session))

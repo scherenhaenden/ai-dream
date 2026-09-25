@@ -55,7 +55,7 @@ class LocalAgent:
         self.max_seconds = max_seconds
         self.max_output_chars = max_output_chars
 
-    def run(self, prompt: str) -> AgentResult:
+    def run(self, prompt: str, history: list[Mapping[str, str]] | None = None) -> AgentResult:
         """Answer one user prompt with a bounded number of allow-listed reads.
 
         Backends without tool-call support return a usable explanation without
@@ -73,8 +73,22 @@ class LocalAgent:
         tools = [self._tool_schema(spec) for spec in self.registry.list_tools() if spec.read_only]
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": self._SYSTEM},
-            {"role": "user", "content": prompt.strip()},
         ]
+        prior: list[dict[str, str]] = []
+        if history is not None:
+            if not isinstance(history, list):
+                raise ValueError("history must be a list of chat messages")
+            for item in history[-32:]:
+                if not isinstance(item, Mapping) or item.get("role") not in {"user", "assistant"}:
+                    continue
+                content = item.get("content")
+                if not isinstance(content, str) or not content.strip():
+                    continue
+                prior.append({"role": item["role"], "content": content})
+        while prior and sum(len(item["content"]) for item in prior) > 32_768:
+            prior.pop(0)
+        messages.extend(prior)
+        messages.append({"role": "user", "content": prompt.strip()})
         calls: list[str] = []
         final_text = ""
         stop_reason = "completed"

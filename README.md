@@ -33,7 +33,7 @@ The current dated Linux test build is generated under `build/linux/25.09.2026/`.
 - Local JSON conversation history and conversation switching in the UI, with saved turns restored into the runtime when a chat is resumed or the model is reloaded.
 - Vision-projector GGUFs remain catalogued but are rejected as standalone chat models.
 - Optional offline voice output via `espeak-ng`/`espeak`; recording and transcription via `arecord`, `whisper-cli`/`whisper-cpp`, and a local Whisper model.
-- `aidream.agent_tools.AgentToolRegistry` exposes only typed, read-only hardware, model and runtime queries. It does not execute arbitrary commands.
+- The **Read-only agent tools** checkbox uses bounded llama.cpp tool calls backed by typed, local hardware/model/runtime queries. Tool calls are logged in the chat transcript; arbitrary commands and writes are not exposed.
 
 Hugging Face access in this preview covers public repositories only. Voice programs are optional system dependencies; AI Dream does not send microphone audio to a cloud service.
 
