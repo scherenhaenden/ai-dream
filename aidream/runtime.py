@@ -29,6 +29,7 @@ class BackendCapabilities:
     batch_size: bool = False
     chat_completions: bool = False
     fit: bool = False
+    reasoning: bool = False
 
 
 class InferenceBackend(Protocol):
@@ -83,6 +84,7 @@ class LlamaCppBackend:
             ("/v1/chat/completions" in self._help or "chat completions" in self._help.lower()
              or Path(self.executable).name in self.candidates),
             "--fit" in self._help,
+            "--reasoning" in self._help,
         )
 
     @staticmethod
@@ -169,7 +171,14 @@ class LlamaCppBackend:
             if not isinstance(fit, bool):
                 raise ValueError("fit must be a boolean")
             result.extend(("--fit", "on" if fit else "off"))
-        unknown = set(options) - {key for key, _, _ in specs} - {"fit"}
+        if "reasoning" in options:
+            if not caps.reasoning:
+                raise ValueError("This llama.cpp server does not advertise reasoning controls")
+            reasoning = options["reasoning"]
+            if not isinstance(reasoning, bool):
+                raise ValueError("reasoning must be a boolean")
+            result.extend(("--reasoning", "on" if reasoning else "off"))
+        unknown = set(options) - {key for key, _, _ in specs} - {"fit", "reasoning"}
         if unknown:
             raise ValueError(f"Unsupported load option(s): {', '.join(sorted(unknown))}")
         return result

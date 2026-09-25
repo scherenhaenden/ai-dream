@@ -95,6 +95,9 @@ class AIDreamWindow:
         self._setting_entry(load_settings, "Context", self.context_var, "context_size", 9)
         self._setting_entry(load_settings, "CPU threads", self.threads_var, "threads", 7)
         self._setting_entry(load_settings, "Batch size", self.batch_var, "batch_size", 7)
+        self.reasoning_var = tk.BooleanVar(value=False)
+        self.reasoning_check = ttk.Checkbutton(load_settings, text="Enable thinking", variable=self.reasoning_var)
+        self.reasoning_check.pack(side=tk.LEFT, padx=(4, 10))
         ttk.Label(load_settings, text="Load settings apply on next send; changing them reloads the model.").pack(anchor="w")
 
         generation = ttk.LabelFrame(right, text="Generation settings", padding=4)
@@ -174,6 +177,8 @@ class AIDreamWindow:
         backend = self.backend_by_name.get(self.backend_var.get())
         if not backend:
             self.capability_label.configure(text="No inference runtime found. Install llama.cpp CLI to run GGUF models.")
+            self.reasoning_check.configure(state=tk.DISABLED)
+            self.reasoning_var.set(False)
             for name, widget in self._settings_widgets.items():
                 widget.configure(state=tk.DISABLED)
                 if name == "stop_strings":
@@ -192,6 +197,8 @@ class AIDreamWindow:
             controls.append("device selection")
         if caps.tensor_split:
             controls.append("tensor split")
+        if caps.reasoning:
+            controls.append("reasoning")
         status = f"Executable: {caps.executable or 'not found'}; controls: {', '.join(controls) or 'CPU/default only'}"
         self.device_box.configure(state=tk.NORMAL if caps.device_selection else tk.DISABLED)
         self.gpu_layers_entry.configure(state=tk.NORMAL if caps.gpu_layers else tk.DISABLED)
@@ -200,6 +207,9 @@ class AIDreamWindow:
             self.gpu_layers_var.set("")
         if not caps.tensor_split:
             self.tensor_split_var.set("")
+        self.reasoning_check.configure(state=tk.NORMAL if caps.reasoning else tk.DISABLED)
+        if not caps.reasoning:
+            self.reasoning_var.set(False)
         if not caps.device_selection:
             self.device_var.set("")
             status += ". Device selection is not exposed by this runtime."
@@ -483,6 +493,8 @@ class AIDreamWindow:
                 except ValueError:
                     messagebox.showerror("Invalid setting", f"{key.replace('_', ' ').title()} must be a positive whole number.")
                     return
+        if caps.reasoning:
+            load_options["reasoning"] = self.reasoning_var.get()
         generation_options = {}
         if caps.available:
             try:

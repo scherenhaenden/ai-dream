@@ -7,7 +7,7 @@ Status snapshot: 25 September 2026. This file is the working checklist for the l
 - [x] Detect CPU, RAM, accelerators, local model directories, GGUF files and llama.cpp availability.
 - [x] Install the Debian/Ubuntu llama.cpp package through the explicit runtime-manager action.
 - [x] Run a persistent llama.cpp server and send OpenAI-compatible chat-completion requests.
-- [x] Expose model placement, context, CPU threads and batch settings in the runtime/UI.
+- [x] Expose model placement, context, CPU threads, batch and reasoning settings in the runtime/UI.
 - [x] Launch the UI from the repository root with `./open-ai-dream`.
 - [x] Work around the reproduced llama.cpp auto-fit abort when an explicit tensor split is selected (`--fit off`).
 - [x] Merge the Vulkan/PCI physical-GPU deduplication fix; identical physical cards remain distinct.
@@ -16,7 +16,7 @@ Status snapshot: 25 September 2026. This file is the working checklist for the l
 - [x] Persist local chats, restore saved turns into the runtime, and speak/record/transcribe through optional local tools.
 - [x] Keep projector GGUFs catalogued but prevent loading them as standalone chat models.
 - [x] Add an allow-listed read-only agent tool registry for hardware, local model and runtime queries.
-- [x] Verify the real Gemma 4 E2B GGUF across Vulkan0 and Vulkan1 through the Python backend with `--fit off`.
+- [x] Verify the real Gemma 4 E2B GGUF across Vulkan0 and Vulkan1 through the Python backend with `--fit off` and `--reasoning off`.
 
 ## Active parallel work
 
@@ -43,7 +43,7 @@ Status snapshot: 25 September 2026. This file is the working checklist for the l
 
 - [x] Create, persist and resume the visible chat transcript locally, including restoring old turns into runtime context. Rename, delete and export remain pending.
 - [ ] Add streaming generation, stop/cancel, retry and clear error states.
-- [ ] Support system prompt, temperature, response limit, stop strings, context policy and reusable presets.
+- [x] Support system prompt, temperature, response limit, stop strings and a reasoning toggle. Context policy and reusable presets remain pending.
 - [x] Keep conversation history consistent between saved chats and the backend on reload/model change.
 - [ ] Add attachment handling for images/documents/audio only when the selected backend supports it.
 

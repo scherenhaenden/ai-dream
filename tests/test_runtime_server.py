@@ -8,7 +8,7 @@ from aidream.runtime import LlamaCppBackend
 FAKE_SERVER = r'''#!/usr/bin/env python3
 import http.server, json, sys
 if '--help' in sys.argv:
-    print('usage -m MODEL --host HOST --port PORT -ngl N --device NAME --tensor-split LIST -c CTX -t THREADS -b BATCH --fit on|off /v1/chat/completions')
+    print('usage -m MODEL --host HOST --port PORT -ngl N --device NAME --tensor-split LIST -c CTX -t THREADS -b BATCH --fit on|off --reasoning on|off /v1/chat/completions')
     raise SystemExit(0)
 port = int(sys.argv[sys.argv.index('--port') + 1])
 with open(sys.argv[sys.argv.index('-m') + 1] + '.argv', 'w') as f: f.write(json.dumps(sys.argv))
@@ -92,11 +92,13 @@ class PersistentServerTest(unittest.TestCase):
             model = root / 'model.gguf'
             model.write_bytes(b'mock')
             backend = LlamaCppBackend(str(executable), startup_timeout=3)
-            backend.load(model, options={'fit': True})
+            backend.load(model, options={'fit': True, 'reasoning': False})
             backend.unload()
             command_args = json.loads(Path(str(model) + '.argv').read_text())
             fit_index = command_args.index('--fit')
             self.assertEqual(command_args[fit_index + 1], 'on')
+            reasoning_index = command_args.index('--reasoning')
+            self.assertEqual(command_args[reasoning_index + 1], 'off')
 
     def test_restores_saved_conversation_turns(self):
         with tempfile.TemporaryDirectory() as td:
