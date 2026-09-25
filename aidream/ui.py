@@ -805,13 +805,14 @@ class AIDreamWindow:
                     self._generation_results.put(("status", f"Loaded {model.path} with {backend.name}."))
                 if agent_mode:
                     from aidream.agent import LocalAgent
-                    result = LocalAgent(backend).run(prompt, history=prior)
-                    if self._generation_event.is_set():
-                        raise RuntimeError("Generation stopped")
-                    answer = result.text
+                    result = LocalAgent(backend).run(prompt, history=prior,
+                                                     cancel_event=self._generation_event)
+                    answer = result.text or ("Agent stopped by user." if result.stop_reason == "cancelled" else "")
                     support = "supported" if result.tool_calls_supported else "not supported by this model/runtime"
                     details = "; ".join(
-                        f"{item['name']} [{item['status']}]: {item['result_snippet']}"
+                        f"#{item['sequence']} {item['name']} [{item['status']}; {item['duration_ms']} ms; "
+                        f"fields={','.join(item['argument_names']) or 'none'}; {item['result_bytes']} B]: "
+                        f"{item['result_snippet']}"
                         for item in result.summary()["tools"]
                     ) or "none"
                     note = (f"Read-only agent ({support}; {result.elapsed_seconds:.1f}s; "
@@ -826,7 +827,7 @@ class AIDreamWindow:
                 else:
                     answer = backend.generate(prompt, options=generation_options)
                     self._generation_results.put(("delta", answer))
-                if self._generation_event.is_set():
+                if self._generation_event.is_set() and not (agent_mode and result.stop_reason == "cancelled"):
                     raise RuntimeError("Generation stopped")
                 self._generation_results.put(("complete", answer))
             except Exception as exc:
