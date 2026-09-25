@@ -1,9 +1,11 @@
 import tempfile
+import threading
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
-from aidream.huggingface import HuggingFaceDownloader
+from aidream.huggingface import DownloadCancelledError, HuggingFaceDownloader
 
 
 class _Response:
@@ -20,6 +22,13 @@ class _Response:
 
     def read(self, _size):
         return self.parts.pop(0)
+
+
+class _ChunkedResponse(_Response):
+    headers = {"Content-Length": "6"}
+
+    def __init__(self):
+        self.parts = [b"abc", b"def", b""]
 
 
 class HuggingFaceDownloaderTests(unittest.TestCase):
@@ -54,6 +63,31 @@ class HuggingFaceDownloaderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             with self.assertRaises(ValueError):
                 HuggingFaceDownloader().download("org/model", "model.gguf", Path(td) / "missing")
+
+    def test_cancel_cleans_partial_file_and_never_publishes_model(self):
+        with tempfile.TemporaryDirectory() as td:
+            folder = Path(td)
+            cancel = threading.Event()
+
+            def on_progress(_received, _total):
+                cancel.set()
+
+            with patch("aidream.huggingface.urllib.request.urlopen", return_value=_ChunkedResponse()):
+                with self.assertRaises(DownloadCancelledError):
+                    HuggingFaceDownloader(chunk_size=3).download(
+                        "org/model", "model.gguf", folder, on_progress, cancel_event=cancel,
+                    )
+            self.assertEqual(list(folder.iterdir()), [])
+
+    def test_known_content_length_checks_available_disk_space(self):
+        with tempfile.TemporaryDirectory() as td:
+            folder = Path(td)
+            with patch("aidream.huggingface.urllib.request.urlopen", return_value=_Response()), \
+                 patch("aidream.huggingface.shutil.disk_usage", return_value=SimpleNamespace(free=6)):
+                with self.assertRaises(OSError) as caught:
+                    HuggingFaceDownloader().download("org/model", "model.gguf", folder)
+            self.assertEqual(caught.exception.errno, 28)
+            self.assertEqual(list(folder.iterdir()), [])
 
 
 if __name__ == "__main__":

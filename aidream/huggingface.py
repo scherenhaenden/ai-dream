@@ -2,20 +2,27 @@
 from __future__ import annotations
 
 import json
+import errno
 import os
 import re
+import shutil
 import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Event
 from typing import Callable
 
 
 _REPO_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _API = "https://huggingface.co/api"
 Progress = Callable[[int, int | None], None]
+
+
+class DownloadCancelledError(RuntimeError):
+    """Raised when a caller cancels an in-progress model download."""
 
 
 @dataclass(frozen=True)
@@ -101,7 +108,8 @@ class HuggingFaceDownloader:
         return sorted(set(names), key=str.casefold)
 
     def download(self, repo_id: str, file_name: str, destination: str | os.PathLike[str],
-                 progress: Progress | None = None, revision: str = "main") -> Path:
+                 progress: Progress | None = None, revision: str = "main",
+                 cancel_event: Event | None = None) -> Path:
         repo_id = self.validate_repo_id(repo_id)
         file_name = self.validate_file(file_name)
         if not re.fullmatch(r"[A-Za-z0-9._/-]{1,128}", revision) or ".." in revision.split("/"):
@@ -119,16 +127,26 @@ class HuggingFaceDownloader:
         req = urllib.request.Request(url, headers={"User-Agent": "AI-Dream/0.1"})
         tmp_name = None
         try:
+            if cancel_event and cancel_event.is_set():
+                raise DownloadCancelledError("Download cancelled.")
             with urllib.request.urlopen(req, timeout=self.timeout) as response:
                 total_header = response.headers.get("Content-Length")
                 total = int(total_header) if total_header and total_header.isdigit() else None
+                if total is not None and shutil.disk_usage(dest).free < total:
+                    raise OSError(errno.ENOSPC, f"Not enough free space for download ({total} bytes required).", str(dest))
+                if cancel_event and cancel_event.is_set():
+                    raise DownloadCancelledError("Download cancelled.")
                 fd, tmp_name = tempfile.mkstemp(prefix=".aidream-download-", suffix=".part", dir=dest)
                 received = 0
                 with os.fdopen(fd, "wb") as out:
                     while True:
+                        if cancel_event and cancel_event.is_set():
+                            raise DownloadCancelledError("Download cancelled.")
                         chunk = response.read(self.chunk_size)
                         if not chunk:
                             break
+                        if cancel_event and cancel_event.is_set():
+                            raise DownloadCancelledError("Download cancelled.")
                         out.write(chunk)
                         received += len(chunk)
                         if progress:
@@ -137,6 +155,8 @@ class HuggingFaceDownloader:
                     os.fsync(out.fileno())
             if total is not None and received != total:
                 raise RuntimeError(f"Download ended early ({received} of {total} bytes).")
+            if cancel_event and cancel_event.is_set():
+                raise DownloadCancelledError("Download cancelled.")
             # Hard-link publication is atomic and fails if another process created the
             # destination after our initial exists check.
             os.link(tmp_name, final)
