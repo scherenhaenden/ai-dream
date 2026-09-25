@@ -130,6 +130,22 @@ class LlamaCppBackend:
             restored.append({"role": item["role"], "content": content})
         self._messages = restored
 
+    def validate_load(self, model: Any, placement: Any = None,
+                      options: Mapping[str, Any] | None = None) -> None:
+        """Validate a proposed model/device configuration without starting a process."""
+        caps = self.capabilities()
+        if not caps.available:
+            raise RuntimeError(caps.details or "No usable llama.cpp server is available")
+        path = self._path(model)
+        metadata = getattr(model, "metadata", {})
+        architecture = metadata.get("general.architecture") if isinstance(metadata, Mapping) else None
+        if path and (architecture == "clip" or path.name.lower().startswith("mmproj-")):
+            raise ValueError("This GGUF is a vision projector, not a standalone chat model. Select its compatible base model.")
+        if not path or not path.is_file() or path.suffix.lower() != ".gguf":
+            raise ValueError("Select an existing GGUF chat model.")
+        self._load_options(options)
+        self._placement_options(placement)
+
     def _placement_options(self, placement: Any) -> list[str]:
         if placement is None:
             return []
@@ -196,9 +212,8 @@ class LlamaCppBackend:
         return result
 
     def load(self, model: Any, placement: Any = None, options: Mapping[str, Any] | None = None) -> None:
+        self.validate_load(model, placement, options)
         path = self._path(model)
-        if not self.can_load(model):
-            raise ValueError("llama.cpp server can load only an existing GGUF model when available")
         self.unload()
         runtime_options = self._load_options(options)
         placement_options = self._placement_options(placement)

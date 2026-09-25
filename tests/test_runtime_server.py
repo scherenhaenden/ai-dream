@@ -227,5 +227,17 @@ class PersistentServerTest(unittest.TestCase):
             record = SimpleNamespace(path=str(model), metadata={'general.architecture': 'clip'})
             self.assertFalse(backend.can_load(record))
 
+    def test_prevalidates_projector_model_with_actionable_reason(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            executable = root / 'fake-server'
+            executable.write_text(FAKE_SERVER)
+            executable.chmod(0o755)
+            model = root / 'mmproj-model.gguf'
+            model.write_bytes(b'mock')
+            backend = LlamaCppBackend(str(executable))
+            with self.assertRaisesRegex(ValueError, 'vision projector.*compatible base model'):
+                backend.validate_load(SimpleNamespace(path=model, metadata={'general.architecture': 'clip'}))
+
 if __name__ == '__main__':
     unittest.main()

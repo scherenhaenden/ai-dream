@@ -33,7 +33,7 @@ Status snapshot: 25 September 2026. This file is the working checklist for the l
 ### Model lifecycle
 
 - [x] Provide llama.cpp install/detect status and an explicit install action through the runtime manager.
-- [ ] Explain why a model/runtime/device combination is unavailable before starting a load.
+- [x] Prevalidate model files, projector-vs-chat-model status, backend availability and unsupported device/load controls before starting a server.
 - [x] Scan multiple model folders without moving user files. Filtering/sorting remain pending.
 - [x] Download public Hugging Face GGUFs with progress, destination selection and safe filenames.
 - [x] Refuse existing destination filenames, publish downloads atomically, support cancellation cleanup and check free disk space when the Hub provides a size.

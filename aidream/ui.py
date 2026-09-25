@@ -701,8 +701,10 @@ class AIDreamWindow:
             messagebox.showinfo("Select a model", "Choose a GGUF model first.")
             return
         backend = self.backend_by_name.get(self.backend_var.get())
-        if not backend or not backend.capabilities().available:
-            messagebox.showerror("Runtime unavailable", "Install a usable llama.cpp CLI and check 'app backends'.")
+        caps = backend.capabilities() if backend else None
+        if not backend or not caps.available:
+            details = caps.details if caps else "No inference backend is selected."
+            messagebox.showerror("Runtime unavailable", details, parent=self.root)
             return
         prompt = self.prompt.get("1.0", tk.END).strip()
         if not prompt and not self._pending_images:
@@ -773,6 +775,13 @@ class AIDreamWindow:
             stops = [line.strip() for line in self.stop_strings.get("1.0", tk.END).splitlines() if line.strip()]
             if stops:
                 generation_options["stop"] = stops
+        try:
+            validate_load = getattr(backend, "validate_load", None)
+            if validate_load:
+                validate_load(model, placement, load_options)
+        except (OSError, ValueError, RuntimeError) as exc:
+            messagebox.showerror("Model configuration unavailable", str(exc), parent=self.root)
+            return
         if image_attachments:
             generation_options["images"] = image_attachments
         session_id = self.chat_session["id"]
