@@ -22,6 +22,7 @@ class AIDreamWindow:
         self.root = root
         self.chat_store = ChatStore()
         self.voice = LocalVoice()
+        self._speech_worker = None
         self._voice_results = queue.Queue()
         self._voice_busy = False
         self._generation_results = queue.Queue()
@@ -158,6 +159,9 @@ class AIDreamWindow:
         voice_row = ttk.Frame(right)
         voice_row.pack(fill=tk.X)
         ttk.Button(voice_row, text="Speak last answer", command=self.speak_last_answer).pack(side=tk.LEFT)
+        self.stop_speech_button = ttk.Button(voice_row, text="Stop speaking", command=self.stop_speaking,
+                                             state=tk.DISABLED)
+        self.stop_speech_button.pack(side=tk.LEFT, padx=(0, 5))
         self.record_button = ttk.Button(voice_row, text="Record & transcribe", command=self.record_and_transcribe)
         self.record_button.pack(side=tk.LEFT, padx=5)
         self.attach_images_button = ttk.Button(voice_row, text="Attach image(s)", command=self.attach_images)
@@ -598,9 +602,36 @@ class AIDreamWindow:
             messagebox.showinfo("No answer", "There is no assistant answer to speak yet.")
             return
         try:
-            self.voice.speak(self.last_answer)
+            if self._speech_worker and not self._speech_worker.done:
+                self._speech_worker.cancel()
+            self._speech_worker = self.voice.speak_async(self.last_answer)
+            self.stop_speech_button.configure(state=tk.NORMAL)
+            self.voice_status.configure(text="Speaking answer…")
+            self.root.after(100, self._poll_speech_worker)
         except (OSError, RuntimeError, ValueError) as exc:
             messagebox.showerror("Voice output unavailable", str(exc))
+
+    def stop_speaking(self):
+        worker = self._speech_worker
+        if worker and not worker.done:
+            worker.cancel()
+            self.voice_status.configure(text="Speech stopped")
+        self.stop_speech_button.configure(state=tk.DISABLED)
+
+    def _poll_speech_worker(self):
+        worker = self._speech_worker
+        if not worker:
+            return
+        if not worker.done:
+            self.root.after(100, self._poll_speech_worker)
+            return
+        self.stop_speech_button.configure(state=tk.DISABLED)
+        try:
+            worker.wait(0)
+            self.voice_status.configure(text="Speech finished")
+        except RuntimeError as exc:
+            self.voice_status.configure(text="Speech output failed")
+            messagebox.showerror("Voice output failed", str(exc), parent=self.root)
 
     def record_and_transcribe(self):
         if self._voice_busy:
@@ -911,6 +942,8 @@ class AIDreamWindow:
             backend.unload()
 
     def close(self):
+        if self._speech_worker and not self._speech_worker.done:
+            self._speech_worker.cancel()
         if self._generation_event:
             self._generation_event.set()
             backend = self._pending_generation.get("backend") if self._pending_generation else None

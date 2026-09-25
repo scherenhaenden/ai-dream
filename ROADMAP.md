@@ -61,7 +61,8 @@ Status snapshot: 25 September 2026. This file is the working checklist for the l
 - [x] Detect local speech recognition and speech synthesis engines without contacting a cloud service.
 - [x] Offer basic background microphone recording and transcription when local dependencies are present. Device selection, push-to-talk and correction remain pending.
 - [x] Speak assistant output locally when a supported TTS engine is present.
-- [ ] Add stop/interruption controls and voice configuration (API work in progress; UI follow-up remains).
+- [x] Stop local speech output without blocking the chat window; discover already-installed Whisper models without downloading them.
+- [ ] Add voice selection/configuration, push-to-talk and streaming STT/TTS.
 - [ ] Add keyboard navigation, readable status announcements and scalable layout.
 
 ## Release checks
