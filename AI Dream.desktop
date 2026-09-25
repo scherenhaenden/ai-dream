@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=AI Dream
+Comment=Open the local AI model manager
+TryExec=/usr/bin/python3
+Exec=/usr/bin/python3 -m aidream.ui
+Path=/home/edward/Development/ai-dream
+Terminal=false
+Categories=Utility;
