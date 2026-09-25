@@ -46,6 +46,22 @@ class HardwareTests(unittest.TestCase):
         self.assertEqual([gpu.pci_address for gpu in devices], ["0000:0d:00.0", "0000:0e:00.0"])
         self.assertEqual(devices[0].backends, ["rocm", "vulkan"])
 
+    def test_vendor_device_ids_merge_vulkan_when_bdf_is_unavailable(self):
+        # Two identical cards have no BDF in the Vulkan summary. Match IDs
+        # one-to-one so both physical devices remain, without retaining duplicates.
+        pci = [GPUInfo(0, "AMD", "Advanced Micro Devices Navi 48", pci_address="0000:0d:00.0",
+                       pci_vendor_id=0x1002, pci_device_id=0x7550),
+               GPUInfo(1, "AMD", "Advanced Micro Devices Navi 48", pci_address="0000:10:00.0",
+                       pci_vendor_id=0x1002, pci_device_id=0x7550)]
+        vulkan = [GPUInfo(0, "AMD", "AMD Radeon RX 9070", backends=["vulkan"],
+                          pci_vendor_id=0x1002, pci_device_id=0x7550),
+                  GPUInfo(1, "AMD", "AMD Radeon RX 9070", backends=["vulkan"],
+                          pci_vendor_id=0x1002, pci_device_id=0x7550)]
+        devices = _merge_gpus([], pci, vulkan)
+        self.assertEqual(len(devices), 2)
+        self.assertEqual([gpu.pci_address for gpu in devices], ["0000:0d:00.0", "0000:10:00.0"])
+        self.assertTrue(all(gpu.backends == ["vulkan"] for gpu in devices))
+
     def test_nvidia_provider_includes_queryable_pci_bus_id(self):
         output = "0, GeForce RTX 4090, 24564, 22000, 00000000:0D:00.0\n"
         with patch("aidream.hardware._run", return_value=output):
@@ -58,13 +74,14 @@ class HardwareTests(unittest.TestCase):
             self.assertEqual(_lspci_names(), {"0000:0d:00.0": "Advanced Micro Devices, Inc. [AMD/ATI] Navi 48 [Radeon RX 9070 XT]"})
 
     def test_vulkan_only_reports_enumerated_physical_devices(self):
-        summary = """Devices:\n========\nGPU0:\n\n    apiVersion = 1.3.0\n    deviceType = PHYSICAL_DEVICE_TYPE_DISCRETE_GPU\n    deviceName = NVIDIA RTX 4090\n    vendorID = 0x10de\n    pciDomain = 0\n    pciBus = 13\n    pciDevice = 0\n    pciFunction = 0\nGPU1:\n\n    deviceType = PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU\n    deviceName = Intel Arc A770\n    vendorID = 0x8086\nGPU2:\n\n    deviceType = PHYSICAL_DEVICE_TYPE_CPU\n    deviceName = llvmpipe (LLVM 20)\n    vendorID = 0x10005\n"""
+        summary = """Devices:\n========\nGPU0:\n\n    apiVersion = 1.3.0\n    deviceType = PHYSICAL_DEVICE_TYPE_DISCRETE_GPU\n    deviceName = NVIDIA RTX 4090\n    vendorID = 0x10de\n    deviceID = 0x2684\n    pciDomain = 0\n    pciBus = 13\n    pciDevice = 0\n    pciFunction = 0\nGPU1:\n\n    deviceType = PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU\n    deviceName = Intel Arc A770\n    vendorID = 0x8086\nGPU2:\n\n    deviceType = PHYSICAL_DEVICE_TYPE_CPU\n    deviceName = llvmpipe (LLVM 20)\n    vendorID = 0x10005\n"""
         with patch("aidream.hardware._run", return_value=summary):
             devices = _vulkan()
         self.assertEqual([(d.vendor, d.name, d.backends) for d in devices],
                          [("NVIDIA", "NVIDIA RTX 4090", ["vulkan"]),
                           ("Intel", "Intel Arc A770", ["vulkan"])])
         self.assertEqual(devices[0].pci_address, "0000:0d:00.0")
+        self.assertEqual((devices[0].pci_vendor_id, devices[0].pci_device_id), (0x10DE, 0x2684))
         self.assertFalse(any("llvmpipe" in d.name for d in devices))
 
     def test_vulkan_empty_when_no_devices_are_enumerated(self):

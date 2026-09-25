@@ -45,6 +45,8 @@ class GPUInfo:
     backends: list[str] | None = None
     pci_address: str | None = None
     virtual: bool = False
+    pci_vendor_id: int | None = None
+    pci_device_id: int | None = None
 
     def __post_init__(self) -> None:
         if self.backends is None:
@@ -203,7 +205,9 @@ def _sysfs_gpus() -> list[GPUInfo]:
             # this prevents two identical generic adapters from collapsing.
             if not name:
                 name = f"{vendor} GPU ({address})"
-            found.append(GPUInfo(len(found), vendor, name, backends=[], pci_address=_canonical_bdf(address)))
+            device_id = (entry / "device").read_text().strip().lower()
+            found.append(GPUInfo(len(found), vendor, name, backends=[], pci_address=_canonical_bdf(address),
+                                 pci_vendor_id=int(vendor_id, 16), pci_device_id=int(device_id, 16)))
         except (OSError, ValueError):
             continue
     return found
@@ -262,6 +266,7 @@ def _vulkan() -> list[GPUInfo]:
     for chunk in chunks[1:]:
         name_m = re.search(r"(?m)^\s*deviceName\s*=\s*(.+?)\s*$", chunk)
         vendor_m = re.search(r"(?m)^\s*vendorID\s*=\s*(0x[0-9a-fA-F]+|\d+)\s*$", chunk)
+        device_m = re.search(r"(?m)^\s*deviceID\s*=\s*(0x[0-9a-fA-F]+|\d+)\s*$", chunk)
         type_m = re.search(r"(?m)^\s*deviceType\s*=\s*(.+?)\s*$", chunk)
         if not name_m or (type_m and "cpu" in type_m.group(1).casefold()):
             continue
@@ -276,14 +281,17 @@ def _vulkan() -> list[GPUInfo]:
             return int(match.group(1), 0) if match else None
         domain, bus, device, function = (pci_field(k) for k in ("Domain", "Bus", "Device", "Function"))
         bdf = f"{domain or 0:04x}:{bus:02x}:{device:02x}.{function}" if bus is not None and device is not None and function is not None else None
-        devices.append(GPUInfo(len(devices), vendor, name, backends=["vulkan"], pci_address=bdf, virtual=virtual))
+        device_id = int(device_m.group(1), 0) if device_m else None
+        devices.append(GPUInfo(len(devices), vendor, name, backends=["vulkan"], pci_address=bdf, virtual=virtual,
+                               pci_vendor_id=vendor_id, pci_device_id=device_id))
     return devices
 
 
 def _merge_gpus(providers: list[GPUInfo], pci: list[GPUInfo], vulkan: list[GPUInfo]) -> list[GPUInfo]:
     """Merge only one-to-one exact vendor/model matches; avoid guessed mappings."""
     result = [GPUInfo(g.index, g.vendor, g.name, g.memory_total_bytes, g.memory_free_bytes,
-                      list(g.backends or []), g.pci_address, g.virtual) for g in providers]
+                      list(g.backends or []), g.pci_address, g.virtual,
+                      g.pci_vendor_id, g.pci_device_id) for g in providers]
     def key(gpu: GPUInfo) -> tuple[str, str]:
         return gpu.vendor.casefold(), re.sub(r"\s+", " ", gpu.name).strip().casefold()
     for source in (pci, vulkan):
@@ -292,6 +300,12 @@ def _merge_gpus(providers: list[GPUInfo], pci: list[GPUInfo], vulkan: list[GPUIn
             match = next((i for i, existing in enumerate(result)
                           if i not in consumed and existing.pci_address and candidate.pci_address
                           and existing.pci_address == candidate.pci_address), None)
+            if match is None:
+                match = next((i for i, existing in enumerate(result)
+                              if i not in consumed and existing.pci_vendor_id is not None
+                              and existing.pci_device_id is not None
+                              and existing.pci_vendor_id == candidate.pci_vendor_id
+                              and existing.pci_device_id == candidate.pci_device_id), None)
             if match is None:
                 match = next((i for i, existing in enumerate(result)
                               if i not in consumed and key(existing) == key(candidate)), None)
@@ -303,7 +317,14 @@ def _merge_gpus(providers: list[GPUInfo], pci: list[GPUInfo], vulkan: list[GPUIn
                 existing.memory_free_bytes = existing.memory_free_bytes or candidate.memory_free_bytes
                 existing.pci_address = existing.pci_address or candidate.pci_address
                 existing.virtual = existing.virtual or candidate.virtual
+                if existing.pci_vendor_id is None:
+                    existing.pci_vendor_id = candidate.pci_vendor_id
+                if existing.pci_device_id is None:
+                    existing.pci_device_id = candidate.pci_device_id
             else:
+                # Every input record represents a distinct device within this source;
+                # never match a later sibling against one appended from the same source.
+                consumed.add(len(result))
                 result.append(candidate)
     # Global stable indexes independent of overlapping vendor-local utility indexes.
     for index, gpu in enumerate(result):
