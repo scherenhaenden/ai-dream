@@ -47,9 +47,9 @@ def build_parser() -> argparse.ArgumentParser:
     run = sub.add_parser("run", help="load a model and chat in the terminal")
     run.add_argument("model", help="model id or GGUF file path")
     run.add_argument("--backend", default="auto")
-    run.add_argument("--devices", help="comma-separated device indices, when backend supports selection")
-    run.add_argument("--context", type=int, default=4096)
-    run.add_argument("--threads", type=int)
+    run.add_argument("--gpu-layers", type=int, help="GPU layers, when supported by the selected backend")
+    run.add_argument("--device", help="runtime device name, when supported by the selected backend")
+    run.add_argument("--tensor-split", help="runtime tensor split, when supported by the selected backend")
     return parser
 
 
@@ -72,7 +72,10 @@ def main(argv: list[str] | None = None) -> int:
                 _print(catalog.list_models())
         elif args.command == "backends":
             from aidream.runtime import RuntimeRegistry
-            _print(RuntimeRegistry().list_backends())
+            _print([
+                {"name": backend.name, "capabilities": backend.capabilities()}
+                for backend in RuntimeRegistry().list_backends()
+            ])
         else:
             return _run_chat(args)
         return 0
@@ -96,16 +99,19 @@ def _run_chat(args: argparse.Namespace) -> int:
         model = path
     registry = RuntimeRegistry()
     backends = registry.list_backends()
-    backend = registry.get(args.backend) if hasattr(registry, "get") else None
-    if backend is None:
+    if args.backend == "auto":
+        backend = next((b for b in backends if b.capabilities().available and b.can_load(model)), None)
+    else:
         backend = next((b for b in backends if getattr(b, "name", "") == args.backend), None)
-    if backend is None and args.backend == "auto":
-        backend = registry.default_backend() if hasattr(registry, "default_backend") else None
     if backend is None:
         raise RuntimeError(f"Backend '{args.backend}' is unavailable. See 'app backends'.")
-    placement = {"devices": [int(x) for x in args.devices.split(",")]} if args.devices else {"mode": "auto"}
-    if hasattr(backend, "configure"):
-        backend.configure(context=args.context, threads=args.threads)
+    placement = {}
+    if args.gpu_layers is not None:
+        placement["gpu_layers"] = args.gpu_layers
+    if args.device is not None:
+        placement["device"] = args.device
+    if args.tensor_split is not None:
+        placement["tensor_split"] = args.tensor_split
     backend.load(model, placement)
     try:
         print("Model ready. Enter /exit to unload and quit.")
