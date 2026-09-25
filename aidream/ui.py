@@ -228,3 +228,7 @@ def main() -> None:
     root = tk.Tk()
     AIDreamWindow(root)
     root.mainloop()
+
+
+if __name__ == "__main__":
+    main()
