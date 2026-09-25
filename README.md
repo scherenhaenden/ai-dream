@@ -25,7 +25,7 @@ The current dated Linux test build is generated under `build/linux/25.09.2026/`.
 
 ## Features in this preview
 
-- Hardware and accelerator discovery; scan multiple existing GGUF folders without moving model files.
+- Hardware and accelerator discovery; scan multiple existing GGUF folders without moving model files, then filter by metadata/path or sort by name and file size.
 - Public Hugging Face GGUF search and download with progress, cancellation, free-space checks, validation, no-overwrite behavior and HTTP Range resume after interrupted transfers. Resume data is kept in hidden sidecar files and checked against the repository, revision, file, byte count and ETag before continuing; explicit cancellation removes those partial files.
 - Persistent llama.cpp server with chat completions, runtime capability detection and context/thread/batch/placement settings.
 - Live token streaming with a Stop control; incomplete turns are discarded when cancelled.

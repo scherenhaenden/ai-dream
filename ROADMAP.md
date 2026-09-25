@@ -34,7 +34,7 @@ Status snapshot: 25 September 2026. This file is the working checklist for the l
 
 - [x] Provide llama.cpp install/detect status and an explicit install action through the runtime manager.
 - [x] Prevalidate model files, projector-vs-chat-model status, backend availability and unsupported device/load controls before starting a server.
-- [x] Scan multiple model folders without moving user files. Filtering/sorting remain pending.
+- [x] Scan multiple model folders without moving user files; filter by model metadata/path and sort by name or size.
 - [x] Download public Hugging Face GGUFs with progress, destination selection and safe filenames.
 - [x] Refuse existing destination filenames, publish downloads atomically, support cancellation cleanup and check free disk space when the Hub provides a size.
 - [x] Resume interrupted public Hub downloads only when repository/file/revision/byte-count/ETag metadata validates; discard stale partial state and preserve atomic publication.

@@ -42,6 +42,7 @@ class AIDreamWindow:
         self.hardware = HardwareService()
         self.registry = RuntimeRegistry()
         self.models = []
+        self._all_models = []
         self.backends = self.registry.list_backends()
         self.backend_by_name = {b.name: b for b in self.backends}
         self.loaded_backend = None
@@ -73,6 +74,19 @@ class AIDreamWindow:
         ttk.Button(row, text="Scan", command=self.scan).pack(side=tk.LEFT, padx=4)
         ttk.Button(row, text="Download from Hugging Face", command=self.open_hf_downloader).pack(side=tk.LEFT)
         ttk.Label(left, text="GGUF models").pack(anchor="w", pady=(8, 0))
+        model_filter = ttk.Frame(left)
+        model_filter.pack(fill=tk.X)
+        ttk.Label(model_filter, text="Filter").pack(side=tk.LEFT)
+        self.model_filter_var = tk.StringVar()
+        self.model_filter_entry = ttk.Entry(model_filter, textvariable=self.model_filter_var)
+        self.model_filter_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
+        self.model_filter_var.trace_add("write", lambda *_args: self._populate_model_list())
+        self.model_sort_var = tk.StringVar(value="Name A–Z")
+        self.model_sort_box = ttk.Combobox(model_filter, textvariable=self.model_sort_var,
+                                           values=("Name A–Z", "Largest first", "Smallest first"),
+                                           state="readonly", width=15)
+        self.model_sort_box.pack(side=tk.RIGHT)
+        self.model_sort_box.bind("<<ComboboxSelected>>", lambda _event: self._populate_model_list())
         self.model_list = tk.Listbox(left, height=14, exportselection=False)
         self.model_list.pack(fill=tk.BOTH, expand=True, pady=2)
         self.model_list.bind("<<ListboxSelect>>", self.show_model_details)
@@ -306,6 +320,8 @@ class AIDreamWindow:
             self._update_capabilities()
         model_path = settings.get("model_path")
         if model_path:
+            if not any(model.path == model_path for model in self.models):
+                self.model_filter_var.set("")
             for index, model in enumerate(self.models):
                 if model.path == model_path:
                     self.model_list.selection_clear(0, tk.END)
@@ -350,13 +366,44 @@ class AIDreamWindow:
         self.sources.delete(0, tk.END)
         for source in self.catalog.list_sources():
             self.sources.insert(tk.END, str(source))
-        self.models = self.catalog.list_models()
+        self._all_models = self.catalog.list_models()
+        self._populate_model_list()
+        self._update_capabilities()
+
+    def _populate_model_list(self):
+        if not hasattr(self, "model_list"):
+            return
+        selected_path = None
+        selection = self.model_list.curselection()
+        if selection and selection[0] < len(self.models):
+            selected_path = self.models[selection[0]].path
+        query = self.model_filter_var.get().strip().casefold()
+        filtered = []
+        for model in self._all_models:
+            info = model.display_info()
+            searchable = " ".join((info["name"], info["quantization"], info["architecture"],
+                                   info["license"], info["source"], info["path"])).casefold()
+            if not query or query in searchable:
+                filtered.append(model)
+        sort_order = self.model_sort_var.get()
+        if sort_order == "Largest first":
+            filtered.sort(key=lambda item: (-item.size, item.path.casefold()))
+        elif sort_order == "Smallest first":
+            filtered.sort(key=lambda item: (item.size, item.path.casefold()))
+        else:
+            filtered.sort(key=lambda item: (item.display_info()["name"].casefold(), item.path.casefold()))
+        self.models = filtered
         self.model_list.delete(0, tk.END)
         for model in self.models:
             info = model.display_info()
             self.model_list.insert(tk.END, f"{info['name']} · {info['quantization']} · {info['size_human']}")
+        if selected_path:
+            for index, model in enumerate(self.models):
+                if model.path == selected_path:
+                    self.model_list.selection_set(index)
+                    self.model_list.see(index)
+                    break
         self.show_model_details()
-        self._update_capabilities()
 
     def show_model_details(self, _event=None):
         selection = self.model_list.curselection()
