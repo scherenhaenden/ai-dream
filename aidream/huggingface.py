@@ -26,12 +26,73 @@ class DownloadCancelledError(RuntimeError):
     """Raised when a caller cancels an in-progress model download."""
 
 
+def _safe_tags(value) -> tuple[str, ...]:
+    if not isinstance(value, list):
+        return ()
+    return tuple(dict.fromkeys(
+        tag.strip()[:200] for tag in value[:256]
+        if isinstance(tag, str) and tag.strip()
+    ))
+
+
+def _safe_count(value) -> int:
+    # Booleans are integers in Python but are not meaningful Hub counters.
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
+
+
+def _hub_model(repo_id: str, data: dict, tags: tuple[str, ...] | None = None) -> HubModel:
+    card = data.get("cardData")
+    card = card if isinstance(card, dict) else {}
+    merged_tags = tuple(dict.fromkeys((*_safe_tags(data.get("tags")), *_safe_tags(card.get("tags")))))
+    if tags is not None:
+        merged_tags = tuple(dict.fromkeys((*tags, *_safe_tags(card.get("tags")))))
+    license_name = card.get("license")
+    license_name = license_name.strip()[:200] if isinstance(license_name, str) and license_name.strip() else None
+    modified = data.get("lastModified")
+    modified = modified[:64] if isinstance(modified, str) else None
+    pipeline = data.get("pipeline_tag")
+    pipeline = pipeline[:100] if isinstance(pipeline, str) else None
+
+    siblings = data.get("siblings")
+    size_bytes: int | None = None
+    if isinstance(siblings, list) and len(siblings) <= 10_000:
+        sizes = []
+        for sibling in siblings:
+            if not isinstance(sibling, dict):
+                sizes = []
+                break
+            size = sibling.get("size")
+            if size is None and isinstance(sibling.get("lfs"), dict):
+                size = sibling["lfs"].get("size")
+            if not isinstance(size, int) or isinstance(size, bool) or size < 0:
+                sizes = []
+                break
+            sizes.append(size)
+        if siblings and len(sizes) == len(siblings):
+            size_bytes = sum(sizes)
+
+    return HubModel(
+        repo_id=repo_id,
+        downloads=_safe_count(data.get("downloads")),
+        likes=_safe_count(data.get("likes")),
+        pipeline_tag=pipeline,
+        license=license_name,
+        tags=merged_tags,
+        last_modified=modified,
+        size_bytes=size_bytes,
+    )
+
+
 @dataclass(frozen=True)
 class HubModel:
     repo_id: str
     downloads: int = 0
     likes: int = 0
     pipeline_tag: str | None = None
+    license: str | None = None
+    tags: tuple[str, ...] = ()
+    last_modified: str | None = None
+    size_bytes: int | None = None
 
 
 class HuggingFaceDownloader:
@@ -58,11 +119,14 @@ class HuggingFaceDownloader:
             raise ValueError("Choose a valid .gguf file from the repository.")
         return file_name
 
-    def _json(self, url: str):
+    def _json(self, url: str, max_bytes: int = 2 * 1024 * 1024):
         req = urllib.request.Request(url, headers={"User-Agent": "AI-Dream/0.1", "Accept": "application/json"})
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as response:
-                return json.load(response)
+                body = response.read(max_bytes + 1)
+                if len(body) > max_bytes:
+                    raise RuntimeError("Hugging Face metadata response exceeded the size limit.")
+                return json.loads(body)
         except urllib.error.HTTPError as exc:
             raise RuntimeError(f"Hugging Face returned HTTP {exc.code} for a public request.") from exc
         except urllib.error.URLError as exc:
@@ -84,10 +148,19 @@ class HuggingFaceDownloader:
         for item in data:
             if not isinstance(item, dict) or not isinstance(item.get("id"), str):
                 continue
-            tags = item.get("tags") or []
+            tags = _safe_tags(item.get("tags"))
             if "gguf" in tags or item["id"].lower().endswith("-gguf"):
-                models.append(HubModel(item["id"], int(item.get("downloads") or 0), int(item.get("likes") or 0), item.get("pipeline_tag")))
+                models.append(_hub_model(item["id"], item, tags=tags))
         return models
+
+    def repository_details(self, repo_id: str) -> HubModel:
+        """Fetch public Hub details and a best-effort total repository size."""
+        repo_id = self.validate_repo_id(repo_id)
+        encoded_repo = urllib.parse.quote(repo_id, safe="/")
+        data = self._json(f"{_API}/models/{encoded_repo}?blobs=true")
+        if not isinstance(data, dict) or not isinstance(data.get("id"), str):
+            raise RuntimeError("Hugging Face returned unexpected repository details.")
+        return _hub_model(data["id"], data)
 
     def list_gguf_files(self, repo_id: str, revision: str = "main") -> list[str]:
         repo_id = self.validate_repo_id(repo_id)

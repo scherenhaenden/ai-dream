@@ -1,0 +1,16 @@
+{
+  "id": "example/tiny-gguf",
+  "downloads": 12345,
+  "likes": 67,
+  "pipeline_tag": "text-generation",
+  "lastModified": "2026-09-25T12:00:00.000Z",
+  "tags": ["gguf", "text-generation", "license:apache-2.0", "gguf"],
+  "cardData": {
+    "license": "apache-2.0",
+    "tags": ["chat", "text-generation"]
+  },
+  "siblings": [
+    {"rfilename": "README.md", "size": 200},
+    {"rfilename": "tiny.Q4_K_M.gguf", "lfs": {"size": 1048576}}
+  ]
+}

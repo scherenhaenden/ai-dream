@@ -2,6 +2,7 @@ import tempfile
 import threading
 import unittest
 import urllib.error
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -71,6 +72,43 @@ class HuggingFaceDownloaderTests(unittest.TestCase):
         for filename in ("../model.gguf", "/tmp/model.gguf", "model.bin", "nested\\model.gguf"):
             with self.subTest(filename=filename), self.assertRaises(ValueError):
                 HuggingFaceDownloader.validate_file(filename)
+
+    def test_repository_details_parse_public_card_stats_tags_and_sizes(self):
+        fixture = Path(__file__).parent / "fixtures" / "hf_repo_details.json"
+        payload = json.loads(fixture.read_text(encoding="utf-8"))
+        with patch("aidream.huggingface.HuggingFaceDownloader._json", return_value=payload) as get_json:
+            model = HuggingFaceDownloader().repository_details("example/tiny-gguf")
+        self.assertEqual(get_json.call_args.args[0],
+                         "https://huggingface.co/api/models/example/tiny-gguf?blobs=true")
+        self.assertEqual(model.repo_id, "example/tiny-gguf")
+        self.assertEqual((model.downloads, model.likes), (12345, 67))
+        self.assertEqual(model.license, "apache-2.0")
+        self.assertEqual(model.pipeline_tag, "text-generation")
+        self.assertEqual(model.last_modified, "2026-09-25T12:00:00.000Z")
+        self.assertEqual(model.size_bytes, 1048776)
+        self.assertEqual(model.tags, ("gguf", "text-generation", "license:apache-2.0", "chat"))
+
+    def test_repository_details_defensively_ignores_malformed_optional_metadata(self):
+        payload = {"id": "example/model", "downloads": "many", "likes": True,
+                   "tags": ["ok", None, " "], "cardData": {"license": ["bad"]},
+                   "lastModified": 4, "siblings": [{"rfilename": "a", "size": "large"}]}
+        with patch("aidream.huggingface.HuggingFaceDownloader._json", return_value=payload):
+            model = HuggingFaceDownloader().repository_details("example/model")
+        self.assertEqual(model.downloads, 0)
+        self.assertEqual(model.likes, 0)
+        self.assertEqual(model.tags, ("ok",))
+        self.assertIsNone(model.license)
+        self.assertIsNone(model.last_modified)
+        self.assertIsNone(model.size_bytes)
+
+    def test_json_response_is_bounded(self):
+        class Oversized:
+            def __enter__(self): return self
+            def __exit__(self, *_args): pass
+            def read(self, size): return b" " * size
+        with patch("aidream.huggingface.urllib.request.urlopen", return_value=Oversized()):
+            with self.assertRaisesRegex(RuntimeError, "size limit"):
+                HuggingFaceDownloader()._json("https://huggingface.co/api/models", max_bytes=12)
 
     def test_download_publishes_without_overwriting(self):
         with tempfile.TemporaryDirectory() as td:
