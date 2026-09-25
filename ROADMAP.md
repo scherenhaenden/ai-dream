@@ -22,7 +22,7 @@ Status snapshot: 25 September 2026. This file is the working checklist for the l
 
 | Area | First usable slice | Next increments |
 |---|---|---|
-| Hugging Face model downloader | Search public repositories/files, choose a GGUF, show progress, cancel safely, check known file size, resume with validated Range/ETag, save without overwrite and rescan | Checksums, richer Hub metadata, optional authenticated access |
+| Hugging Face model downloader | Search public repositories/files, inspect license/tags/task/size, choose a GGUF, show progress, cancel safely, check known file size, resume with validated Range/ETag, save without overwrite and rescan | Checksums and optional authenticated access |
 | Chat | Persistent local history, restore text turns, rename/delete/export, streaming, stop/cancel, validated presets and per-chat model/backend/placement/generation settings, images for vision-capable models, bounded local document attachments | Retry/regenerate, persist and restore attachment references, audio attachments |
 | Agentic tools | Bounded read-only hardware/model/runtime calls, cancellation, redacted results and a bounded audit that omits argument values | Richer plans; any file actions require explicit user approval |
 | Voice | Detect optional local speech tools; configurable-duration recording, local audio-file transcription, selectable installed Whisper model and stoppable local TTS | Push-to-talk UI, streaming STT/TTS and speech voice selection |
@@ -39,6 +39,7 @@ Status snapshot: 25 September 2026. This file is the working checklist for the l
 - [x] Refuse existing destination filenames, publish downloads atomically, support cancellation cleanup and check free disk space when the Hub provides a size.
 - [x] Resume interrupted public Hub downloads only when repository/file/revision/byte-count/ETag metadata validates; discard stale partial state and preserve atomic publication.
 - [x] Surface local model metadata (format, size, quantization, architecture, context, source and license when available). Missing metadata is shown as unknown.
+- [x] Inspect public Hugging Face repository license, tags, task, size, last update and popularity before choosing GGUF files.
 
 ### Chat and generation
 

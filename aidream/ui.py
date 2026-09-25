@@ -526,11 +526,18 @@ class AIDreamWindow:
         search_button.pack(side=tk.LEFT, padx=(6, 0))
         repos = tk.Listbox(win, height=8, exportselection=False)
         repos.pack(fill=tk.X, padx=10, pady=6)
+        repo_details = ttk.Label(win, text="Select a repository to inspect its public metadata.",
+                                 wraplength=690, justify=tk.LEFT)
+        repo_details.pack(fill=tk.X, padx=10, pady=(0, 5))
         ttk.Label(win, text="Repository GGUF files").pack(anchor="w", padx=10)
         files = tk.Listbox(win, height=12, exportselection=False)
         files.pack(fill=tk.BOTH, expand=True, padx=10, pady=4)
+        repo_action_row = ttk.Frame(win)
+        repo_action_row.pack(fill=tk.X, padx=10)
+        details_button = ttk.Button(repo_action_row, text="Repository details", command=lambda: show_repo_details())
+        details_button.pack(side=tk.LEFT)
         load_files = ttk.Button(win, text="List files", command=lambda: list_files())
-        load_files.pack(anchor="w", padx=10)
+        load_files.pack(in_=repo_action_row, side=tk.LEFT, padx=6)
         destrow = ttk.Frame(win)
         destrow.pack(fill=tk.X, padx=10, pady=(8, 2))
         default_folder = Path.home() / ".local" / "share" / "ai-dream" / "models"
@@ -559,6 +566,7 @@ class AIDreamWindow:
         def busy(value):
             state = tk.DISABLED if value else tk.NORMAL
             search_button.configure(state=state)
+            details_button.configure(state=state)
             load_files.configure(state=state)
             download_btn.configure(state=state)
             cancel_btn.configure(state=(tk.NORMAL if value and active_download["event"] else tk.DISABLED))
@@ -581,8 +589,40 @@ class AIDreamWindow:
                     def done():
                         repo_items.extend(result)
                         for item in result:
-                            repos.insert(tk.END, f"{item.repo_id}  ·  {item.downloads:,} downloads")
+                            qualifiers = [f"{item.downloads:,} downloads"]
+                            if item.license:
+                                qualifiers.append(f"{item.license} license")
+                            if item.size_bytes is not None:
+                                qualifiers.append(_gib(item.size_bytes) + " GiB")
+                            repos.insert(tk.END, f"{item.repo_id}  ·  {' · '.join(qualifiers)}")
                         status.set(f"Found {len(result)} public GGUF repositories.")
+                        busy(False)
+                    win.after(0, done)
+                except (OSError, ValueError, RuntimeError) as exc:
+                    error = str(exc)
+                    win.after(0, lambda error=error: (status.set(error), busy(False)))
+            threading.Thread(target=work, daemon=True).start()
+
+        def show_repo_details():
+            selection = repos.curselection()
+            if not selection:
+                messagebox.showinfo("Select a repository", "Choose a repository from the search results.", parent=win)
+                return
+            repo_id = repo_items[selection[0]].repo_id
+            busy(True)
+            status.set(f"Loading public metadata for {repo_id}…")
+            def work():
+                try:
+                    details = service.repository_details(repo_id)
+                    def done():
+                        size = f"{_gib(details.size_bytes)} GiB" if details.size_bytes is not None else "unknown"
+                        tags = ", ".join(details.tags[:10]) or "none"
+                        repo_details.configure(text=(
+                            f"{details.repo_id}\nLicense: {details.license or 'not declared'} · "
+                            f"Task: {details.pipeline_tag or 'unknown'} · Size: {size}\n"
+                            f"Downloads: {details.downloads:,} · Likes: {details.likes:,} · "
+                            f"Updated: {details.last_modified or 'unknown'}\nTags: {tags}"))
+                        status.set(f"Public metadata loaded for {repo_id}.")
                         busy(False)
                     win.after(0, done)
                 except (OSError, ValueError, RuntimeError) as exc:
