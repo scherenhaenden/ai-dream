@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import struct
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -20,6 +21,61 @@ class ModelRecord:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+    def display_info(self) -> dict[str, Any]:
+        """Return user-facing local model details without guessing missing facts."""
+        meta = self.metadata
+        name = meta.get("general.name") or meta.get("general.basename") or Path(self.path).name
+        quantization = _quantization_label(meta, self.path)
+        license_name = meta.get("general.license") or meta.get("general.license.name")
+        source = meta.get("general.source.url") or meta.get("general.source.name") or "Local file"
+        return {
+            "id": self.id,
+            "name": str(name),
+            "format": self.format.upper(),
+            "size_bytes": self.size,
+            "size_human": _human_size(self.size),
+            "quantization": quantization,
+            "architecture": meta.get("general.architecture", "Unknown"),
+            "context_length": meta.get(f"{meta.get('general.architecture', '')}.context_length"),
+            "license": str(license_name) if license_name else "Not declared in GGUF metadata",
+            "source": str(source),
+            "path": self.path,
+        }
+
+
+_FILE_TYPE_QUANTIZATION = {
+    0: "F32", 1: "F16", 2: "Q4_0", 3: "Q4_1", 7: "Q8_0", 8: "Q5_0",
+    9: "Q5_1", 10: "Q2_K", 11: "Q3_K_S", 12: "Q3_K_M", 13: "Q3_K_L",
+    14: "Q4_K_S", 15: "Q4_K_M", 16: "Q5_K_S", 17: "Q5_K_M", 18: "Q6_K",
+    19: "IQ2_XXS", 20: "IQ2_XS", 21: "IQ3_XXS", 22: "IQ1_S", 23: "IQ4_NL",
+    24: "IQ3_S", 25: "IQ2_S", 26: "IQ4_XS", 27: "I8", 28: "I16", 29: "I32",
+    30: "I64", 31: "F64", 32: "IQ1_M", 33: "BF16", 34: "Q4_0_4_4", 35: "Q4_0_4_8",
+    36: "Q4_0_8_8",
+}
+
+
+def _quantization_label(metadata: dict[str, Any], path: str) -> str:
+    file_type = metadata.get("general.file_type")
+    if isinstance(file_type, int):
+        label = _FILE_TYPE_QUANTIZATION.get(file_type)
+        if label:
+            return label
+    # Many converters omit general.file_type. A filename hint is useful, but
+    # deliberately presented as a hint rather than verified tensor metadata.
+    match = re.search(r"(?i)(?:^|[-_.])(IQ\d_[A-Z0-9_]+|Q\d(?:_K(?:_[SML])?|_[01])|F16|F32|BF16)(?=$|[-_.])", Path(path).name)
+    return match.group(1).upper() + " (filename)" if match else "Unknown"
+
+
+def _human_size(size: int) -> str:
+    if size < 0:
+        return "Unknown"
+    value = float(size)
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if value < 1024 or unit == "TiB":
+            return f"{value:.1f} {unit}" if unit != "B" else f"{int(value)} B"
+        value /= 1024
+    return "Unknown"
 
 
 def _read_exact(stream, size: int) -> bytes:
@@ -66,7 +122,7 @@ def _metadata(path: Path) -> dict[str, Any]:
             result.update(gguf_version=version, tensor_count=tensors)
             if count > 10000:
                 return result
-            keep = {"general.architecture", "general.name", "general.basename", "general.quantization_version", "general.file_type", "llama.context_length", "tokenizer.ggml.model"}
+            keep = {"general.architecture", "general.name", "general.basename", "general.quantization_version", "general.file_type", "general.license", "general.license.name", "general.source.url", "general.source.name", "llama.context_length", "tokenizer.ggml.model"}
             for _ in range(count):
                 key = _string(f)
                 kind = struct.unpack("<I", _read_exact(f, 4))[0]
