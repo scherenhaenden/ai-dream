@@ -1,4 +1,5 @@
 import json
+import threading
 import time
 import unittest
 
@@ -62,6 +63,11 @@ class LocalAgentTests(unittest.TestCase):
         self.assertEqual(result.tool_summaries[0].name, "hardware.status")
         self.assertIn('"gpu":"local"', result.tool_summaries[0].result_snippet)
         self.assertEqual(result.summary()["tools"][0]["status"], "success")
+        audit = result.summary()["tools"][0]
+        self.assertEqual(audit["sequence"], 1)
+        self.assertEqual(audit["argument_names"], [])
+        self.assertGreaterEqual(audit["result_bytes"], 1)
+        self.assertLessEqual(audit["duration_ms"], 120_000)
         self.assertTrue(result.tool_calls_supported)
         tool_message = backend.requests[1][0][-1]
         self.assertEqual(tool_message["role"], "tool")
@@ -131,6 +137,28 @@ class LocalAgentTests(unittest.TestCase):
         self.assertEqual(len(result["tools"][0]["name"]), 80)
         self.assertEqual(len(result["tools"][0]["result_snippet"]), 240)
         self.assertEqual(result["elapsed_seconds"], 120.0)
+        self.assertLessEqual(result["tools"][0]["duration_ms"], 120_000)
+        self.assertLessEqual(len(result["tools"][0]["argument_names"]), 16)
+
+    def test_audit_records_field_names_but_never_argument_values(self):
+        class ArgumentBackend(FakeToolBackend):
+            def chat_with_tools(self, messages, tools, timeout):
+                if not self.requests:
+                    self.requests.append((messages, tools, timeout))
+                    return {"role": "assistant", "content": "", "tool_calls": [
+                        function_call("models_info", '{"model_id":"private-model","access_token":"secret"}')
+                    ]}
+                self.requests.append((messages, tools, timeout))
+                return {"role": "assistant", "content": "Done."}
+
+        backend = ArgumentBackend([])
+        result = LocalAgent(backend, make_registry()).run("info")
+        audit = result.summary()["tools"][0]
+        encoded = json.dumps(audit)
+        self.assertIn("model_id", audit["argument_names"])
+        self.assertIn("[redacted-field]", audit["argument_names"])
+        self.assertNotIn("private-model", encoded)
+        self.assertNotIn("secret", encoded)
 
     def test_stops_before_exceeding_tool_call_limit(self):
         backend = FakeToolBackend([
@@ -197,6 +225,58 @@ class LocalAgentTests(unittest.TestCase):
         result = LocalAgent(backend, SlowRegistry(), max_seconds=0.2).run("status")
         self.assertLess(time.monotonic() - started, 0.35)
         self.assertEqual(result.stop_reason, "time_limit")
+
+    def test_cancellation_interrupts_backend_and_returns_audit_result(self):
+        started = threading.Event()
+        interrupted = threading.Event()
+
+        class BlockingBackend:
+            def chat_with_tools(self, messages, tools, timeout):
+                started.set()
+                interrupted.wait(2)
+                raise RuntimeError("backend interrupted")
+
+            def cancel_generation(self):
+                interrupted.set()
+
+        cancel = threading.Event()
+        result_box = []
+        worker = threading.Thread(target=lambda: result_box.append(
+            LocalAgent(BlockingBackend(), make_registry()).run("status", cancel_event=cancel)))
+        worker.start()
+        self.assertTrue(started.wait(1))
+        cancel.set()
+        worker.join(1)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(result_box[0].stop_reason, "cancelled")
+        self.assertIn("stopped by user", result_box[0].text.lower())
+        self.assertTrue(interrupted.is_set())
+
+    def test_cancellation_interrupts_wait_for_read_only_tool(self):
+        started = threading.Event()
+
+        class BlockingRegistry:
+            def list_tools(self):
+                return make_registry().list_tools()
+
+            def invoke(self, name, args):
+                started.set()
+                time.sleep(1)
+                return {"finished": True}
+
+        backend = FakeToolBackend([{"role": "assistant", "content": "", "tool_calls": [
+            function_call("hardware_status")]}])
+        cancel = threading.Event()
+        result_box = []
+        worker = threading.Thread(target=lambda: result_box.append(
+            LocalAgent(backend, BlockingRegistry()).run("status", cancel_event=cancel)))
+        worker.start()
+        self.assertTrue(started.wait(1))
+        cancel.set()
+        worker.join(0.5)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(result_box[0].stop_reason, "cancelled")
+        self.assertEqual(result_box[0].tool_summaries[0].status, "cancelled")
 
     def test_caps_oversized_model_output(self):
         backend = FakeToolBackend([{"role": "assistant", "content": "x" * 500}])
