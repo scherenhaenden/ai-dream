@@ -1,0 +1,2 @@
+import { ChangeDetectionStrategy, Component } from '@angular/core'; import { PageShell } from './page-shell';
+@Component({standalone:true,imports:[PageShell],changeDetection:ChangeDetectionStrategy.OnPush,template:`<page-shell title="Runtime" section="SYSTEM" description="Configure the inference backends installed on this machine." endpoint="GET /api/runtime" dataPath="/api/runtime" symbol="⌘"></page-shell>`}) export class RuntimePage {}

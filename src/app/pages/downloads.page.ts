@@ -1,0 +1,2 @@
+import { ChangeDetectionStrategy, Component } from '@angular/core'; import { PageShell } from './page-shell';
+@Component({standalone:true,imports:[PageShell],changeDetection:ChangeDetectionStrategy.OnPush,template:`<page-shell title="Downloads" section="SYSTEM" description="Track model transfers to your local model library." endpoint="GET /api/downloads (planned)" symbol="⇩"></page-shell>`}) export class DownloadsPage {}

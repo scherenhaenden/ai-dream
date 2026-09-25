@@ -1,0 +1,4 @@
+import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { PageShell } from './page-shell';
+@Component({standalone:true,imports:[PageShell],changeDetection:ChangeDetectionStrategy.OnPush,template:`<page-shell title="Chat" section="WORKSPACE" description="A private workspace for conversations with your local models." endpoint="POST /api/chat (streaming pending)" symbol="◫" connectedText="The local API is reachable, but chat streaming is not yet connected to this web client."></page-shell><section class="chat-disabled surface"><div class="chat-lock">⌁</div><div><b>Chat transport not connected</b><p>The web client will enable chat once the local API exposes its streaming endpoint.</p></div><button disabled title="Requires chat API">Send <span>↗</span></button></section>`})
+export class ChatPage {}

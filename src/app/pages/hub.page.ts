@@ -1,0 +1,2 @@
+import { ChangeDetectionStrategy, Component } from '@angular/core'; import { PageShell } from './page-shell';
+@Component({standalone:true,imports:[PageShell],changeDetection:ChangeDetectionStrategy.OnPush,template:`<page-shell title="Model Hub" section="LIBRARY" description="Find compatible models from supported model repositories." endpoint="GET /api/hub/search (planned)" symbol="⌕"></page-shell>`}) export class HubPage {}

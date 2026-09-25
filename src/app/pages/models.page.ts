@@ -1,0 +1,2 @@
+import { ChangeDetectionStrategy, Component } from '@angular/core'; import { PageShell } from './page-shell';
+@Component({standalone:true,imports:[PageShell],changeDetection:ChangeDetectionStrategy.OnPush,template:`<page-shell title="Models" section="LIBRARY" description="Browse and manage model files detected on this device." endpoint="GET /api/models" dataPath="/api/models" symbol="⬡"></page-shell>`}) export class ModelsPage {}

@@ -1,0 +1,2 @@
+import { ChangeDetectionStrategy, Component } from '@angular/core'; import { PageShell } from './page-shell';
+@Component({standalone:true,imports:[PageShell],changeDetection:ChangeDetectionStrategy.OnPush,template:`<page-shell title="Hardware" section="SYSTEM" description="Inspect processors, memory, and accelerator devices available to local runtimes." endpoint="GET /api/hardware" dataPath="/api/hardware" symbol="▤"></page-shell>`}) export class HardwarePage {}
