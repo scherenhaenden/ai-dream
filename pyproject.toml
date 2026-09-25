@@ -11,6 +11,7 @@ dependencies = []
 
 [project.scripts]
 app = "aidream.cli:main"
+app-gui = "aidream.ui:main"
 
 [tool.setuptools.packages.find]
 include = ["aidream*"]
