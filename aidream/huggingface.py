@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import errno
+import hashlib
 import os
 import re
 import shutil
@@ -124,21 +125,53 @@ class HuggingFaceDownloader:
             raise FileExistsError(f"Refusing to overwrite existing file: {final}")
         parts = [urllib.parse.quote(p, safe="") for p in file_name.split("/")]
         url = f"https://huggingface.co/{urllib.parse.quote(repo_id, safe='/')}/resolve/{urllib.parse.quote(revision, safe='')}/{'/'.join(parts)}?download=true"
-        req = urllib.request.Request(url, headers={"User-Agent": "AI-Dream/0.1"})
-        tmp_name = None
+        identity = {"repo_id": repo_id, "file_name": file_name, "revision": revision}
+        key = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()[:24]
+        part = dest / f".aidream-{key}.part"
+        meta = dest / f".aidream-{key}.json"
         try:
             if cancel_event and cancel_event.is_set():
                 raise DownloadCancelledError("Download cancelled.")
-            with urllib.request.urlopen(req, timeout=self.timeout) as response:
-                total_header = response.headers.get("Content-Length")
-                total = int(total_header) if total_header and total_header.isdigit() else None
-                if total is not None and shutil.disk_usage(dest).free < total:
-                    raise OSError(errno.ENOSPC, f"Not enough free space for download ({total} bytes required).", str(dest))
-                if cancel_event and cancel_event.is_set():
-                    raise DownloadCancelledError("Download cancelled.")
-                fd, tmp_name = tempfile.mkstemp(prefix=".aidream-download-", suffix=".part", dir=dest)
-                received = 0
-                with os.fdopen(fd, "wb") as out:
+            offset, saved = self._load_partial(part, meta, identity)
+            headers = {"User-Agent": "AI-Dream/0.1"}
+            if offset:
+                headers["Range"] = f"bytes={offset}-"
+                if saved.get("etag"):
+                    headers["If-Range"] = saved["etag"]
+            req = urllib.request.Request(url, headers=headers)
+            try:
+                response = urllib.request.urlopen(req, timeout=self.timeout)
+            except urllib.error.HTTPError as exc:
+                if offset and exc.code == 416:
+                    self._discard_partial(part, meta)
+                    offset, saved = 0, {}
+                    req = urllib.request.Request(url, headers={"User-Agent": "AI-Dream/0.1"})
+                    response = urllib.request.urlopen(req, timeout=self.timeout)
+                else:
+                    raise
+            status = getattr(response, "status", getattr(response, "code", 200))
+            etag = response.headers.get("ETag")
+            valid_range = status == 206 and self._range_starts_at(response, offset)
+            unsafe_entity = not saved.get("etag") or not etag or saved.get("etag") != etag
+            if offset and (not valid_range or unsafe_entity):
+                response.close()
+                self._discard_partial(part, meta)
+                offset, saved = 0, {}
+                req = urllib.request.Request(url, headers={"User-Agent": "AI-Dream/0.1"})
+                response = urllib.request.urlopen(req, timeout=self.timeout)
+                status = getattr(response, "status", getattr(response, "code", 200))
+                etag = response.headers.get("ETag")
+            if status == 206 and offset == 0:
+                response.close()
+                raise RuntimeError("Hugging Face returned an unexpected partial response.")
+            with response:
+                total = self._response_total(response, status, offset)
+                if total is not None and shutil.disk_usage(dest).free < max(0, total - offset):
+                    raise OSError(errno.ENOSPC, f"Not enough free space for download ({total - offset} bytes required).", str(dest))
+                received = offset
+                mode = "ab" if offset else "wb"
+                self._write_partial_meta(meta, {**identity, "etag": etag, "total": total, "received": received})
+                with open(part, mode) as out:
                     while True:
                         if cancel_event and cancel_event.is_set():
                             raise DownloadCancelledError("Download cancelled.")
@@ -149,6 +182,9 @@ class HuggingFaceDownloader:
                             raise DownloadCancelledError("Download cancelled.")
                         out.write(chunk)
                         received += len(chunk)
+                        out.flush()
+                        os.fsync(out.fileno())
+                        self._write_partial_meta(meta, {**identity, "etag": etag, "total": total, "received": received})
                         if progress:
                             progress(received, total)
                     out.flush()
@@ -159,15 +195,70 @@ class HuggingFaceDownloader:
                 raise DownloadCancelledError("Download cancelled.")
             # Hard-link publication is atomic and fails if another process created the
             # destination after our initial exists check.
-            os.link(tmp_name, final)
+            os.link(part, final)
+            self._discard_partial(part, meta)
             return final
         except urllib.error.HTTPError as exc:
             raise RuntimeError(f"Hugging Face download failed with HTTP {exc.code}.") from exc
         except urllib.error.URLError as exc:
             raise RuntimeError(f"Could not download from Hugging Face: {exc.reason}") from exc
         finally:
-            if tmp_name:
-                try:
-                    os.unlink(tmp_name)
-                except FileNotFoundError:
-                    pass
+            if cancel_event and cancel_event.is_set():
+                self._discard_partial(part, meta)
+
+    @staticmethod
+    def _load_partial(part: Path, meta: Path, identity: dict) -> tuple[int, dict]:
+        try:
+            data = json.loads(meta.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                raise ValueError("invalid partial metadata")
+            size = part.stat().st_size
+            if any(data.get(k) != v for k, v in identity.items()) or data.get("received") != size:
+                raise ValueError("partial metadata mismatch")
+            total = data.get("total")
+            if not isinstance(data.get("received"), int) or (total is not None and (not isinstance(total, int) or size > total)):
+                raise ValueError("invalid partial metadata")
+            return size, data
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            HuggingFaceDownloader._discard_partial(part, meta)
+            return 0, {}
+
+    @staticmethod
+    def _response_total(response, status: int, offset: int) -> int | None:
+        if status == 206:
+            match = re.fullmatch(r"bytes \d+-\d+/(\d+|\*)", response.headers.get("Content-Range", ""))
+            if match and match.group(1) != "*":
+                return int(match.group(1))
+        value = response.headers.get("Content-Length")
+        if value and value.isdigit():
+            return offset + int(value) if status == 206 else int(value)
+        return None
+
+    @staticmethod
+    def _range_starts_at(response, offset: int) -> bool:
+        value = response.headers.get("Content-Range", "")
+        match = re.fullmatch(r"bytes (\d+)-(\d+)/(\d+|\*)", value)
+        return bool(match and int(match.group(1)) == offset and int(match.group(2)) >= offset)
+
+    @staticmethod
+    def _write_partial_meta(meta: Path, data: dict) -> None:
+        fd, name = tempfile.mkstemp(prefix=meta.name, suffix=".tmp", dir=meta.parent)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                json.dump(data, stream)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(name, meta)
+        finally:
+            try:
+                os.unlink(name)
+            except FileNotFoundError:
+                pass
+
+    @staticmethod
+    def _discard_partial(part: Path, meta: Path) -> None:
+        for path in (part, meta):
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
