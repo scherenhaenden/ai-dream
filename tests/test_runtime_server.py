@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from types import SimpleNamespace
 from aidream.runtime import LlamaCppBackend
 
 FAKE_SERVER = r'''#!/usr/bin/env python3
@@ -96,6 +97,36 @@ class PersistentServerTest(unittest.TestCase):
             command_args = json.loads(Path(str(model) + '.argv').read_text())
             fit_index = command_args.index('--fit')
             self.assertEqual(command_args[fit_index + 1], 'on')
+
+    def test_restores_saved_conversation_turns(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            executable = root / 'fake-server'
+            executable.write_text(FAKE_SERVER)
+            executable.chmod(0o755)
+            model = root / 'model.gguf'
+            model.write_bytes(b'mock')
+            backend = LlamaCppBackend(str(executable), startup_timeout=3)
+            backend.load(model)
+            try:
+                backend.restore_history([
+                    {'role': 'user', 'content': 'earlier question'},
+                    {'role': 'assistant', 'content': 'earlier answer'},
+                ])
+                backend.generate('continue')
+                requests = [json.loads(line) for line in Path(str(model) + '.requests').read_text().splitlines()]
+                self.assertEqual([m['role'] for m in requests[0]['messages']], ['user', 'assistant', 'user'])
+                self.assertEqual(requests[0]['messages'][0]['content'], 'earlier question')
+            finally:
+                backend.unload()
+
+    def test_rejects_vision_projector_as_chat_model(self):
+        with tempfile.TemporaryDirectory() as td:
+            model = Path(td) / 'projector.gguf'
+            model.write_bytes(b'mock')
+            backend = LlamaCppBackend(executable='/does/not/exist')
+            record = SimpleNamespace(path=str(model), metadata={'general.architecture': 'clip'})
+            self.assertFalse(backend.can_load(record))
 
 if __name__ == '__main__':
     unittest.main()

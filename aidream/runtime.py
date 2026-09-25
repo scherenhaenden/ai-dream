@@ -95,7 +95,26 @@ class LlamaCppBackend:
 
     def can_load(self, model: Any) -> bool:
         path = self._path(model)
+        metadata = getattr(model, "metadata", {})
+        architecture = metadata.get("general.architecture") if isinstance(metadata, Mapping) else None
+        # Vision projector GGUFs are catalogued for pairing, but are not chat models.
+        if architecture == "clip" or (path and path.name.lower().startswith("mmproj-")):
+            return False
         return bool(self.capabilities().available and path and path.is_file() and path.suffix.lower() == ".gguf")
+
+    def restore_history(self, messages: list[Mapping[str, str]]) -> None:
+        """Restore saved turns into the active server conversation context."""
+        if not self._process or self._process.poll() is not None or self._loaded_model is None:
+            raise RuntimeError("Load a model before restoring conversation history")
+        restored: list[dict[str, str]] = []
+        for item in messages:
+            if not isinstance(item, Mapping) or item.get("role") not in {"system", "user", "assistant"}:
+                raise ValueError("history entries must have a system, user, or assistant role")
+            content = item.get("content")
+            if not isinstance(content, str) or not content.strip():
+                raise ValueError("history message content cannot be empty")
+            restored.append({"role": item["role"], "content": content})
+        self._messages = restored
 
     def _placement_options(self, placement: Any) -> list[str]:
         if placement is None:

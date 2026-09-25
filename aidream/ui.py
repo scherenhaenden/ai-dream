@@ -517,6 +517,10 @@ class AIDreamWindow:
                 backend.load(model, placement, options=load_options)
                 self.loaded_backend = backend
                 self.loaded_key = requested_key
+                if hasattr(backend, "restore_history"):
+                    history = [message for message in self.chat_session.get("messages", [])
+                               if message.get("role") in ("user", "assistant", "system")]
+                    backend.restore_history(history)
                 self._append_chat(f"Loaded {model.path} with {backend.name}.")
             answer = backend.generate(prompt, options=generation_options)
             self.chat_session = self.chat_store.append(self.chat_session["id"], "user", prompt)

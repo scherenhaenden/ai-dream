@@ -29,13 +29,14 @@ The current dated Linux test build is generated under `build/linux/25.09.2026/`.
 - Public Hugging Face GGUF search and download with progress, validation and no-overwrite behavior.
 - Persistent llama.cpp server with chat completions, runtime capability detection and context/thread/batch/placement settings.
 - Explicit multi-GPU tensor splits automatically disable llama.cpp auto-fit by default. This avoids a reproduced server abort in the installed llama.cpp build. Set the `fit` load option explicitly when using the Python API to override it.
-- Local JSON conversation history and conversation switching in the UI.
+- Local JSON conversation history and conversation switching in the UI, with saved turns restored into the runtime when a chat is resumed or the model is reloaded.
+- Vision-projector GGUFs remain catalogued but are rejected as standalone chat models.
 - Optional offline voice output via `espeak-ng`/`espeak`; recording and transcription via `arecord`, `whisper-cli`/`whisper-cpp`, and a local Whisper model.
 - `aidream.agent_tools.AgentToolRegistry` exposes only typed, read-only hardware, model and runtime queries. It does not execute arbitrary commands.
 
 Hugging Face access in this preview covers public repositories only. Voice programs are optional system dependencies; AI Dream does not send microphone audio to a cloud service.
 
-Chat transcripts reopen in the UI. Restoring old transcript turns into the model's active context after a process restart remains pending.
+Agent tools currently provide a read-only registry API; the model-driven tool-call loop and UI are pending.
 
 ## Storage
 

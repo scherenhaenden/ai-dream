@@ -13,7 +13,8 @@ Status snapshot: 25 September 2026. This file is the working checklist for the l
 - [x] Merge the Vulkan/PCI physical-GPU deduplication fix; identical physical cards remain distinct.
 - [x] Produce the dated Linux build artifact and exercise its CLI launcher.
 - [x] Add public Hugging Face GGUF search/download with progress, destination registration and no-overwrite behavior.
-- [x] Persist local chats and restore them in the UI; speak responses and record/transcribe through optional local tools.
+- [x] Persist local chats, restore saved turns into the runtime, and speak/record/transcribe through optional local tools.
+- [x] Keep projector GGUFs catalogued but prevent loading them as standalone chat models.
 - [x] Add an allow-listed read-only agent tool registry for hardware, local model and runtime queries.
 - [x] Verify the real Gemma 4 E2B GGUF across Vulkan0 and Vulkan1 through the Python backend with `--fit off`.
 
@@ -22,7 +23,7 @@ Status snapshot: 25 September 2026. This file is the working checklist for the l
 | Area | First usable slice | Next increments |
 |---|---|---|
 | Hugging Face model downloader | Search public repositories/files, choose a GGUF, show progress, save safely in a registered model directory, then rescan | Cancellation/resume, checksums, model metadata/license display, optional authenticated access |
-| Chat | Persistent local conversations and message history around the existing runtime | Restore saved turns into model context, streaming tokens, rename/delete/export conversations, attachments, per-chat model/options |
+| Chat | Persistent local conversations, saved-turn context restoration and message history around the existing runtime | Streaming tokens, rename/delete/export conversations, attachments, per-chat model/options |
 | Agentic tools | Typed allow-listed read-only hardware/model/runtime APIs; unknown and mutating calls are rejected | Connect tools to the model chat loop, user-approved file actions, bounded plans, tool call/result UI, audit log, cancellation and budgets |
 | Voice | Detect optional local speech tools; local speech output and transcription where available | Async push-to-talk UI, streaming STT/TTS, voice selection, interruption and device configuration |
 | Other inputs/outputs | Preserve a modality-ready message/attachment contract | Image input, document ingestion, audio attachments, export and accessibility |
@@ -40,10 +41,10 @@ Status snapshot: 25 September 2026. This file is the working checklist for the l
 
 ### Chat and generation
 
-- [x] Create, persist and resume the visible chat transcript locally. Rename, delete, export and restoring old turns into runtime context remain pending.
+- [x] Create, persist and resume the visible chat transcript locally, including restoring old turns into runtime context. Rename, delete and export remain pending.
 - [ ] Add streaming generation, stop/cancel, retry and clear error states.
 - [ ] Support system prompt, temperature, response limit, stop strings, context policy and reusable presets.
-- [ ] Keep conversation history consistent between saved chats and the backend on reload/model change.
+- [x] Keep conversation history consistent between saved chats and the backend on reload/model change.
 - [ ] Add attachment handling for images/documents/audio only when the selected backend supports it.
 
 ### Agentic operation
