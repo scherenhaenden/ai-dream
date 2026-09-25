@@ -5,12 +5,25 @@ from dataclasses import asdict, dataclass, is_dataclass
 import json
 from pathlib import Path
 import queue
+import re
 import threading
 import time
 from typing import Any, Mapping
 
 from aidream.agent_tools import AgentToolRegistry, ToolSpec
 from aidream.runtime import ToolCallsUnsupported
+
+
+@dataclass(frozen=True)
+class ToolCallSummary:
+    """Small inspection record; arguments and full outputs are never retained."""
+
+    name: str
+    status: str
+    result_snippet: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {"name": self.name, "status": self.status, "result_snippet": self.result_snippet}
 
 
 @dataclass(frozen=True)
@@ -21,6 +34,22 @@ class AgentResult:
     elapsed_seconds: float
     stop_reason: str
     tool_calls_supported: bool
+    tool_summaries: tuple[ToolCallSummary, ...] = ()
+
+    def summary(self) -> dict[str, Any]:
+        """Return a JSON-ready, bounded summary for UI, logs, or diagnostics."""
+        return {
+            "text": self.text[:64_000],
+            "tools": [
+                {"name": item.name[:80], "status": item.status[:32],
+                 "result_snippet": item.result_snippet[:240]}
+                for item in self.tool_summaries[:12]
+            ],
+            "tool_call_count": min(self.tool_call_count, 12),
+            "elapsed_seconds": round(min(max(self.elapsed_seconds, 0), 120.0), 3),
+            "stop_reason": self.stop_reason[:64],
+            "tool_calls_supported": bool(self.tool_calls_supported),
+        }
 
 
 class LocalAgent:
@@ -90,6 +119,7 @@ class LocalAgent:
         messages.extend(prior)
         messages.append({"role": "user", "content": prompt.strip()})
         calls: list[str] = []
+        tool_summaries: list[ToolCallSummary] = []
         final_text = ""
         stop_reason = "completed"
         tool_output_chars = 0
@@ -102,7 +132,7 @@ class LocalAgent:
             try:
                 message = turn(messages, tools, timeout=max(0.1, remaining))
             except ToolCallsUnsupported:
-                return self._unsupported(started, calls)
+                return self._unsupported(started, calls, tool_summaries)
             if not isinstance(message, Mapping):
                 raise RuntimeError("Agent backend returned an invalid message")
             try:
@@ -138,16 +168,30 @@ class LocalAgent:
                 canonical = self._REVERSE_ALIASES.get(name)
                 if canonical is None:
                     tool_result = {"error": f"Rejected unregistered tool: {name}"}
-                    recorded_name = name[:80]
+                    recorded_name = "unregistered"
+                    call_status = "rejected"
                 else:
                     recorded_name = canonical
                     try:
                         remaining = max(0.0, self.max_seconds - (time.monotonic() - started))
                         result = self._invoke_bounded(canonical, args, remaining)
                         tool_result = self._jsonable(result)
+                        call_status = "success"
                     except (ValueError, OSError, RuntimeError) as exc:
                         tool_result = {"error": str(exc)[:500]}
+                        call_status = "timed_out" if isinstance(exc, TimeoutError) else "error"
                 calls.append(recorded_name)
+                if call_status == "rejected":
+                    summary_value = "Tool request rejected by the read-only allow-list."
+                elif call_status == "timed_out":
+                    summary_value = "Tool read exceeded the agent time limit."
+                elif call_status == "error":
+                    summary_value = "Tool read failed."
+                else:
+                    summary_value = tool_result
+                tool_summaries.append(ToolCallSummary(
+                    recorded_name, call_status, self._safe_snippet(summary_value)
+                ))
                 encoded = json.dumps(tool_result, ensure_ascii=False, default=str)
                 budget_left = self.max_output_chars - tool_output_chars
                 encoded = encoded[:max(0, budget_left)]
@@ -166,7 +210,8 @@ class LocalAgent:
             final_text = (final_text + "\n\nAgent stopped at its tool-call limit.").strip()
         if len(final_text) > self.max_output_chars:
             final_text = final_text[:self.max_output_chars]
-        return AgentResult(final_text, tuple(calls), len(calls), elapsed, stop_reason, True)
+        return AgentResult(final_text, tuple(calls), len(calls), elapsed, stop_reason, True,
+                           tuple(tool_summaries))
 
     def _invoke_bounded(self, name: str, args: Mapping[str, Any], timeout: float) -> Any:
         """Keep slow local probes from holding the UI call past its deadline."""
@@ -189,10 +234,43 @@ class LocalAgent:
             raise value
         return value
 
-    def _unsupported(self, started: float, calls: list[str] | None = None) -> AgentResult:
+    def _unsupported(self, started: float, calls: list[str] | None = None,
+                     tool_summaries: list[ToolCallSummary] | None = None) -> AgentResult:
         text = "This model/runtime does not support agent tool calls. Ordinary chat is still available."
         return AgentResult(text[:self.max_output_chars], tuple(calls or ()), len(calls or ()),
-                           time.monotonic() - started, "tool_calls_unsupported", False)
+                           time.monotonic() - started, "tool_calls_unsupported", False,
+                           tuple(tool_summaries or ()))
+
+    @classmethod
+    def _safe_snippet(cls, value: Any) -> str:
+        """Serialize a result preview after recursively redacting secret fields."""
+        safe = cls._redact_sensitive(cls._jsonable(value))
+        snippet = json.dumps(safe, ensure_ascii=False, separators=(",", ":"), default=str)
+        snippet = re.sub(r"(?i)\b(bearer\s+)[A-Za-z0-9._~+/=-]+", r"\1[redacted]", snippet)
+        snippet = re.sub(
+            r"(?i)\b(api[_-]?key|access[_-]?token|password|secret|credential)\b(\s*[:=]\s*)[^\s,;\"}]+",
+            r"\1\2[redacted]", snippet,
+        )
+        return snippet[:240]
+
+    @classmethod
+    def _redact_sensitive(cls, value: Any) -> Any:
+        sensitive = {"secret", "password", "token", "api_key", "apikey", "authorization",
+                     "credential", "private_key", "access_token", "refresh_token"}
+        if isinstance(value, Mapping):
+            result = {}
+            for key, item in list(value.items())[:64]:
+                normalized = str(key).casefold().replace("-", "_")
+                if normalized in sensitive or any(part in normalized for part in ("password", "secret", "token", "credential")):
+                    result["[redacted-field]"] = "[redacted]"
+                else:
+                    result[str(key)] = cls._redact_sensitive(item)
+            return result
+        if isinstance(value, list):
+            return [cls._redact_sensitive(item) for item in value[:32]]
+        if isinstance(value, str):
+            return value[:512]
+        return value
 
     @classmethod
     def _tool_schema(cls, spec: ToolSpec) -> dict[str, Any]:

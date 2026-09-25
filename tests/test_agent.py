@@ -2,7 +2,7 @@ import json
 import time
 import unittest
 
-from aidream.agent import LocalAgent
+from aidream.agent import AgentResult, LocalAgent, ToolCallSummary
 from aidream.agent_tools import AgentToolRegistry
 from aidream.models import ModelRecord
 from aidream.runtime import ToolCallsUnsupported
@@ -58,6 +58,10 @@ class LocalAgentTests(unittest.TestCase):
         self.assertEqual(result.text, "Tu GPU es local.")
         self.assertEqual(result.tools_called, ("hardware.status",))
         self.assertEqual(result.tool_call_count, 1)
+        self.assertEqual(result.tool_summaries[0].status, "success")
+        self.assertEqual(result.tool_summaries[0].name, "hardware.status")
+        self.assertIn('"gpu":"local"', result.tool_summaries[0].result_snippet)
+        self.assertEqual(result.summary()["tools"][0]["status"], "success")
         self.assertTrue(result.tool_calls_supported)
         tool_message = backend.requests[1][0][-1]
         self.assertEqual(tool_message["role"], "tool")
@@ -70,9 +74,63 @@ class LocalAgentTests(unittest.TestCase):
             {"role": "assistant", "content": "No puedo ejecutar comandos."},
         ])
         result = LocalAgent(backend, make_registry()).run("Ejecuta id")
-        self.assertEqual(result.tools_called, ("shell_exec",))
+        self.assertEqual(result.tools_called, ("unregistered",))
+        self.assertEqual(result.tool_summaries[0].status, "rejected")
         self.assertEqual(json.loads(backend.requests[1][0][-1]["content"]),
                          {"error": "Rejected unregistered tool: shell_exec"})
+
+    def test_summary_redacts_secret_fields_and_only_keeps_a_short_snippet(self):
+        class SensitiveRegistry:
+            def list_tools(self):
+                return make_registry().list_tools()
+
+            def invoke(self, name, args):
+                return {"access_token": "should-not-appear", "details": "x" * 800}
+
+        backend = FakeToolBackend([
+            {"role": "assistant", "content": "", "tool_calls": [function_call("hardware_status")]},
+            {"role": "assistant", "content": "Done."},
+        ])
+        result = LocalAgent(backend, SensitiveRegistry()).run("status")
+        summary = result.summary()
+        serialized = json.dumps(summary)
+        self.assertNotIn("should-not-appear", serialized)
+        self.assertIn("[redacted]", serialized)
+        self.assertLessEqual(len(result.tool_summaries[0].result_snippet), 240)
+        self.assertNotIn("access_token", summary["tools"][0]["result_snippet"])
+
+    def test_summary_distinguishes_timed_out_tool(self):
+        class TimeoutRegistry:
+            def list_tools(self):
+                return make_registry().list_tools()
+
+            def invoke(self, name, args):
+                raise TimeoutError("private timeout detail")
+
+        backend = FakeToolBackend([
+            {"role": "assistant", "content": "", "tool_calls": [function_call("hardware_status")]},
+            {"role": "assistant", "content": "It timed out."},
+        ])
+        result = LocalAgent(backend, TimeoutRegistry()).run("status")
+        self.assertEqual(result.tool_summaries[0].status, "timed_out")
+        self.assertNotIn("private timeout detail", result.summary()["tools"][0]["result_snippet"])
+
+    def test_summary_api_clamps_external_records_to_documented_limits(self):
+        result = AgentResult(
+            "x" * 70_000,
+            (),
+            99,
+            500,
+            "r" * 100,
+            True,
+            tuple(ToolCallSummary("n" * 100, "s" * 40, "z" * 300) for _ in range(20)),
+        ).summary()
+        self.assertEqual(len(result["text"]), 64_000)
+        self.assertEqual(result["tool_call_count"], 12)
+        self.assertEqual(len(result["tools"]), 12)
+        self.assertEqual(len(result["tools"][0]["name"]), 80)
+        self.assertEqual(len(result["tools"][0]["result_snippet"]), 240)
+        self.assertEqual(result["elapsed_seconds"], 120.0)
 
     def test_stops_before_exceeding_tool_call_limit(self):
         backend = FakeToolBackend([
