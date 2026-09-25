@@ -25,7 +25,7 @@ Status snapshot: 25 September 2026. This file is the working checklist for the l
 | Hugging Face model downloader | Search public repositories/files, choose a GGUF, show progress, cancel safely, check known file size, resume with validated Range/ETag, save without overwrite and rescan | Checksums, richer Hub metadata, optional authenticated access |
 | Chat | Persistent local history, restore text turns, rename/delete/export, streaming, stop/cancel, validated presets and per-chat model/backend/placement/generation settings, images for vision-capable models, bounded local document attachments | Retry/regenerate, persist and restore attachment references, audio attachments |
 | Agentic tools | Bounded read-only hardware/model/runtime calls, cancellation, redacted results and a bounded audit that omits argument values | Richer plans; any file actions require explicit user approval |
-| Voice | Detect optional local speech tools; background recording/transcription, stoppable local speech output and installed Whisper model discovery | Push-to-talk UI, streaming STT/TTS and voice selection/configuration |
+| Voice | Detect optional local speech tools; configurable-duration recording, local audio-file transcription, selectable installed Whisper model and stoppable local TTS | Push-to-talk UI, streaming STT/TTS and speech voice selection |
 | Other inputs/outputs | Local PNG/JPEG/WebP images and bounded local TXT/Markdown/text-PDF extraction | Audio attachments, export options and accessibility |
 
 ## Functional requirements to complete
@@ -64,7 +64,8 @@ Status snapshot: 25 September 2026. This file is the working checklist for the l
 - [x] Offer basic background microphone recording and transcription when local dependencies are present. Device selection, push-to-talk and correction remain pending.
 - [x] Speak assistant output locally when a supported TTS engine is present.
 - [x] Stop local speech output without blocking the chat window; discover already-installed Whisper models without downloading them.
-- [ ] Add voice selection/configuration, push-to-talk and streaming STT/TTS.
+- [x] Select an installed Whisper model, choose microphone recording duration, and transcribe local audio files into the prompt.
+- [ ] Add push-to-talk and streaming STT/TTS plus speech voice selection.
 - [x] Add Ctrl+Enter send shortcut and a responsive resizable pane layout.
 - [ ] Improve keyboard navigation, readable status announcements and scalable layout.
 

@@ -195,6 +195,25 @@ class AIDreamWindow:
         self.images_status.pack(side=tk.LEFT, padx=6)
         self.documents_status = ttk.Label(voice_row, text="")
         self.documents_status.pack(side=tk.LEFT, padx=4)
+        voice_input_row = ttk.Frame(right)
+        voice_input_row.pack(fill=tk.X)
+        ttk.Label(voice_input_row, text="Whisper model").pack(side=tk.LEFT)
+        voice_configuration = self.voice.configuration()
+        self.whisper_model_var = tk.StringVar(value="")
+        self.whisper_model_box = ttk.Combobox(voice_input_row, textvariable=self.whisper_model_var,
+                                              values=[str(path) for path in voice_configuration.whisper_models],
+                                              state="readonly", width=34)
+        if voice_configuration.whisper_models:
+            self.whisper_model_var.set(str(voice_configuration.whisper_models[0]))
+        self.whisper_model_box.pack(side=tk.LEFT, padx=5)
+        ttk.Button(voice_input_row, text="Browse…", command=self.choose_whisper_model).pack(side=tk.LEFT)
+        ttk.Label(voice_input_row, text="Record seconds").pack(side=tk.LEFT, padx=(10, 3))
+        self.record_seconds_var = tk.StringVar(value="5")
+        ttk.Spinbox(voice_input_row, from_=1, to=120, textvariable=self.record_seconds_var,
+                    width=4).pack(side=tk.LEFT)
+        self.transcribe_audio_button = ttk.Button(voice_input_row, text="Transcribe audio file…",
+                                                  command=self.transcribe_audio_file)
+        self.transcribe_audio_button.pack(side=tk.LEFT, padx=6)
         self.chat = tk.Text(right, state=tk.DISABLED, wrap=tk.WORD)
         self.chat.pack(fill=tk.BOTH, expand=True, pady=4)
         self._restore_chat()
@@ -780,29 +799,84 @@ class AIDreamWindow:
         if not self.voice.capabilities.recording:
             messagebox.showinfo("Voice input unavailable", self.voice.capabilities.setup_help(), parent=self.root)
             return
-        model = filedialog.askopenfilename(title="Choose whisper.cpp model",
-                                           filetypes=[("Whisper model", "*.bin"), ("All files", "*.*")])
+        model = self._selected_whisper_model()
         if not model:
             return
+        try:
+            seconds = int(self.record_seconds_var.get())
+            if not 1 <= seconds <= 120:
+                raise ValueError
+        except ValueError:
+            messagebox.showerror("Invalid recording duration", "Choose a duration from 1 to 120 seconds.",
+                                 parent=self.root)
+            return
+        self._start_transcription(model, record_seconds=seconds)
+
+    def choose_whisper_model(self):
+        path = filedialog.askopenfilename(title="Choose an installed whisper.cpp model",
+                                          filetypes=[("Whisper model", "ggml-*.bin"), ("All files", "*.*")],
+                                          parent=self.root)
+        if not path:
+            return
+        values = list(self.whisper_model_box.cget("values"))
+        if path not in values:
+            values.append(path)
+            self.whisper_model_box.configure(values=values)
+        self.whisper_model_var.set(path)
+
+    def _selected_whisper_model(self):
+        selected = self.whisper_model_var.get().strip()
+        if selected and Path(selected).is_file():
+            return selected
+        return self.choose_whisper_model_and_return()
+
+    def choose_whisper_model_and_return(self):
+        self.choose_whisper_model()
+        selected = self.whisper_model_var.get().strip()
+        return selected if selected and Path(selected).is_file() else None
+
+    def transcribe_audio_file(self):
+        if self._voice_busy:
+            return
+        if not self.voice.capabilities.speech_to_text:
+            messagebox.showinfo("Speech recognition unavailable", self.voice.capabilities.setup_help(),
+                                parent=self.root)
+            return
+        audio = filedialog.askopenfilename(
+            title="Choose a local audio file",
+            filetypes=(("Audio files", "*.wav *.mp3 *.m4a *.flac *.ogg *.opus"), ("All files", "*.*")),
+            parent=self.root)
+        if not audio:
+            return
+        model = self._selected_whisper_model()
+        if model:
+            self._start_transcription(model, audio_path=audio)
+
+    def _start_transcription(self, model, *, audio_path=None, record_seconds=None):
         self._voice_busy = True
         self.record_button.configure(state=tk.DISABLED)
-        self.voice_status.configure(text="Recording 5 seconds…")
+        self.transcribe_audio_button.configure(state=tk.DISABLED)
+        self.voice_status.configure(text=(f"Recording {record_seconds} seconds…" if record_seconds
+                                          else "Transcribing local audio…"))
 
         def work():
             audio = None
             try:
-                handle = tempfile.NamedTemporaryFile(prefix="ai-dream-mic-", suffix=".wav", delete=False)
-                audio = Path(handle.name)
-                handle.close()
-                audio.unlink(missing_ok=True)
-                self.voice.record(audio, seconds=5)
+                if record_seconds:
+                    handle = tempfile.NamedTemporaryFile(prefix="ai-dream-mic-", suffix=".wav", delete=False)
+                    audio = Path(handle.name)
+                    handle.close()
+                    audio.unlink(missing_ok=True)
+                    self.voice.record(audio, seconds=record_seconds)
+                else:
+                    audio = Path(audio_path)
                 self._voice_results.put(("status", "Transcribing…"))
                 text = self.voice.transcribe(audio, model)
                 self._voice_results.put(("success", text))
             except (OSError, RuntimeError, ValueError) as exc:
                 self._voice_results.put(("error", str(exc)))
             finally:
-                if audio:
+                if record_seconds and audio:
                     audio.unlink(missing_ok=True)
 
         threading.Thread(target=work, name="ai-dream-voice-input", daemon=True).start()
@@ -816,6 +890,7 @@ class AIDreamWindow:
                 else:
                     self._voice_busy = False
                     self.record_button.configure(state=tk.NORMAL)
+                    self.transcribe_audio_button.configure(state=tk.NORMAL)
                     if kind == "success":
                         self.prompt.delete("1.0", tk.END)
                         self.prompt.insert("1.0", value)
