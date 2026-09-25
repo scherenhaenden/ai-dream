@@ -43,6 +43,8 @@ class GPUInfo:
     memory_total_bytes: int | None = None
     memory_free_bytes: int | None = None
     backends: list[str] | None = None
+    pci_address: str | None = None
+    virtual: bool = False
 
     def __post_init__(self) -> None:
         if self.backends is None:
@@ -126,20 +128,29 @@ def _bytes(value: str, unit: str = "MiB") -> int | None:
         return None
 
 
+def _canonical_bdf(value: str) -> str | None:
+    match = re.search(r"(?i)(?:([0-9a-f]{1,8}):)?([0-9a-f]{1,2}):([0-9a-f]{1,2})\.([0-7])", value.strip())
+    if not match:
+        return None
+    domain, bus, device, function = match.groups()
+    return f"{int(domain or '0', 16):04x}:{int(bus, 16):02x}:{int(device, 16):02x}.{function}"
+
+
 def _nvidia() -> list[GPUInfo]:
-    output = _run(["nvidia-smi", "--query-gpu=index,name,memory.total,memory.free", "--format=csv,noheader,nounits"])
+    output = _run(["nvidia-smi", "--query-gpu=index,name,memory.total,memory.free,pci.bus_id", "--format=csv,noheader,nounits"])
     if not output:
         return []
     devices = []
     for line in output.splitlines():
-        fields = [x.strip() for x in line.split(",", 3)]
-        if len(fields) != 4:
+        fields = [x.strip() for x in line.split(",", 4)]
+        if len(fields) < 4:
             continue
         try:
             idx = int(fields[0])
         except ValueError:
             continue
-        devices.append(GPUInfo(idx, "NVIDIA", fields[1], _bytes(fields[2]), _bytes(fields[3]), ["cuda"]))
+        devices.append(GPUInfo(idx, "NVIDIA", fields[1], _bytes(fields[2]), _bytes(fields[3]), ["cuda"],
+                               _canonical_bdf(fields[4]) if len(fields) > 4 else None))
     return devices
 
 
@@ -163,11 +174,12 @@ def _rocm() -> list[GPUInfo]:
         name = next((v for k, v in normalized.items() if "product name" in k or " card series" in k), "AMD GPU")
         total = next((v for k, v in normalized.items() if "vram total" in k or "memory total" in k), "")
         used = next((v for k, v in normalized.items() if "vram used" in k or "memory used" in k), "")
+        bdf_value = next((v for k, v in normalized.items() if "pci bus" in k or "bdf" in k or k.strip() == "bus"), "")
         total_b = _bytes(re.sub(r"[^\d.]", "", total), "MiB")
         used_b = _bytes(re.sub(r"[^\d.]", "", used), "MiB")
         devices.append(GPUInfo(int(match.group(1)), "AMD", name, total_b,
                                max(0, total_b - used_b) if total_b is not None and used_b is not None else None,
-                               ["rocm"]))
+                               ["rocm"], _canonical_bdf(bdf_value)))
     return devices
 
 
@@ -191,7 +203,7 @@ def _sysfs_gpus() -> list[GPUInfo]:
             # this prevents two identical generic adapters from collapsing.
             if not name:
                 name = f"{vendor} GPU ({address})"
-            found.append(GPUInfo(len(found), vendor, name, backends=[]))
+            found.append(GPUInfo(len(found), vendor, name, backends=[], pci_address=_canonical_bdf(address)))
         except (OSError, ValueError):
             continue
     return found
@@ -203,13 +215,14 @@ def _lspci_names() -> dict[str, str]:
     if not output:
         return result
     for line in output.splitlines():
-        match = re.match(r"^(\S+) .*?VGA compatible controller|^(\S+) .*?3D controller|^(\S+) .*?Display controller", line, re.I)
+        match = re.match(r"^([0-9a-fA-F:.]+)\s+(?:VGA compatible controller|3D controller|Display controller)(?:\s+\[[^]]+\])?:\s*(.*)$", line, re.I)
         if not match:
             continue
-        address = next((g for g in match.groups() if g), "").lower()
-        desc = line.split(":", 1)[-1].strip()
-        desc = re.sub(r"\s*\[[0-9a-fA-F]{4}:[0-9a-fA-F]{4}\].*$", "", desc).strip()
-        result[address] = desc
+        address, desc = match.groups()
+        desc = re.sub(r"\s*\[[0-9a-fA-F]{4}:[0-9a-fA-F]{4}\]\s*$", "", desc).strip()
+        canonical = _canonical_bdf(address)
+        if canonical:
+            result[canonical] = desc
     return result
 
 
@@ -249,31 +262,47 @@ def _vulkan() -> list[GPUInfo]:
     for chunk in chunks[1:]:
         name_m = re.search(r"(?m)^\s*deviceName\s*=\s*(.+?)\s*$", chunk)
         vendor_m = re.search(r"(?m)^\s*vendorID\s*=\s*(0x[0-9a-fA-F]+|\d+)\s*$", chunk)
-        if not name_m:
+        type_m = re.search(r"(?m)^\s*deviceType\s*=\s*(.+?)\s*$", chunk)
+        if not name_m or (type_m and "cpu" in type_m.group(1).casefold()):
             continue
         name = name_m.group(1).strip()
         vendor_id = int(vendor_m.group(1), 0) if vendor_m else None
         vendor = {0x10DE: "NVIDIA", 0x1002: "AMD", 0x8086: "Intel"}.get(vendor_id, f"PCI {vendor_id:04x}" if vendor_id is not None else "Unknown")
-        devices.append(GPUInfo(len(devices), vendor, name, backends=["vulkan"]))
+        virtual = bool(type_m and "virtual" in type_m.group(1).casefold())
+        if virtual:
+            name = f"{name} (virtual)"
+        def pci_field(field: str) -> int | None:
+            match = re.search(rf"(?m)^\s*pci{field}\s*=\s*(0x[0-9a-fA-F]+|\d+)\s*$", chunk, re.I)
+            return int(match.group(1), 0) if match else None
+        domain, bus, device, function = (pci_field(k) for k in ("Domain", "Bus", "Device", "Function"))
+        bdf = f"{domain or 0:04x}:{bus:02x}:{device:02x}.{function}" if bus is not None and device is not None and function is not None else None
+        devices.append(GPUInfo(len(devices), vendor, name, backends=["vulkan"], pci_address=bdf, virtual=virtual))
     return devices
 
 
 def _merge_gpus(providers: list[GPUInfo], pci: list[GPUInfo], vulkan: list[GPUInfo]) -> list[GPUInfo]:
     """Merge only one-to-one exact vendor/model matches; avoid guessed mappings."""
-    result = [GPUInfo(g.index, g.vendor, g.name, g.memory_total_bytes, g.memory_free_bytes, list(g.backends or [])) for g in providers]
+    result = [GPUInfo(g.index, g.vendor, g.name, g.memory_total_bytes, g.memory_free_bytes,
+                      list(g.backends or []), g.pci_address, g.virtual) for g in providers]
     def key(gpu: GPUInfo) -> tuple[str, str]:
         return gpu.vendor.casefold(), re.sub(r"\s+", " ", gpu.name).strip().casefold()
     for source in (pci, vulkan):
         consumed: set[int] = set()
         for candidate in source:
             match = next((i for i, existing in enumerate(result)
-                          if i not in consumed and key(existing) == key(candidate)), None)
+                          if i not in consumed and existing.pci_address and candidate.pci_address
+                          and existing.pci_address == candidate.pci_address), None)
+            if match is None:
+                match = next((i for i, existing in enumerate(result)
+                              if i not in consumed and key(existing) == key(candidate)), None)
             if match is not None:
                 consumed.add(match)
                 existing = result[match]
                 existing.backends = sorted(set(existing.backends or []) | set(candidate.backends or []))
                 existing.memory_total_bytes = existing.memory_total_bytes or candidate.memory_total_bytes
                 existing.memory_free_bytes = existing.memory_free_bytes or candidate.memory_free_bytes
+                existing.pci_address = existing.pci_address or candidate.pci_address
+                existing.virtual = existing.virtual or candidate.virtual
             else:
                 result.append(candidate)
     # Global stable indexes independent of overlapping vendor-local utility indexes.
