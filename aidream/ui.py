@@ -59,6 +59,16 @@ class AIDreamWindow:
         self.device_var = tk.StringVar(value="")
         self.device_box = ttk.Entry(settings, textvariable=self.device_var, width=18)
         self.device_box.pack(side=tk.LEFT, padx=6)
+        placement = ttk.LabelFrame(right, text="Advanced placement (runtime-supported)", padding=4)
+        placement.pack(fill=tk.X, pady=(4, 0))
+        ttk.Label(placement, text="GPU layers").pack(side=tk.LEFT)
+        self.gpu_layers_var = tk.StringVar()
+        self.gpu_layers_entry = ttk.Entry(placement, textvariable=self.gpu_layers_var, width=8)
+        self.gpu_layers_entry.pack(side=tk.LEFT, padx=(4, 12))
+        ttk.Label(placement, text="Tensor split").pack(side=tk.LEFT)
+        self.tensor_split_var = tk.StringVar()
+        self.tensor_split_entry = ttk.Entry(placement, textvariable=self.tensor_split_var, width=18)
+        self.tensor_split_entry.pack(side=tk.LEFT, padx=4)
         self.backend_box.bind("<<ComboboxSelected>>", lambda _e: self._update_capabilities())
         self.capability_label = ttk.Label(right, text="")
         self.capability_label.pack(anchor="w", pady=4)
@@ -112,6 +122,8 @@ class AIDreamWindow:
             controls.append("tensor split")
         status = f"Executable: {caps.executable or 'not found'}; controls: {', '.join(controls) or 'CPU/default only'}"
         self.device_box.configure(state=tk.NORMAL if caps.device_selection else tk.DISABLED)
+        self.gpu_layers_entry.configure(state=tk.NORMAL if caps.gpu_layers else tk.DISABLED)
+        self.tensor_split_entry.configure(state=tk.NORMAL if caps.tensor_split else tk.DISABLED)
         if not caps.device_selection:
             self.device_var.set("")
             status += ". Device selection is not exposed by this runtime."
@@ -156,7 +168,20 @@ class AIDreamWindow:
             return
         model = self.models[selected[0]]
         device = self.device_var.get().strip()
-        placement = {"device": device} if device else None
+        placement = {}
+        if device:
+            placement["device"] = device
+        gpu_layers = self.gpu_layers_var.get().strip()
+        if gpu_layers:
+            try:
+                placement["gpu_layers"] = int(gpu_layers)
+            except ValueError:
+                messagebox.showerror("Invalid GPU layers", "Enter a whole number of GPU layers.")
+                return
+        tensor_split = self.tensor_split_var.get().strip()
+        if tensor_split:
+            placement["tensor_split"] = tensor_split
+        placement = placement or None
         try:
             if not backend.can_load(model):
                 raise RuntimeError(f"{backend.name} cannot load this model.")
