@@ -44,6 +44,8 @@ def build_parser() -> argparse.ArgumentParser:
     model_cmd.add_parser("list", help="list discovered local models")
 
     sub.add_parser("backends", help="list available inference runtimes")
+    serve = sub.add_parser("serve", help="serve the read-only local JSON API on 127.0.0.1")
+    serve.add_argument("--port", type=int, default=8765)
     run = sub.add_parser("run", help="load a model and chat in the terminal")
     run.add_argument("model", help="model id or GGUF file path")
     run.add_argument("--backend", default="auto")
@@ -70,6 +72,9 @@ def main(argv: list[str] | None = None) -> int:
                 _print(catalog.scan())
             else:
                 _print(catalog.list_models())
+        elif args.command == "serve":
+            from aidream.http_api import serve
+            serve(args.port)
         elif args.command == "backends":
             from aidream.runtime import RuntimeRegistry
             _print([

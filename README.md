@@ -49,3 +49,5 @@ Model sources are indexed in place and remain untouched. Chat JSON files live un
 ## More
 
 See [ROADMAP.md](ROADMAP.md) for the implemented and pending functions.
+
+- Optional read-only local JSON API for a browser client: `app serve` (binds only to `127.0.0.1`; health, hardware, local model catalog and runtime availability are available under `/api/*`). See [docs/local-http-api.md](docs/local-http-api.md).
