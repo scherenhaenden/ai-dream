@@ -23,6 +23,7 @@ class AIDreamWindow:
         self.backend_by_name = {b.name: b for b in self.backends}
         self.loaded_backend = None
         self.loaded_key = None
+        self._settings_widgets = {}
         self._build()
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         self.refresh()
@@ -75,6 +76,32 @@ class AIDreamWindow:
         self.capability_label = ttk.Label(right, text="")
         self.capability_label.pack(anchor="w", pady=4)
 
+        load_settings = ttk.LabelFrame(right, text="Model load settings", padding=4)
+        load_settings.pack(fill=tk.X, pady=(0, 4))
+        self.context_var = tk.StringVar(value="4096")
+        self.threads_var = tk.StringVar()
+        self.batch_var = tk.StringVar()
+        self._setting_entry(load_settings, "Context", self.context_var, "context_size", 9)
+        self._setting_entry(load_settings, "CPU threads", self.threads_var, "threads", 7)
+        self._setting_entry(load_settings, "Batch size", self.batch_var, "batch_size", 7)
+        ttk.Label(load_settings, text="Load settings apply on next send; changing them reloads the model.").pack(anchor="w")
+
+        generation = ttk.LabelFrame(right, text="Generation settings", padding=4)
+        generation.pack(fill=tk.X, pady=(0, 4))
+        self.temperature_var = tk.StringVar(value="0.7")
+        self.max_tokens_var = tk.StringVar()
+        self._setting_entry(generation, "Temperature", self.temperature_var, "temperature", 8)
+        self._setting_entry(generation, "Max response tokens", self.max_tokens_var, "max_tokens", 8)
+        ttk.Label(generation, text="System prompt").pack(side=tk.LEFT, padx=(12, 3))
+        self.system_prompt_var = tk.StringVar()
+        self.system_prompt_entry = ttk.Entry(generation, textvariable=self.system_prompt_var)
+        self.system_prompt_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self._settings_widgets["system_prompt"] = self.system_prompt_entry
+        ttk.Label(generation, text="Stop strings (one per line)").pack(anchor="w", pady=(4, 0))
+        self.stop_strings = tk.Text(generation, height=2, wrap=tk.NONE)
+        self.stop_strings.pack(fill=tk.X)
+        self._settings_widgets["stop_strings"] = self.stop_strings
+
         self.chat = tk.Text(right, state=tk.DISABLED, wrap=tk.WORD)
         self.chat.pack(fill=tk.BOTH, expand=True, pady=4)
         prompt_row = ttk.Frame(right)
@@ -89,6 +116,12 @@ class AIDreamWindow:
         widget.delete("1.0", tk.END)
         widget.insert("1.0", text)
         widget.configure(state=tk.DISABLED)
+
+    def _setting_entry(self, parent, label, variable, capability, width):
+        ttk.Label(parent, text=label).pack(side=tk.LEFT, padx=(0, 3))
+        entry = ttk.Entry(parent, textvariable=variable, width=width)
+        entry.pack(side=tk.LEFT, padx=(0, 10))
+        self._settings_widgets[capability] = entry
 
     def refresh(self):
         snapshot = self.hardware.detect().to_dict()
@@ -113,6 +146,15 @@ class AIDreamWindow:
         backend = self.backend_by_name.get(self.backend_var.get())
         if not backend:
             self.capability_label.configure(text="No inference runtime found. Install llama.cpp CLI to run GGUF models.")
+            for name, widget in self._settings_widgets.items():
+                widget.configure(state=tk.DISABLED)
+                if name == "stop_strings":
+                    widget.configure(state=tk.NORMAL)
+                    widget.delete("1.0", tk.END)
+                    widget.configure(state=tk.DISABLED)
+                elif name in ("context_size", "threads", "batch_size", "max_tokens", "system_prompt"):
+                    variable_name = {"context_size":"context_var", "threads":"threads_var", "batch_size":"batch_var", "max_tokens":"max_tokens_var", "system_prompt":"system_prompt_var"}[name]
+                    getattr(self, variable_name).set("")
             return
         caps = backend.capabilities()
         controls = []
@@ -136,6 +178,18 @@ class AIDreamWindow:
         else:
             status += ". Device name uses the runtime's naming; it is not inferred from hardware indices."
         self.capability_label.configure(text=status)
+        for name, widget in self._settings_widgets.items():
+            supported = (bool(getattr(caps, name, False)) if name in ("context_size", "threads", "batch_size")
+                         else bool(caps.available))
+            widget.configure(state=tk.NORMAL if supported else tk.DISABLED)
+            if not supported:
+                if name == "stop_strings":
+                    widget.configure(state=tk.NORMAL)
+                    widget.delete("1.0", tk.END)
+                    widget.configure(state=tk.DISABLED)
+                elif name in ("context_size", "threads", "batch_size", "max_tokens", "system_prompt"):
+                    variable = getattr(self, {"context_size":"context_var", "threads":"threads_var", "batch_size":"batch_var", "max_tokens":"max_tokens_var", "system_prompt":"system_prompt_var"}[name])
+                    variable.set("")
 
     def add_folder(self):
         path = filedialog.askdirectory(title="Add existing model directory")
@@ -188,20 +242,55 @@ class AIDreamWindow:
         if tensor_split:
             placement["tensor_split"] = tensor_split
         placement = placement or None
+        caps = backend.capabilities()
+        load_options = {}
+        for key, var in (("context_size", self.context_var), ("threads", self.threads_var), ("batch_size", self.batch_var)):
+            value = var.get().strip()
+            if value and getattr(caps, key, False):
+                try:
+                    load_options[key] = int(value)
+                    if load_options[key] < 1:
+                        raise ValueError
+                except ValueError:
+                    messagebox.showerror("Invalid setting", f"{key.replace('_', ' ').title()} must be a positive whole number.")
+                    return
+        generation_options = {}
+        if caps.available:
+            try:
+                generation_options["temperature"] = float(self.temperature_var.get().strip())
+                if generation_options["temperature"] < 0:
+                    raise ValueError
+            except ValueError:
+                messagebox.showerror("Invalid temperature", "Temperature must be a non-negative number.")
+                return
+        if caps.available and self.max_tokens_var.get().strip():
+            try:
+                generation_options["max_tokens"] = int(self.max_tokens_var.get().strip())
+                if generation_options["max_tokens"] < 1:
+                    raise ValueError
+            except ValueError:
+                messagebox.showerror("Invalid response length", "Maximum response tokens must be a positive whole number.")
+                return
+        if caps.available and self.system_prompt_var.get().strip():
+            generation_options["system_prompt"] = self.system_prompt_var.get().strip()
+        if caps.available:
+            stops = [line.strip() for line in self.stop_strings.get("1.0", tk.END).splitlines() if line.strip()]
+            if stops:
+                generation_options["stop"] = stops
         try:
             if not backend.can_load(model):
                 raise RuntimeError(f"{backend.name} cannot load this model.")
             placement_key = tuple(sorted((key, str(value)) for key, value in (placement or {}).items()))
             model_key = getattr(model, "id", model.path)
-            requested_key = (id(backend), model_key, placement_key)
+            requested_key = (id(backend), model_key, placement_key, tuple(sorted(load_options.items())))
             if self.loaded_key != requested_key:
                 self._unload_current()
-                backend.load(model, placement)
+                backend.load(model, placement, options=load_options)
                 self.loaded_backend = backend
                 self.loaded_key = requested_key
                 self._append_chat(f"Loaded {model.path} with {backend.name}.")
             self._append_chat(f"You: {prompt}")
-            answer = backend.generate(prompt)
+            answer = backend.generate(prompt, options=generation_options)
             self._append_chat(f"Assistant: {answer}")
         except (OSError, ValueError, RuntimeError) as exc:
             self._unload_current()
