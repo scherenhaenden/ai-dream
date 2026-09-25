@@ -5,6 +5,8 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import threading
+import queue
+import tempfile
 from pathlib import Path
 
 
@@ -20,6 +22,8 @@ class AIDreamWindow:
         self.root = root
         self.chat_store = ChatStore()
         self.voice = LocalVoice()
+        self._voice_results = queue.Queue()
+        self._voice_busy = False
         sessions = self.chat_store.list_sessions()
         self.sessions = sessions
         self.chat_session = sessions[0] if sessions else self.chat_store.create()
@@ -36,6 +40,7 @@ class AIDreamWindow:
         self.loaded_key = None
         self._settings_widgets = {}
         self._build()
+        self.root.after(100, self._poll_voice_results)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         self.refresh()
 
@@ -127,6 +132,9 @@ class AIDreamWindow:
         self.session_box.pack(side=tk.LEFT, padx=5)
         self.session_box.bind("<<ComboboxSelected>>", self.select_chat)
         ttk.Button(chat_tools, text="New chat", command=self.new_chat).pack(side=tk.LEFT)
+        ttk.Button(chat_tools, text="Rename", command=self.rename_chat).pack(side=tk.LEFT, padx=(4, 0))
+        ttk.Button(chat_tools, text="Delete", command=self.delete_chat).pack(side=tk.LEFT, padx=(4, 0))
+        ttk.Button(chat_tools, text="Export", command=self.export_chat).pack(side=tk.LEFT, padx=(4, 0))
         self.agent_mode_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(chat_tools, text="Read-only agent tools", variable=self.agent_mode_var).pack(side=tk.LEFT, padx=6)
         self.voice_status = ttk.Label(chat_tools, text=self.voice.capabilities.setup_help())
@@ -134,7 +142,8 @@ class AIDreamWindow:
         voice_row = ttk.Frame(right)
         voice_row.pack(fill=tk.X)
         ttk.Button(voice_row, text="Speak last answer", command=self.speak_last_answer).pack(side=tk.LEFT)
-        ttk.Button(voice_row, text="Record & transcribe", command=self.record_and_transcribe).pack(side=tk.LEFT, padx=5)
+        self.record_button = ttk.Button(voice_row, text="Record & transcribe", command=self.record_and_transcribe)
+        self.record_button.pack(side=tk.LEFT, padx=5)
         self.chat = tk.Text(right, state=tk.DISABLED, wrap=tk.WORD)
         self.chat.pack(fill=tk.BOTH, expand=True, pady=4)
         self._restore_chat()
@@ -431,11 +440,14 @@ class AIDreamWindow:
         self.last_answer = next((m["content"] for m in reversed(self.chat_session.get("messages", []))
                                  if m.get("role") == "assistant"), "")
 
+    def _refresh_sessions(self):
+        self.sessions = self.chat_store.list_sessions()
+        self.session_box.configure(values=[_session_label(item) for item in self.sessions])
+        self.session_var.set(_session_label(self.chat_session))
+
     def new_chat(self):
         self.chat_session = self.chat_store.create()
-        sessions = self.chat_store.list_sessions()
-        self.session_box.configure(values=[_session_label(item) for item in sessions])
-        self.session_var.set(_session_label(self.chat_session))
+        self._refresh_sessions()
         self._restore_chat()
         self._unload_current()
 
@@ -447,6 +459,44 @@ class AIDreamWindow:
             self._restore_chat()
             self._unload_current()
 
+    def rename_chat(self):
+        from tkinter import simpledialog
+        title = simpledialog.askstring("Rename conversation", "Conversation name:",
+                                       initialvalue=self.chat_session.get("title", ""), parent=self.root)
+        if title is None:
+            return
+        try:
+            self.chat_session = self.chat_store.rename(self.chat_session["id"], title)
+            self._refresh_sessions()
+        except (OSError, ValueError) as exc:
+            messagebox.showerror("Rename failed", str(exc), parent=self.root)
+
+    def delete_chat(self):
+        if not messagebox.askyesno("Delete conversation", "Delete this conversation and its local history?",
+                                   parent=self.root):
+            return
+        try:
+            self.chat_store.delete(self.chat_session["id"])
+            sessions = self.chat_store.list_sessions()
+            self.chat_session = self.chat_store.load(sessions[0]["id"]) if sessions else self.chat_store.create()
+            self._refresh_sessions()
+            self._restore_chat()
+            self._unload_current()
+        except (OSError, ValueError) as exc:
+            messagebox.showerror("Delete failed", str(exc), parent=self.root)
+
+    def export_chat(self):
+        target = filedialog.asksaveasfilename(title="Export conversation", defaultextension=".md",
+                                              filetypes=[("Markdown", "*.md"), ("All files", "*.*")],
+                                              initialfile=f"{self.chat_session.get('title', 'chat')}.md")
+        if not target:
+            return
+        try:
+            result = self.chat_store.export(self.chat_session["id"], target)
+            self.voice_status.configure(text=f"Exported: {result}")
+        except (OSError, ValueError) as exc:
+            messagebox.showerror("Export failed", str(exc), parent=self.root)
+
     def speak_last_answer(self):
         if not self.last_answer:
             messagebox.showinfo("No answer", "There is no assistant answer to speak yet.")
@@ -457,27 +507,58 @@ class AIDreamWindow:
             messagebox.showerror("Voice output unavailable", str(exc))
 
     def record_and_transcribe(self):
-        from pathlib import Path
-        import tempfile
-        if not self.voice.capabilities.recording:
-            messagebox.showinfo("Voice input unavailable", self.voice.capabilities.setup_help())
+        if self._voice_busy:
             return
-        model = filedialog.askopenfilename(title="Choose whisper.cpp model", filetypes=[("Whisper model", "*.bin"), ("All files", "*.*")])
+        if not self.voice.capabilities.recording:
+            messagebox.showinfo("Voice input unavailable", self.voice.capabilities.setup_help(), parent=self.root)
+            return
+        model = filedialog.askopenfilename(title="Choose whisper.cpp model",
+                                           filetypes=[("Whisper model", "*.bin"), ("All files", "*.*")])
         if not model:
             return
+        self._voice_busy = True
+        self.record_button.configure(state=tk.DISABLED)
+        self.voice_status.configure(text="Recording 5 seconds…")
+
+        def work():
+            audio = None
+            try:
+                handle = tempfile.NamedTemporaryFile(prefix="ai-dream-mic-", suffix=".wav", delete=False)
+                audio = Path(handle.name)
+                handle.close()
+                audio.unlink(missing_ok=True)
+                self.voice.record(audio, seconds=5)
+                self._voice_results.put(("status", "Transcribing…"))
+                text = self.voice.transcribe(audio, model)
+                self._voice_results.put(("success", text))
+            except (OSError, RuntimeError, ValueError) as exc:
+                self._voice_results.put(("error", str(exc)))
+            finally:
+                if audio:
+                    audio.unlink(missing_ok=True)
+
+        threading.Thread(target=work, name="ai-dream-voice-input", daemon=True).start()
+
+    def _poll_voice_results(self):
         try:
-            audio = Path(tempfile.gettempdir()) / "ai-dream-microphone.wav"
-            self.voice_status.configure(text="Recording 5 seconds…")
-            self.root.update_idletasks()
-            self.voice.record(audio, seconds=5)
-            self.voice_status.configure(text="Transcribing…")
-            text = self.voice.transcribe(audio, model)
-            self.prompt.delete("1.0", tk.END)
-            self.prompt.insert("1.0", text)
-            self.voice_status.configure(text="Transcription ready")
-        except (OSError, RuntimeError, ValueError) as exc:
-            self.voice_status.configure(text="Voice input unavailable")
-            messagebox.showerror("Voice input failed", str(exc))
+            while True:
+                kind, value = self._voice_results.get_nowait()
+                if kind == "status":
+                    self.voice_status.configure(text=value)
+                else:
+                    self._voice_busy = False
+                    self.record_button.configure(state=tk.NORMAL)
+                    if kind == "success":
+                        self.prompt.delete("1.0", tk.END)
+                        self.prompt.insert("1.0", value)
+                        self.voice_status.configure(text="Transcription ready")
+                    else:
+                        self.voice_status.configure(text="Voice input failed")
+                        messagebox.showerror("Voice input failed", value, parent=self.root)
+        except queue.Empty:
+            pass
+        if self.root.winfo_exists():
+            self.root.after(100, self._poll_voice_results)
 
     def send(self):
         selected = self.model_list.curselection()
@@ -577,9 +658,7 @@ class AIDreamWindow:
                 self.chat_session = self.chat_store.append(self.chat_session["id"], "system", agent_note)
             self.chat_session = self.chat_store.append(self.chat_session["id"], "assistant", answer)
             self.last_answer = answer
-            self.session_var.set(_session_label(self.chat_session))
-            sessions = self.chat_store.list_sessions()
-            self.session_box.configure(values=[_session_label(item) for item in sessions])
+            self._refresh_sessions()
             self._restore_chat()
         except (OSError, ValueError, RuntimeError) as exc:
             self._unload_current()
