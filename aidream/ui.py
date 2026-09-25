@@ -251,7 +251,7 @@ class AIDreamWindow:
 
     def open_hf_downloader(self):
         """Open a non-blocking public Hub search/download window."""
-        from aidream.huggingface import HuggingFaceDownloader
+        from aidream.huggingface import DownloadCancelledError, HuggingFaceDownloader
 
         win = tk.Toplevel(self.root)
         win.title("Download GGUF from Hugging Face")
@@ -285,6 +285,9 @@ class AIDreamWindow:
         ttk.Label(win, textvariable=status, wraplength=690).pack(anchor="w", padx=10, pady=3)
         download_btn = ttk.Button(win, text="Download selected GGUF", command=lambda: download())
         download_btn.pack(anchor="e", padx=10, pady=(2, 10))
+        cancel_btn = ttk.Button(win, text="Cancel download", command=lambda: cancel_download(), state=tk.DISABLED)
+        cancel_btn.pack(anchor="e", padx=10, pady=(0, 8))
+        active_download = {"event": None}
         repo_items = []
         file_items = []
 
@@ -298,15 +301,23 @@ class AIDreamWindow:
             search_button.configure(state=state)
             load_files.configure(state=state)
             download_btn.configure(state=state)
+            cancel_btn.configure(state=(tk.NORMAL if value and active_download["event"] else tk.DISABLED))
+
+        def cancel_download():
+            event = active_download["event"]
+            if event:
+                status.set("Cancelling download…")
+                event.set()
 
         def search():
+            search_text = query.get()
             busy(True)
             status.set("Searching Hugging Face…")
             repos.delete(0, tk.END)
             repo_items.clear()
             def work():
                 try:
-                    result = service.search(query.get())
+                    result = service.search(search_text)
                     def done():
                         repo_items.extend(result)
                         for item in result:
@@ -356,6 +367,7 @@ class AIDreamWindow:
                 messagebox.showerror("Invalid folder", "Choose an existing download folder.", parent=win)
                 return
             progress.configure(value=0, maximum=100, mode="determinate")
+            active_download["event"] = threading.Event()
             busy(True)
             status.set(f"Downloading {file_name}…")
             def report(received, total):
@@ -370,10 +382,12 @@ class AIDreamWindow:
                 win.after(0, update)
             def work():
                 try:
-                    saved = service.download(repo_id, file_name, folder, report)
+                    saved = service.download(repo_id, file_name, folder, report,
+                                             cancel_event=active_download["event"])
                     def done():
                         progress.stop()
                         progress.configure(mode="determinate", value=100)
+                        active_download["event"] = None
                         try:
                             self.catalog.add_source(folder)
                             self.refresh()
@@ -382,9 +396,18 @@ class AIDreamWindow:
                         status.set(f"Downloaded to {saved}")
                         busy(False)
                     win.after(0, done)
+                except DownloadCancelledError:
+                    def cancelled():
+                        progress.stop()
+                        progress.configure(mode="determinate", value=0)
+                        active_download["event"] = None
+                        status.set("Download cancelled; no partial model was saved.")
+                        busy(False)
+                    win.after(0, cancelled)
                 except (OSError, ValueError, RuntimeError) as exc:
                     def failed():
                         progress.stop()
+                        active_download["event"] = None
                         busy(False)
                         status.set(str(exc))
                         messagebox.showerror("Download failed", str(exc), parent=win)
