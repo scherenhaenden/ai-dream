@@ -23,9 +23,9 @@ Status snapshot: 25 September 2026. This file is the working checklist for the l
 | Area | First usable slice | Next increments |
 |---|---|---|
 | Hugging Face model downloader | Search public repositories/files, choose a GGUF, show progress, cancel safely, check known file size, resume with validated Range/ETag, save without overwrite and rescan | Checksums, richer Hub metadata, optional authenticated access |
-| Chat | Persistent local history, restore text turns, rename/delete/export, streaming, stop/cancel, validated presets, images for vision-capable models, bounded local TXT/Markdown/text-PDF attachments | Retry/regenerate, persist and restore attachment references, per-chat model/options, audio attachments |
-| Agentic tools | Bounded tool calls in chat over typed, read-only hardware/model/runtime APIs, with redacted result summaries and stop reasons | User-visible cancellation and richer bounded audit; any file actions require explicit approval |
-| Voice | Detect optional local speech tools; local speech output and background recording/transcription where available | Push-to-talk UI, streaming STT/TTS, voice selection, interruption/configuration (API work in progress) |
+| Chat | Persistent local history, restore text turns, rename/delete/export, streaming, stop/cancel, validated presets and per-chat model/backend/placement/generation settings, images for vision-capable models, bounded local document attachments | Retry/regenerate, persist and restore attachment references, audio attachments |
+| Agentic tools | Bounded read-only hardware/model/runtime calls, cancellation, redacted results and a bounded audit that omits argument values | Richer plans; any file actions require explicit user approval |
+| Voice | Detect optional local speech tools; background recording/transcription, stoppable local speech output and installed Whisper model discovery | Push-to-talk UI, streaming STT/TTS and voice selection/configuration |
 | Other inputs/outputs | Local PNG/JPEG/WebP images and bounded local TXT/Markdown/text-PDF extraction | Audio attachments, export options and accessibility |
 
 ## Functional requirements to complete
@@ -45,6 +45,7 @@ Status snapshot: 25 September 2026. This file is the working checklist for the l
 - [x] Create, persist and resume the visible chat transcript locally, including restoring old turns into runtime context; rename, delete and export as Markdown.
 - [x] Add streaming generation and stop/cancel; restore the draft and image attachments after cancellation or generation errors. Regenerate completed responses remains pending.
 - [x] Support system prompt, temperature, response limit, stop strings, reasoning/context/load options and validated reusable presets.
+- [x] Persist backend, model identity/path, placement, load options and generation settings separately for every chat while retaining compatibility with old chat files.
 - [x] Keep conversation history consistent between saved chats and the backend on reload/model change.
 - [x] Attach bounded local PNG/JPEG/WebP images to normal chat requests. Requires a vision-capable llama.cpp model; agent mode rejects image attachments. Image bytes are not restored from chat history after restart.
 - [x] Extract bounded local TXT/Markdown and text-PDF references, with untrusted text delimiters and clear scanned-PDF/optional-dependency errors. Extracted contents are not persisted in chat history after restart.

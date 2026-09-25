@@ -105,6 +105,17 @@ class ChatStoreTests(unittest.TestCase):
         loaded = self.store.load(session["id"])
         self.assertEqual(loaded["settings"], updated)
 
+    def test_replace_session_settings_can_clear_prior_placement_and_load_options(self):
+        session = self.store.create()
+        self.store.update_session_settings(session["id"], {
+            "runtime": {"placement": {"gpu_layers": 64, "device": "Vulkan0"},
+                        "load": {"context_size": 8192, "threads": 8}},
+        })
+        replaced = self.store.replace_session_settings(session["id"], {
+            "runtime": {"placement": {}, "load": {}},
+        })
+        self.assertEqual(replaced["runtime"], {"placement": {}, "load": {}})
+
     def test_session_settings_reject_unknown_or_unsafe_values_without_write(self):
         session = self.store.create()
         before = (Path(self.temp.name) / f"{session['id']}.json").read_text(encoding="utf-8")

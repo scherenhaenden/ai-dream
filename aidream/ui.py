@@ -52,6 +52,7 @@ class AIDreamWindow:
         self.root.after(40, self._poll_generation_results)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         self.refresh()
+        self._apply_session_settings(self.chat_session)
 
     def _build(self):
         root = self.root
@@ -250,13 +251,82 @@ class AIDreamWindow:
             value = settings.get(key)
             getattr(self, variable_name).set("" if value is None else str(value))
         self.reasoning_var.set(settings.get("reasoning", False))
+        stop_state = self.stop_strings.cget("state")
         self.stop_strings.configure(state=tk.NORMAL)
         self.stop_strings.delete("1.0", tk.END)
         self.stop_strings.insert("1.0", "\n".join(settings.get("stop_strings", [])))
+        self.stop_strings.configure(state=stop_state)
         placement = settings.get("placement", {})
         self.gpu_layers_var.set(str(placement.get("gpu_layers", "")))
         self.device_var.set(str(placement.get("device", "")))
         self.tensor_split_var.set(str(placement.get("tensor_split", "")))
+
+    def _capture_chat_settings(self):
+        selected = self.model_list.curselection()
+        model = self.models[selected[0]] if selected and selected[0] < len(self.models) else None
+        placement = {}
+        if self.gpu_layers_var.get().strip():
+            placement["gpu_layers"] = int(self.gpu_layers_var.get().strip())
+        if self.device_var.get().strip():
+            placement["device"] = self.device_var.get().strip()
+        if self.tensor_split_var.get().strip():
+            placement["tensor_split"] = self.tensor_split_var.get().strip()
+        load = {}
+        for key, variable in (("context_size", self.context_var), ("threads", self.threads_var),
+                              ("batch_size", self.batch_var)):
+            value = variable.get().strip()
+            if value:
+                load[key] = int(value)
+        return {
+            "backend_name": self.backend_var.get().strip(),
+            "model_id": getattr(model, "id", "") if model else "",
+            "model_path": model.path if model else "",
+            "runtime": {"placement": placement, "load": load},
+            "generation": self._current_preset_settings(),
+            "preset_id": None,
+        }
+
+    def _save_current_chat_settings(self):
+        try:
+            settings = self._capture_chat_settings()
+            self.chat_store.replace_session_settings(self.chat_session["id"], settings)
+            return settings
+        except (AttributeError, OSError, ValueError, TypeError) as exc:
+            self.voice_status.configure(text=f"Chat settings were not saved: {exc}")
+            return None
+
+    def _apply_session_settings(self, session):
+        try:
+            settings = self.chat_store.get_session_settings(session["id"])
+        except (AttributeError, OSError, ValueError, TypeError):
+            return
+        backend_name = settings.get("backend_name")
+        if backend_name in self.backend_by_name:
+            self.backend_var.set(backend_name)
+            self._update_capabilities()
+        model_path = settings.get("model_path")
+        if model_path:
+            for index, model in enumerate(self.models):
+                if model.path == model_path:
+                    self.model_list.selection_clear(0, tk.END)
+                    self.model_list.selection_set(index)
+                    self.model_list.see(index)
+                    self.show_model_details()
+                    break
+        runtime = settings.get("runtime", {})
+        placement = runtime.get("placement", {})
+        self.gpu_layers_var.set(str(placement.get("gpu_layers", "")))
+        self.device_var.set(str(placement.get("device", "")))
+        self.tensor_split_var.set(str(placement.get("tensor_split", "")))
+        load = runtime.get("load", {})
+        for key, variable in (("context_size", self.context_var), ("threads", self.threads_var),
+                              ("batch_size", self.batch_var)):
+            variable.set(str(load[key]) if key in load else "")
+        generation = dict(settings.get("generation", {}))
+        generation["context_size"] = load.get("context_size", generation.get("context_size") or 4096)
+        generation["threads"] = load.get("threads", generation.get("threads"))
+        generation["batch_size"] = load.get("batch_size", generation.get("batch_size"))
+        self._apply_preset_settings(generation)
 
     def open_preset_manager(self):
         from aidream.preset_ui import PresetManagerDialog
@@ -561,7 +631,13 @@ class AIDreamWindow:
         self.session_var.set(_session_label(self.chat_session))
 
     def new_chat(self):
+        settings = self._save_current_chat_settings()
         self.chat_session = self.chat_store.create()
+        if settings:
+            try:
+                self.chat_store.replace_session_settings(self.chat_session["id"], settings)
+            except (AttributeError, OSError, ValueError, TypeError):
+                pass
         self._refresh_sessions()
         self._restore_chat()
         self._unload_current()
@@ -569,10 +645,12 @@ class AIDreamWindow:
     def select_chat(self, _event=None):
         label = self.session_var.get()
         match = next((item for item in self.chat_store.list_sessions() if _session_label(item) == label), None)
-        if match:
+        if match and match["id"] != self.chat_session["id"]:
+            self._save_current_chat_settings()
             self.chat_session = self.chat_store.load(match["id"])
             self._restore_chat()
             self._unload_current()
+            self._apply_session_settings(self.chat_session)
 
     def rename_chat(self):
         from tkinter import simpledialog
@@ -597,6 +675,7 @@ class AIDreamWindow:
             self._refresh_sessions()
             self._restore_chat()
             self._unload_current()
+            self._apply_session_settings(self.chat_session)
         except (OSError, ValueError) as exc:
             messagebox.showerror("Delete failed", str(exc), parent=self.root)
 
@@ -805,6 +884,11 @@ class AIDreamWindow:
                 validate_load(model, placement, load_options)
         except (OSError, ValueError, RuntimeError) as exc:
             messagebox.showerror("Model configuration unavailable", str(exc), parent=self.root)
+            return
+        try:
+            self.chat_store.replace_session_settings(self.chat_session["id"], self._capture_chat_settings())
+        except (AttributeError, OSError, ValueError, TypeError) as exc:
+            messagebox.showerror("Chat settings could not be saved", str(exc), parent=self.root)
             return
         if image_attachments:
             generation_options["images"] = image_attachments

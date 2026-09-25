@@ -126,6 +126,16 @@ class ChatStore:
         self._write(session)
         return session["settings"]
 
+    def replace_session_settings(self, session_id: str, settings: dict[str, Any]) -> dict[str, Any]:
+        """Replace all settings for one chat, including intentionally cleared values."""
+        if not isinstance(settings, dict):
+            raise ValueError("session settings must be an object")
+        session = self.load(session_id)
+        session["settings"] = _validate_session_settings(settings)
+        session["updated_at"] = _now()
+        self._write(session)
+        return session["settings"]
+
     def append(self, session_id: str, role: str, content: str) -> dict[str, Any]:
         if role not in _ROLES:
             raise ValueError("role must be user, assistant, or system")
