@@ -1,12 +1,13 @@
 import json
+import threading
 from pathlib import Path
 import tempfile
 import unittest
 from types import SimpleNamespace
-from aidream.runtime import LlamaCppBackend
+from aidream.runtime import GenerationCancelled, LlamaCppBackend
 
 FAKE_SERVER = r'''#!/usr/bin/env python3
-import http.server, json, sys
+import http.server, json, sys, time
 if '--help' in sys.argv:
     print('usage -m MODEL --host HOST --port PORT -ngl N --device NAME --tensor-split LIST -c CTX -t THREADS -b BATCH --fit on|off --reasoning on|off /v1/chat/completions')
     raise SystemExit(0)
@@ -22,6 +23,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
         with open(sys.argv[sys.argv.index('-m') + 1] + '.requests', 'a') as f:
             f.write(json.dumps(body) + '\n')
         answer = 'turn-' + str(len(body['messages']))
+        if body.get('stream'):
+            self.send_response(200); self.send_header('Content-Type','text/event-stream'); self.end_headers()
+            for part in (answer[:5], answer[5:]):
+                event = json.dumps({'choices':[{'delta':{'content':part}}]})
+                self.wfile.write(('data: ' + event + '\n\n').encode()); self.wfile.flush()
+                if body['messages'][-1]['content'] == 'cancel me' and part == answer[:5]:
+                    time.sleep(3)
+            self.wfile.write(b'data: [DONE]\n\n'); self.wfile.flush()
+            return
         data = json.dumps({'choices':[{'message':{'content':answer}}]}).encode()
         self.send_response(200); self.send_header('Content-Type','application/json')
         self.send_header('Content-Length',str(len(data))); self.end_headers(); self.wfile.write(data)
@@ -49,6 +59,7 @@ class PersistentServerTest(unittest.TestCase):
             self.assertEqual([m['role'] for m in backend._messages], ['user', 'assistant', 'user', 'assistant'])
             requests = [json.loads(line) for line in (Path(str(model) + '.requests')).read_text().splitlines()]
             self.assertEqual(requests[0]['temperature'], 0.2)
+            self.assertTrue(requests[0]['stream'])
             self.assertEqual(requests[0]['max_tokens'], 77)
             self.assertEqual(requests[0]['stop'], ['END'])
             self.assertEqual(requests[0]['messages'][0], {'role': 'system', 'content': 'Be concise'})
@@ -59,6 +70,66 @@ class PersistentServerTest(unittest.TestCase):
             command_args = json.loads(Path(str(model) + '.argv').read_text())
             fit_index = command_args.index('--fit')
             self.assertEqual(command_args[fit_index + 1], 'off')
+
+    def test_stream_delivers_chunks_and_cancellation_discards_partial_history(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            executable = root / 'fake-server'
+            executable.write_text(FAKE_SERVER)
+            executable.chmod(0o755)
+            model = root / 'model.gguf'
+            model.write_bytes(b'mock')
+            backend = LlamaCppBackend(str(executable), startup_timeout=3)
+            backend.load(model)
+            try:
+                chunks = []
+                answer = backend.generate_stream('hello', on_delta=chunks.append)
+                self.assertEqual(answer, 'turn-1')
+                self.assertEqual(''.join(chunks), answer)
+                cancel = threading.Event()
+                first_chunk = threading.Event()
+                result = []
+                def generate_cancelled():
+                    try:
+                        backend.generate_stream('cancel me', on_delta=lambda _part: first_chunk.set(),
+                                                cancel_event=cancel)
+                    except Exception as exc:
+                        result.append(exc)
+                worker = threading.Thread(target=generate_cancelled)
+                worker.start()
+                self.assertTrue(first_chunk.wait(2), 'server did not emit the first token')
+                cancel.set()
+                backend.cancel_generation()
+                worker.join(2)
+                self.assertFalse(worker.is_alive(), 'cancel did not interrupt the active stream')
+                self.assertEqual(len(result), 1)
+                self.assertIsInstance(result[0], GenerationCancelled)
+                self.assertEqual(backend._messages, [{'role': 'user', 'content': 'hello'},
+                                                     {'role': 'assistant', 'content': 'turn-1'}])
+            finally:
+                backend.unload()
+
+    def test_stream_parser_handles_sse_and_cancel_event(self):
+        class Lines:
+            def __init__(self, values):
+                self.values = iter(values)
+            def readline(self):
+                return next(self.values, b'')
+
+        event = threading.Event()
+        emitted = []
+        source = Lines([
+            b'data: {"choices":[{"delta":{"content":"hello"}}]}\n', b'\n',
+            b'data: {"choices":[{"delta":{"content":" world"}}]}\n', b'\n',
+            b'data: [DONE]\n', b'\n',
+        ])
+        answer = LlamaCppBackend._read_stream(source, event, [], emitted.append)
+        self.assertEqual(answer, 'hello world')
+        self.assertEqual(emitted, ['hello', ' world'])
+
+        event.set()
+        with self.assertRaisesRegex(GenerationCancelled, 'stopped'):
+            LlamaCppBackend._read_stream(Lines([]), event, [], None)
 
     def test_rejects_unsupported_and_invalid_options(self):
         with tempfile.TemporaryDirectory() as td:

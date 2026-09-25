@@ -9,6 +9,7 @@ import shutil
 import socket
 import subprocess
 import tempfile
+import threading
 import time
 from typing import Any, Mapping, Protocol
 from urllib.error import HTTPError, URLError
@@ -17,6 +18,10 @@ from urllib.request import Request, urlopen
 
 class ToolCallsUnsupported(RuntimeError):
     """The loaded server does not accept the OpenAI tools request format."""
+
+
+class GenerationCancelled(RuntimeError):
+    """Raised when a streaming generation is cancelled by the user."""
 
 
 @dataclass(frozen=True)
@@ -62,6 +67,9 @@ class LlamaCppBackend:
         self._loaded_model: Path | None = None
         self._placement: list[str] = []
         self._messages: list[dict[str, str]] = []
+        self._active_response = None
+        self._active_socket = None
+        self._response_lock = threading.Lock()
         self._help = self._read_help() if self.executable else ""
 
     def _read_help(self) -> str:
@@ -227,6 +235,24 @@ class LlamaCppBackend:
         raise RuntimeError("Timed out waiting for llama-server readiness")
 
     def generate(self, prompt: str, options: Mapping[str, Any] | None = None) -> str:
+        chunks: list[str] = []
+        self.generate_stream(prompt, options, on_delta=chunks.append)
+        return "".join(chunks)
+
+    def cancel_generation(self) -> None:
+        """Interrupt an in-flight stream; a partial turn is discarded."""
+        with self._response_lock:
+            active_socket = self._active_socket
+        if active_socket is not None:
+            try:
+                active_socket.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
+    def generate_stream(self, prompt: str, options: Mapping[str, Any] | None = None,
+                        on_delta=None, cancel_event: threading.Event | None = None) -> str:
+        if cancel_event is not None and cancel_event.is_set():
+            raise GenerationCancelled("Generation stopped")
         if not self._process or self._process.poll() is not None or self._loaded_model is None or not self._base_url:
             raise RuntimeError("No model is loaded")
         opts = {} if options is None else options
@@ -253,7 +279,7 @@ class LlamaCppBackend:
         if not isinstance(prompt, str):
             raise ValueError("prompt must be a string")
         payload_messages.append({"role": "user", "content": prompt})
-        payload = {"messages": payload_messages, "temperature": temperature}
+        payload = {"messages": payload_messages, "temperature": temperature, "stream": True}
         if "max_tokens" in opts:
             payload["max_tokens"] = _positive_int(opts["max_tokens"], "max_tokens")
         if "stop" in opts:
@@ -266,14 +292,60 @@ class LlamaCppBackend:
         self._messages.append({"role": "user", "content": prompt})
         request = Request(self._base_url + "/v1/chat/completions", data=json.dumps(payload).encode(),
                           headers={"Content-Type": "application/json"}, method="POST")
+        answer_parts: list[str] = []
         try:
             with urlopen(request, timeout=self.timeout) as response:
-                data = json.loads(response.read().decode("utf-8"))
-            answer = data["choices"][0]["message"]["content"]
-        except (OSError, URLError, ValueError, KeyError, IndexError, TypeError) as exc:
+                with self._response_lock:
+                    self._active_response = response
+                    self._active_socket = getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None)
+                answer = self._read_stream(response, cancel_event, answer_parts, on_delta)
+        except GenerationCancelled:
             self._messages.pop()
+            raise
+        except (OSError, URLError, ValueError, KeyError, IndexError, TypeError, socket.timeout) as exc:
+            self._messages.pop()
+            if cancel_event is not None and cancel_event.is_set():
+                raise GenerationCancelled("Generation stopped") from exc
             raise RuntimeError(f"llama-server generation failed: {exc}") from exc
+        finally:
+            with self._response_lock:
+                self._active_response = None
+                self._active_socket = None
         self._messages.append({"role": "assistant", "content": answer})
+        return answer
+
+    @staticmethod
+    def _read_stream(response, cancel_event, answer_parts, on_delta) -> str:
+        data_lines: list[str] = []
+        while True:
+            if cancel_event is not None and cancel_event.is_set():
+                raise GenerationCancelled("Generation stopped")
+            raw_line = response.readline()
+            if not raw_line:
+                if cancel_event is not None and cancel_event.is_set():
+                    raise GenerationCancelled("Generation stopped")
+                break
+            line = raw_line.decode("utf-8", errors="replace").strip()
+            if not line:
+                if data_lines:
+                    payload = "\n".join(data_lines)
+                    data_lines.clear()
+                    if payload == "[DONE]":
+                        break
+                    event = json.loads(payload)
+                    choices = event.get("choices") or []
+                    if choices:
+                        delta = (choices[0].get("delta") or {}).get("content")
+                        if isinstance(delta, str) and delta:
+                            answer_parts.append(delta)
+                            if on_delta:
+                                on_delta(delta)
+                continue
+            if line.startswith("data:"):
+                data_lines.append(line[5:].lstrip())
+        answer = "".join(answer_parts)
+        if not answer:
+            raise RuntimeError("llama-server returned an empty streaming response")
         return answer
 
     def chat_with_tools(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]],
@@ -289,8 +361,17 @@ class LlamaCppBackend:
         request = Request(self._base_url + "/v1/chat/completions", data=json.dumps(payload).encode(),
                           headers={"Content-Type": "application/json"}, method="POST")
         try:
-            with urlopen(request, timeout=timeout or self.timeout) as response:
-                raw_response = response.read(1_048_577)
+            response = urlopen(request, timeout=timeout or self.timeout)
+            with self._response_lock:
+                self._active_response = response
+                self._active_socket = getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None)
+            try:
+                with response:
+                    raw_response = response.read(1_048_577)
+            finally:
+                with self._response_lock:
+                    self._active_response = None
+                    self._active_socket = None
             if len(raw_response) > 1_048_576:
                 raise RuntimeError("llama-server tool-call response exceeded 1 MiB")
             data = json.loads(raw_response.decode("utf-8"))

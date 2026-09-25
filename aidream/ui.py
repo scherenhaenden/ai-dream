@@ -24,6 +24,11 @@ class AIDreamWindow:
         self.voice = LocalVoice()
         self._voice_results = queue.Queue()
         self._voice_busy = False
+        self._generation_results = queue.Queue()
+        self._generation_event = None
+        self._generation_busy = False
+        self._pending_generation = None
+        self._generation_controls = []
         sessions = self.chat_store.list_sessions()
         self.sessions = sessions
         self.chat_session = sessions[0] if sessions else self.chat_store.create()
@@ -41,6 +46,7 @@ class AIDreamWindow:
         self._settings_widgets = {}
         self._build()
         self.root.after(100, self._poll_voice_results)
+        self.root.after(40, self._poll_generation_results)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         self.refresh()
 
@@ -131,12 +137,16 @@ class AIDreamWindow:
                                         state="readonly", width=28)
         self.session_box.pack(side=tk.LEFT, padx=5)
         self.session_box.bind("<<ComboboxSelected>>", self.select_chat)
-        ttk.Button(chat_tools, text="New chat", command=self.new_chat).pack(side=tk.LEFT)
-        ttk.Button(chat_tools, text="Rename", command=self.rename_chat).pack(side=tk.LEFT, padx=(4, 0))
-        ttk.Button(chat_tools, text="Delete", command=self.delete_chat).pack(side=tk.LEFT, padx=(4, 0))
-        ttk.Button(chat_tools, text="Export", command=self.export_chat).pack(side=tk.LEFT, padx=(4, 0))
+        self._generation_controls = [self.session_box, self.model_list, self.backend_box]
+        for label, command in (("New chat", self.new_chat), ("Rename", self.rename_chat),
+                               ("Delete", self.delete_chat), ("Export", self.export_chat)):
+            button = ttk.Button(chat_tools, text=label, command=command)
+            button.pack(side=tk.LEFT, padx=(4, 0) if label != "New chat" else 0)
+            self._generation_controls.append(button)
         self.agent_mode_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(chat_tools, text="Read-only agent tools", variable=self.agent_mode_var).pack(side=tk.LEFT, padx=6)
+        agent_check = ttk.Checkbutton(chat_tools, text="Read-only agent tools", variable=self.agent_mode_var)
+        agent_check.pack(side=tk.LEFT, padx=6)
+        self._generation_controls.append(agent_check)
         self.voice_status = ttk.Label(chat_tools, text=self.voice.capabilities.setup_help())
         self.voice_status.pack(side=tk.RIGHT)
         voice_row = ttk.Frame(right)
@@ -153,6 +163,8 @@ class AIDreamWindow:
         self.prompt.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.send_button = ttk.Button(prompt_row, text="Load and send", command=self.send)
         self.send_button.pack(side=tk.LEFT, padx=(6, 0), fill=tk.Y)
+        self.stop_button = ttk.Button(prompt_row, text="Stop", command=self.stop_generation, state=tk.DISABLED)
+        self.stop_button.pack(side=tk.LEFT, padx=(4, 0), fill=tk.Y)
 
     def _show_text(self, widget: tk.Text, text: str):
         widget.configure(state=tk.NORMAL)
@@ -561,6 +573,8 @@ class AIDreamWindow:
             self.root.after(100, self._poll_voice_results)
 
     def send(self):
+        if self._generation_busy:
+            return
         selected = self.model_list.curselection()
         if not selected:
             messagebox.showinfo("Select a model", "Choose a GGUF model first.")
@@ -625,55 +639,130 @@ class AIDreamWindow:
             stops = [line.strip() for line in self.stop_strings.get("1.0", tk.END).splitlines() if line.strip()]
             if stops:
                 generation_options["stop"] = stops
+        session_id = self.chat_session["id"]
+        prior = [message.copy() for message in self.chat_session.get("messages", [])
+                 if message.get("role") in ("user", "assistant")]
+        agent_mode = self.agent_mode_var.get()
+        placement_key = tuple(sorted((key, str(value)) for key, value in (placement or {}).items()))
+        model_key = getattr(model, "id", model.path)
+        requested_key = (id(backend), model_key, placement_key, tuple(sorted(load_options.items())))
+        self._generation_busy = True
+        self._generation_event = threading.Event()
+        self._pending_generation = {"session_id": session_id, "prompt": prompt,
+                                    "parts": [], "agent_note": None, "backend": backend}
+        self.send_button.configure(state=tk.DISABLED)
+        self.stop_button.configure(state=tk.NORMAL)
+        for widget in self._generation_controls:
+            widget.configure(state=tk.DISABLED)
+        self.prompt.delete("1.0", tk.END)
+        self._append_chat(f"You: {prompt}\n\nAssistant: ")
+
+        def work():
+            try:
+                if not backend.can_load(model):
+                    raise RuntimeError(f"{backend.name} cannot load this model.")
+                if self.loaded_key != requested_key:
+                    self._unload_current()
+                    backend.load(model, placement, options=load_options)
+                    self.loaded_backend, self.loaded_key = backend, requested_key
+                    if hasattr(backend, "restore_history"):
+                        backend.restore_history(prior)
+                    self._generation_results.put(("status", f"Loaded {model.path} with {backend.name}."))
+                if agent_mode:
+                    from aidream.agent import LocalAgent
+                    result = LocalAgent(backend).run(prompt, history=prior)
+                    if self._generation_event.is_set():
+                        raise RuntimeError("Generation stopped")
+                    answer = result.text
+                    support = "supported" if result.tool_calls_supported else "not supported by this model/runtime"
+                    details = "; ".join(
+                        f"{item['name']} [{item['status']}]: {item['result_snippet']}"
+                        for item in result.summary()["tools"]
+                    ) or "none"
+                    note = (f"Read-only agent ({support}; {result.elapsed_seconds:.1f}s; "
+                            f"{result.stop_reason}). Tools: {details}")[:1800]
+                    self._pending_generation["agent_note"] = note
+                    self._generation_results.put(("delta", answer))
+                elif hasattr(backend, "generate_stream"):
+                    answer = backend.generate_stream(
+                        prompt, options=generation_options,
+                        on_delta=lambda text: self._generation_results.put(("delta", text)),
+                        cancel_event=self._generation_event)
+                else:
+                    answer = backend.generate(prompt, options=generation_options)
+                    self._generation_results.put(("delta", answer))
+                if self._generation_event.is_set():
+                    raise RuntimeError("Generation stopped")
+                self._generation_results.put(("complete", answer))
+            except Exception as exc:
+                if self._generation_event and self._generation_event.is_set():
+                    self._generation_results.put(("cancelled", None))
+                else:
+                    self._generation_results.put(("error", str(exc)))
+
+        threading.Thread(target=work, name="ai-dream-generation", daemon=True).start()
+
+    def stop_generation(self):
+        if not self._generation_busy:
+            return
+        self.stop_button.configure(state=tk.DISABLED)
+        self.voice_status.configure(text="Stopping generation…")
+        if self._generation_event:
+            self._generation_event.set()
+        backend = self._pending_generation.get("backend") if self._pending_generation else None
+        cancel = getattr(backend, "cancel_generation", None)
+        if cancel:
+            cancel()
+
+    def _poll_generation_results(self):
         try:
-            if not backend.can_load(model):
-                raise RuntimeError(f"{backend.name} cannot load this model.")
-            placement_key = tuple(sorted((key, str(value)) for key, value in (placement or {}).items()))
-            model_key = getattr(model, "id", model.path)
-            requested_key = (id(backend), model_key, placement_key, tuple(sorted(load_options.items())))
-            if self.loaded_key != requested_key:
-                self._unload_current()
-                backend.load(model, placement, options=load_options)
-                self.loaded_backend = backend
-                self.loaded_key = requested_key
-                if hasattr(backend, "restore_history"):
-                    history = [message for message in self.chat_session.get("messages", [])
-                               if message.get("role") in ("user", "assistant")]
-                    backend.restore_history(history)
-                self._append_chat(f"Loaded {model.path} with {backend.name}.")
-            agent_note = None
-            if self.agent_mode_var.get():
-                from aidream.agent import LocalAgent
-                prior = [message for message in self.chat_session.get("messages", [])
-                         if message.get("role") in ("user", "assistant")]
-                result = LocalAgent(backend).run(prompt, history=prior)
-                answer = result.text
-                support = "supported" if result.tool_calls_supported else "not supported by this model/runtime"
-                summaries = result.summary()["tools"]
-                details = "; ".join(
-                    f"{item['name']} [{item['status']}]: {item['result_snippet']}"
-                    for item in summaries
-                ) or "none"
-                agent_note = (f"Read-only agent ({support}; {result.elapsed_seconds:.1f}s; "
-                              f"{result.stop_reason}). Tools: {details}")[:1800]
-            else:
-                answer = backend.generate(prompt, options=generation_options)
-            self.chat_session = self.chat_store.append(self.chat_session["id"], "user", prompt)
-            if agent_note:
-                self.chat_session = self.chat_store.append(self.chat_session["id"], "system", agent_note)
-            self.chat_session = self.chat_store.append(self.chat_session["id"], "assistant", answer)
-            if agent_note and hasattr(backend, "restore_history"):
-                history = [message for message in self.chat_session.get("messages", [])
-                           if message.get("role") in ("user", "assistant")]
-                backend.restore_history(history)
-            self.last_answer = answer
-            self._refresh_sessions()
-            self._restore_chat()
-        except (OSError, ValueError, RuntimeError) as exc:
-            self._unload_current()
-            messagebox.showerror("Generation failed", str(exc))
-        finally:
-            self.prompt.delete("1.0", tk.END)
+            while True:
+                kind, value = self._generation_results.get_nowait()
+                pending = self._pending_generation
+                if not pending:
+                    continue
+                if kind == "status":
+                    self.voice_status.configure(text=value)
+                elif kind == "delta":
+                    pending["parts"].append(value)
+                    self.chat.configure(state=tk.NORMAL)
+                    self.chat.insert(tk.END, value)
+                    self.chat.see(tk.END)
+                    self.chat.configure(state=tk.DISABLED)
+                else:
+                    cancelled = kind == "cancelled"
+                    if kind == "complete" and self.chat_session.get("id") == pending["session_id"]:
+                        self.chat_session = self.chat_store.append(pending["session_id"], "user", pending["prompt"])
+                        if pending["agent_note"]:
+                            self.chat_session = self.chat_store.append(pending["session_id"], "system", pending["agent_note"])
+                        self.chat_session = self.chat_store.append(pending["session_id"], "assistant", value)
+                        self.last_answer = value
+                        if pending["agent_note"] and hasattr(pending["backend"], "restore_history"):
+                            history = [m for m in self.chat_session.get("messages", [])
+                                       if m.get("role") in ("user", "assistant")]
+                            pending["backend"].restore_history(history)
+                        self._refresh_sessions()
+                        self._restore_chat()
+                    elif kind == "error":
+                        self._unload_current()
+                        messagebox.showerror("Generation failed", value, parent=self.root)
+                    else:
+                        # Remove the temporary, potentially partial response from display.
+                        if self.chat_session.get("id") == pending["session_id"]:
+                            self._restore_chat()
+                    self.voice_status.configure(text="Generation stopped" if cancelled else "Ready")
+                    self._generation_busy = False
+                    self._generation_event = None
+                    self._pending_generation = None
+                    self.send_button.configure(state=tk.NORMAL)
+                    self.stop_button.configure(state=tk.DISABLED)
+                    for widget in self._generation_controls:
+                        widget.configure(state=(tk.READONLY if widget in (self.session_box, self.backend_box)
+                                                else tk.NORMAL))
+        except queue.Empty:
+            pass
+        if self.root.winfo_exists():
+            self.root.after(40, self._poll_generation_results)
 
     def _unload_current(self):
         backend, self.loaded_backend = self.loaded_backend, None
@@ -682,6 +771,12 @@ class AIDreamWindow:
             backend.unload()
 
     def close(self):
+        if self._generation_event:
+            self._generation_event.set()
+            backend = self._pending_generation.get("backend") if self._pending_generation else None
+            cancel = getattr(backend, "cancel_generation", None)
+            if cancel:
+                cancel()
         self._unload_current()
         self.root.destroy()
 
