@@ -12,11 +12,12 @@ import json
 import re
 import select
 from pathlib import Path
+import mimetypes
 import socket
 import threading
 import time
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import unquote_to_bytes, urlsplit
 
 LOOPBACK_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
@@ -37,6 +38,7 @@ MAX_HISTORY_CHARS = 32_768
 MAX_REQUEST_BYTES = 32 * 1024
 MAX_PROMPT_CHARS = 8_000
 MAX_CHAT_OUTPUT_CHARS = 64 * 1024
+MAX_STATIC_FILE_BYTES = 32 * 1024 * 1024
 
 
 def _jsonable(value: Any) -> Any:
@@ -334,11 +336,38 @@ class ReadOnlyAPI:
         return 404, {"error": "Not found"}
 
 
-def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None) -> ThreadingHTTPServer:
-    """Create an API server on 127.0.0.1 only. Port 0 is useful for local tests."""
+def default_web_dist() -> Path:
+    """Return the bundled Angular production directory beside the Python package."""
+    return Path(__file__).resolve().parent.parent / "web" / "dist"
+
+
+def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
+                  static_root: str | Path | None = None) -> ThreadingHTTPServer:
+    """Create a loopback server; optionally add a contained SPA static root."""
     if isinstance(port, bool) or not isinstance(port, int) or not 0 <= port <= 65535:
         raise ValueError("port must be an integer between 0 and 65535")
     services = api or ReadOnlyAPI()
+    web_root = None
+    if static_root is not None:
+        try:
+            supplied_root = Path(static_root).expanduser()
+            if supplied_root.is_symlink():
+                raise ValueError("web/dist must not be a symbolic link")
+            web_root = supplied_root.resolve(strict=True)
+            index_path = web_root / "index.html"
+            if index_path.is_symlink():
+                raise ValueError("web/dist/index.html must not be a symbolic link")
+            index_file = index_path.resolve(strict=True)
+            if (not web_root.is_dir() or not index_file.is_file()
+                    or index_file.parent != web_root):
+                raise ValueError("web/dist must contain a regular index.html")
+        except OSError as exc:
+            raise ValueError(f"Angular build is missing at {Path(static_root) / 'index.html'}; build web/dist first") from exc
+        except RuntimeError as exc:
+            raise ValueError("Angular build index.html must stay inside web/dist") from exc
+        server_static_root = web_root
+    else:
+        server_static_root = None
 
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -407,13 +436,28 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None) -
                 self._send_json(403, {"error": "Origin is not allowed"})
                 return
             parsed = urlsplit(self.path)
-            if parsed.query or parsed.fragment or parsed.path != self.path:
+            if parsed.fragment:
+                self._send_json(400, {"error": "Fragments are not supported"})
+                return
+            if parsed.path == "/api" or parsed.path.startswith("/api/"):
+                if parsed.query or parsed.path != self.path:
+                    self._send_json(400, {"error": "Query strings and encoded API paths are not supported"})
+                    return
+                self._serve_api(parsed.path)
+                return
+            if server_static_root is not None:
+                self._serve_static(parsed.path)
+                return
+            if parsed.query or parsed.path != self.path:
                 self._send_json(400, {"error": "Query strings and encoded paths are not supported"})
                 return
+            self._serve_api(parsed.path)
+
+        def _serve_api(self, path):
             if not self.server._service_slots.acquire(blocking=False):
                 self._send_json(503, {"error": "Local API is busy"})
                 return
-            future = self.server._service_pool.submit(self.server.services.get, parsed.path)
+            future = self.server._service_pool.submit(self.server.services.get, path)
             future.add_done_callback(lambda _future: self.server._service_slots.release())
             try:
                 status, payload = future.result(timeout=SERVICE_TIMEOUT_SECONDS)
@@ -422,6 +466,105 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None) -
                 self._send_json(504, {"error": "Local service request timed out"})
             except (OSError, RuntimeError, ValueError, TypeError):
                 self._send_json(503, {"error": "Local service is temporarily unavailable"})
+
+        def _serve_static(self, request_path: str):
+            try:
+                decoded = unquote_to_bytes(request_path).decode("utf-8")
+            except (UnicodeDecodeError, ValueError):
+                self._send_static_error(400)
+                return
+            if "\x00" in decoded or "\\" in decoded:
+                self._send_static_error(404)
+                return
+            segments = decoded.split("/")
+            if any(segment in {".", ".."} for segment in segments):
+                self._send_static_error(404)
+                return
+            if any(segment.startswith(".") for segment in segments if segment):
+                self._send_static_error(404)
+                return
+            relative = decoded.lstrip("/")
+            if not relative:
+                relative = "index.html"
+            candidate = server_static_root.joinpath(*relative.split("/"))
+            target = None
+            try:
+                target = candidate.resolve(strict=True)
+                target.relative_to(server_static_root)
+                if not target.is_file():
+                    target = None
+            except (OSError, RuntimeError, ValueError):
+                target = None
+            if target is None:
+                # SPA route fallback applies only to extensionless routes, never API
+                # paths, assets, dotfiles or traversal attempts.
+                leaf = segments[-1] if segments else ""
+                if (not leaf or leaf.startswith(".") or Path(leaf).suffix
+                        or relative.startswith("assets/")):
+                    self._send_static_error(404)
+                    return
+                target = server_static_root / "index.html"
+            try:
+                stat = target.stat()
+                if stat.st_size > MAX_STATIC_FILE_BYTES:
+                    self._send_static_error(413)
+                    return
+                body = target.read_bytes()
+            except OSError:
+                self._send_static_error(404)
+                return
+            content_type, _encoding = mimetypes.guess_type(target.name, strict=True)
+            if target.suffix.lower() in {".js", ".mjs"}:
+                content_type = "application/javascript"
+            content_type = content_type or "application/octet-stream"
+            if content_type.startswith("text/") or content_type in {"application/javascript", "application/json", "image/svg+xml"}:
+                content_type += "; charset=utf-8"
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", self._static_cache_control(target))
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("Content-Security-Policy",
+                             "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+                             "img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; "
+                             "base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
+            self._write_cors_headers()
+            self.send_header("Connection", "close")
+            self.end_headers()
+            try:
+                if not getattr(self, "_head_only", False):
+                    self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError, socket.timeout):
+                pass
+            self.close_connection = True
+
+        @staticmethod
+        def _static_cache_control(target: Path) -> str:
+            if target.name == "index.html":
+                return "no-cache"
+            fingerprinted = re.search(r"[.-][A-Za-z0-9_-]{8,}[.-]", target.name)
+            if target.parent.name == "assets" or fingerprinted:
+                return "public, max-age=31536000, immutable"
+            return "no-cache"
+
+        def _send_static_error(self, status: int):
+            body = b"Not found\n" if status == 404 else b"Bad request\n" if status == 400 else b"File too large\n"
+            self.send_response(status)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self._write_cors_headers()
+            self.send_header("Connection", "close")
+            self.end_headers()
+            try:
+                if not getattr(self, "_head_only", False):
+                    self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError, socket.timeout):
+                pass
+            self.close_connection = True
 
         def do_HEAD(self):
             # HEAD shares the fixed path/status lookup but suppresses the body.
@@ -665,6 +808,28 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None) -
 
     server.server_close = close
     return server
+
+
+def serve_web(port: int = DEFAULT_PORT) -> None:
+    """Serve the bundled Angular build and API from one same-origin loopback URL."""
+    web_root = default_web_dist()
+    if not (web_root / "index.html").is_file():
+        raise RuntimeError(f"Angular production build is missing: {web_root / 'index.html'}; run the web build first")
+    server = create_server(port, static_root=web_root)
+    url = f"http://{LOOPBACK_HOST}:{server.server_address[1]}"
+    print(f"AI Dream Web listening at {url}")
+    try:
+        import webbrowser
+        if not webbrowser.open(url, new=2):
+            print(f"Open this address in your browser: {url}")
+    except (OSError, RuntimeError):
+        print(f"Open this address in your browser: {url}")
+    try:
+        server.serve_forever(poll_interval=0.25)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
 
 
 def serve(port: int = DEFAULT_PORT) -> None:

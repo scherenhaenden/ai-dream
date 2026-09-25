@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=AI Dream Web
+Comment=Open the local AI Dream web app
+TryExec=/home/edward/Development/ai-dream/open-ai-dream-web
+Exec=/home/edward/Development/ai-dream/open-ai-dream-web
+Path=/home/edward/Development/ai-dream
+Terminal=false
+Categories=Utility;

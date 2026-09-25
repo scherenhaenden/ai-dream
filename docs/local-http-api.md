@@ -39,3 +39,17 @@ cancels generation when the SSE client disconnects. Snapshot service calls have
 a six-second deadline. Responses are not cached. Model paths are returned for
 local model identity; paths in existing saved attachments are revalidated by
 the local runtime before reading and are never returned in browser transcripts.
+
+## Run the bundled web app
+
+Build the Angular frontend from the repository root with `npm --prefix web run build`. The app bundle is expected at `web/dist/index.html`; development build output is ignored by Git and release packaging should include the complete `web/dist` directory.
+
+```sh
+./open-ai-dream-web
+# or choose another loopback port
+./open-ai-dream-web --port 8780
+```
+
+This serves the static app and API from one origin at `http://127.0.0.1:<port>`, then opens that address in the default browser. The same command is available as `python3 -m aidream web --port 8780`. If the production bundle is absent, it exits with the exact build path needed. `AI Dream Web.desktop` is a second launcher for Linux desktops; the existing Tk launcher remains available as `./open-ai-dream`.
+
+Static files are read only from the bundled `web/dist` tree. SPA fallback serves `index.html` for extensionless client routes; unknown assets, dotfiles, traversal paths and symlinks escaping the bundle are rejected. The server applies MIME, cache and browser security headers and keeps the API routes ahead of SPA fallback.
