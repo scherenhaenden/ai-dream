@@ -12,7 +12,15 @@ class AIDreamWindow:
         from aidream.models import ModelCatalog
         from aidream.runtime import RuntimeRegistry
 
+        from aidream.conversation import ChatStore
+        from aidream.voice import LocalVoice
+
         self.root = root
+        self.chat_store = ChatStore()
+        self.voice = LocalVoice()
+        sessions = self.chat_store.list_sessions()
+        self.chat_session = sessions[0] if sessions else self.chat_store.create()
+        self.last_answer = ""
         self.root.title("AI Dream")
         self.root.geometry("900x650")
         self.catalog = ModelCatalog()
@@ -102,8 +110,25 @@ class AIDreamWindow:
         self.stop_strings.pack(fill=tk.X)
         self._settings_widgets["stop_strings"] = self.stop_strings
 
+        chat_tools = ttk.Frame(right)
+        chat_tools.pack(fill=tk.X, pady=(4, 0))
+        ttk.Label(chat_tools, text="Conversation").pack(side=tk.LEFT)
+        self.session_var = tk.StringVar(value=_session_label(self.chat_session))
+        self.session_box = ttk.Combobox(chat_tools, textvariable=self.session_var,
+                                        values=[_session_label(item) for item in sessions],
+                                        state="readonly", width=28)
+        self.session_box.pack(side=tk.LEFT, padx=5)
+        self.session_box.bind("<<ComboboxSelected>>", self.select_chat)
+        ttk.Button(chat_tools, text="New chat", command=self.new_chat).pack(side=tk.LEFT)
+        self.voice_status = ttk.Label(chat_tools, text=self.voice.capabilities.setup_help())
+        self.voice_status.pack(side=tk.RIGHT)
+        voice_row = ttk.Frame(right)
+        voice_row.pack(fill=tk.X)
+        ttk.Button(voice_row, text="Speak last answer", command=self.speak_last_answer).pack(side=tk.LEFT)
+        ttk.Button(voice_row, text="Record & transcribe", command=self.record_and_transcribe).pack(side=tk.LEFT, padx=5)
         self.chat = tk.Text(right, state=tk.DISABLED, wrap=tk.WORD)
         self.chat.pack(fill=tk.BOTH, expand=True, pady=4)
+        self._restore_chat()
         prompt_row = ttk.Frame(right)
         prompt_row.pack(fill=tk.X)
         self.prompt = tk.Text(prompt_row, height=4, wrap=tk.WORD)
@@ -214,6 +239,65 @@ class AIDreamWindow:
         self.chat.see(tk.END)
         self.chat.configure(state=tk.DISABLED)
 
+    def _restore_chat(self):
+        self.chat.configure(state=tk.NORMAL)
+        self.chat.delete("1.0", tk.END)
+        for message in self.chat_session.get("messages", []):
+            label = {"user": "You", "assistant": "Assistant", "system": "System"}.get(message.get("role"), "Chat")
+            self.chat.insert(tk.END, f"{label}: {message.get('content', '')}\n\n")
+        self.chat.configure(state=tk.DISABLED)
+        self.chat.see(tk.END)
+        self.last_answer = next((m["content"] for m in reversed(self.chat_session.get("messages", []))
+                                 if m.get("role") == "assistant"), "")
+
+    def new_chat(self):
+        self.chat_session = self.chat_store.create()
+        sessions = self.chat_store.list_sessions()
+        self.session_box.configure(values=[_session_label(item) for item in sessions])
+        self.session_var.set(_session_label(self.chat_session))
+        self._restore_chat()
+        self._unload_current()
+
+    def select_chat(self, _event=None):
+        label = self.session_var.get()
+        match = next((item for item in self.chat_store.list_sessions() if _session_label(item) == label), None)
+        if match:
+            self.chat_session = self.chat_store.load(match["id"])
+            self._restore_chat()
+            self._unload_current()
+
+    def speak_last_answer(self):
+        if not self.last_answer:
+            messagebox.showinfo("No answer", "There is no assistant answer to speak yet.")
+            return
+        try:
+            self.voice.speak(self.last_answer)
+        except (OSError, RuntimeError, ValueError) as exc:
+            messagebox.showerror("Voice output unavailable", str(exc))
+
+    def record_and_transcribe(self):
+        from pathlib import Path
+        import tempfile
+        if not self.voice.capabilities.recording:
+            messagebox.showinfo("Voice input unavailable", self.voice.capabilities.setup_help())
+            return
+        model = filedialog.askopenfilename(title="Choose whisper.cpp model", filetypes=[("Whisper model", "*.bin"), ("All files", "*.*")])
+        if not model:
+            return
+        try:
+            audio = Path(tempfile.gettempdir()) / "ai-dream-microphone.wav"
+            self.voice_status.configure(text="Recording 5 seconds…")
+            self.root.update_idletasks()
+            self.voice.record(audio, seconds=5)
+            self.voice_status.configure(text="Transcribing…")
+            text = self.voice.transcribe(audio, model)
+            self.prompt.delete("1.0", tk.END)
+            self.prompt.insert("1.0", text)
+            self.voice_status.configure(text="Transcription ready")
+        except (OSError, RuntimeError, ValueError) as exc:
+            self.voice_status.configure(text="Voice input unavailable")
+            messagebox.showerror("Voice input failed", str(exc))
+
     def send(self):
         selected = self.model_list.curselection()
         if not selected:
@@ -289,9 +373,14 @@ class AIDreamWindow:
                 self.loaded_backend = backend
                 self.loaded_key = requested_key
                 self._append_chat(f"Loaded {model.path} with {backend.name}.")
-            self._append_chat(f"You: {prompt}")
             answer = backend.generate(prompt, options=generation_options)
-            self._append_chat(f"Assistant: {answer}")
+            self.chat_session = self.chat_store.append(self.chat_session["id"], "user", prompt)
+            self.chat_session = self.chat_store.append(self.chat_session["id"], "assistant", answer)
+            self.last_answer = answer
+            self.session_var.set(_session_label(self.chat_session))
+            sessions = self.chat_store.list_sessions()
+            self.session_box.configure(values=[_session_label(item) for item in sessions])
+            self._restore_chat()
         except (OSError, ValueError, RuntimeError) as exc:
             self._unload_current()
             messagebox.showerror("Generation failed", str(exc))
@@ -307,6 +396,12 @@ class AIDreamWindow:
     def close(self):
         self._unload_current()
         self.root.destroy()
+
+
+def _session_label(session):
+    title = session.get("title", "Chat")
+    updated = session.get("updated_at", "")
+    return f"{title} · {updated[11:16]}" if updated else title
 
 
 def _gib(n):
