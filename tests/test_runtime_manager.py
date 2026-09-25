@@ -27,6 +27,13 @@ class RuntimeManagerTest(unittest.TestCase):
             self.assertTrue(status.install_supported)
             run.assert_called_once()
 
+    def test_status_skips_driver_warning_before_version(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Mock(return_value=subprocess.CompletedProcess(
+                [], 0, "WARNING: radv driver reports a warning\nllama.cpp version: 8681", ""))
+            manager = self.manager(tmp, {"llama-server": "/usr/bin/llama-server"}, run)
+            self.assertEqual(manager.status().version, "llama.cpp version: 8681")
+
     def test_install_uses_pkexec_then_verifies(self):
         with tempfile.TemporaryDirectory() as tmp:
             calls = []

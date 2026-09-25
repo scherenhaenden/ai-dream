@@ -28,6 +28,7 @@ class BackendCapabilities:
     threads: bool = False
     batch_size: bool = False
     chat_completions: bool = False
+    fit: bool = False
 
 
 class InferenceBackend(Protocol):
@@ -81,6 +82,7 @@ class LlamaCppBackend:
             "-b" in self._help or "--batch-size" in self._help,
             ("/v1/chat/completions" in self._help or "chat completions" in self._help.lower()
              or Path(self.executable).name in self.candidates),
+            "--fit" in self._help,
         )
 
     @staticmethod
@@ -141,7 +143,14 @@ class LlamaCppBackend:
             value = _positive_int(options[key], key)
             flag = next((f for f in flags if f in self._help), flags[0])
             result.extend((flag, str(value)))
-        unknown = set(options) - {key for key, _, _ in specs}
+        if "fit" in options:
+            if not caps.fit:
+                raise ValueError("This llama.cpp server does not advertise fit")
+            fit = options["fit"]
+            if not isinstance(fit, bool):
+                raise ValueError("fit must be a boolean")
+            result.extend(("--fit", "on" if fit else "off"))
+        unknown = set(options) - {key for key, _, _ in specs} - {"fit"}
         if unknown:
             raise ValueError(f"Unsupported load option(s): {', '.join(sorted(unknown))}")
         return result
@@ -153,6 +162,11 @@ class LlamaCppBackend:
         self.unload()
         runtime_options = self._load_options(options)
         placement_options = self._placement_options(placement)
+        # llama.cpp auto-fit may abort on certain multi-GPU explicit tensor splits.
+        # The supported server CLI can safely run with fit disabled in that case.
+        if (isinstance(placement, Mapping) and placement.get("tensor_split") is not None
+                and not (options and "fit" in options) and self.capabilities().fit):
+            runtime_options.extend(("--fit", "off"))
         port = self.port or self._free_port()
         self._log = tempfile.TemporaryFile(mode="w+t", encoding="utf-8")
         command = [self.executable, "-m", str(path.resolve()), "--host", "127.0.0.1", "--port", str(port), *placement_options, *runtime_options]

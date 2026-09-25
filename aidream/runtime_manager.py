@@ -67,8 +67,11 @@ class RuntimeManager:
             try:
                 result = self._run([executable, "--version"], capture_output=True,
                                    text=True, timeout=10, check=False)
-                output = (result.stdout or result.stderr or "").strip()
-                version = output.splitlines()[0][:240] if output else None
+                output = "\n".join(part for part in (result.stdout, result.stderr) if part).strip()
+                lines = [line.strip() for line in output.splitlines() if line.strip()]
+                # Some Vulkan builds print driver warnings before the version.
+                version_line = next((line for line in lines if "version:" in line.lower()), None)
+                version = (version_line or (lines[0] if lines else ""))[:240] or None
             except (OSError, subprocess.SubprocessError):
                 version = None
         supported = self._supported()

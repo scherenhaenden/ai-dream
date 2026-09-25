@@ -7,9 +7,10 @@ from aidream.runtime import LlamaCppBackend
 FAKE_SERVER = r'''#!/usr/bin/env python3
 import http.server, json, sys
 if '--help' in sys.argv:
-    print('usage -m MODEL --host HOST --port PORT -ngl N --device NAME --tensor-split LIST -c CTX -t THREADS -b BATCH /v1/chat/completions')
+    print('usage -m MODEL --host HOST --port PORT -ngl N --device NAME --tensor-split LIST -c CTX -t THREADS -b BATCH --fit on|off /v1/chat/completions')
     raise SystemExit(0)
 port = int(sys.argv[sys.argv.index('--port') + 1])
+with open(sys.argv[sys.argv.index('-m') + 1] + '.argv', 'w') as f: f.write(json.dumps(sys.argv))
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == '/health':
@@ -54,6 +55,9 @@ class PersistentServerTest(unittest.TestCase):
                              ['user', 'assistant', 'user'])
             backend.unload()
             self.assertIsNotNone(process.poll())
+            command_args = json.loads(Path(str(model) + '.argv').read_text())
+            fit_index = command_args.index('--fit')
+            self.assertEqual(command_args[fit_index + 1], 'off')
 
     def test_rejects_unsupported_and_invalid_options(self):
         with tempfile.TemporaryDirectory() as td:
@@ -77,6 +81,21 @@ class PersistentServerTest(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 backend.generate('after unload')
             backend.unload()
+
+    def test_explicit_fit_option_is_respected(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            executable = root / 'fake-server'
+            executable.write_text(FAKE_SERVER)
+            executable.chmod(0o755)
+            model = root / 'model.gguf'
+            model.write_bytes(b'mock')
+            backend = LlamaCppBackend(str(executable), startup_timeout=3)
+            backend.load(model, options={'fit': True})
+            backend.unload()
+            command_args = json.loads(Path(str(model) + '.argv').read_text())
+            fit_index = command_args.index('--fit')
+            self.assertEqual(command_args[fit_index + 1], 'on')
 
 if __name__ == '__main__':
     unittest.main()
