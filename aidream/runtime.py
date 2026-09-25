@@ -11,8 +11,12 @@ import subprocess
 import tempfile
 import time
 from typing import Any, Mapping, Protocol
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+
+
+class ToolCallsUnsupported(RuntimeError):
+    """The loaded server does not accept the OpenAI tools request format."""
 
 
 @dataclass(frozen=True)
@@ -271,6 +275,39 @@ class LlamaCppBackend:
             raise RuntimeError(f"llama-server generation failed: {exc}") from exc
         self._messages.append({"role": "assistant", "content": answer})
         return answer
+
+    def chat_with_tools(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]],
+                        timeout: float | None = None) -> dict[str, Any]:
+        """Make one OpenAI-compatible tool-call turn without mutating chat history.
+
+        The caller owns the bounded conversation. Only the model response is
+        returned; tool execution remains in the caller's allow-listed registry.
+        """
+        if not self._process or self._process.poll() is not None or not self._base_url:
+            raise RuntimeError("No model is loaded")
+        payload = {"messages": messages, "tools": tools, "tool_choice": "auto"}
+        request = Request(self._base_url + "/v1/chat/completions", data=json.dumps(payload).encode(),
+                          headers={"Content-Type": "application/json"}, method="POST")
+        try:
+            with urlopen(request, timeout=timeout or self.timeout) as response:
+                raw_response = response.read(1_048_577)
+            if len(raw_response) > 1_048_576:
+                raise RuntimeError("llama-server tool-call response exceeded 1 MiB")
+            data = json.loads(raw_response.decode("utf-8"))
+        except (HTTPError, URLError, OSError, ValueError) as exc:
+            # llama.cpp releases without tool-call request support typically
+            # reject the `tools` field as an invalid request (HTTP 400/404/422).
+            status = getattr(exc, "code", None)
+            if status in (400, 404, 422):
+                raise ToolCallsUnsupported(f"llama-server rejected tool calls: {exc}") from exc
+            raise RuntimeError(f"llama-server tool-call request failed: {exc}") from exc
+        try:
+            message = data["choices"][0]["message"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise RuntimeError("llama-server returned an invalid tool-call response") from exc
+        if not isinstance(message, dict):
+            raise RuntimeError("llama-server returned an invalid tool-call message")
+        return message
 
     def _log_text(self) -> str:
         if not self._log:
