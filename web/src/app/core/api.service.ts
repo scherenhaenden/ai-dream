@@ -7,7 +7,7 @@ export type ConnectionState = 'checking' | 'connected' | 'unavailable';
 @Injectable({ providedIn: 'root' })
 export class ApiService {
   private readonly storedBase = localStorage.getItem('aidream.apiBase') || '';
-  private readonly base = isLocalApiBase(this.storedBase) ? this.storedBase : 'http://127.0.0.1:8765';
+  private readonly base = isLocalApiBase(this.storedBase) ? this.storedBase : defaultApiBase();
   readonly baseUrl = signal(this.base);
   readonly connection = signal<ConnectionState>('checking');
   readonly error = signal<string | null>(null);
@@ -38,6 +38,15 @@ export class ApiService {
 
   get<T>(path: string) { return this.http.get<T>(`${this.baseUrl()}${path}`); }
   post<T>(path: string, body: unknown) { return this.http.post<T>(`${this.baseUrl()}${path}`, body); }
+}
+
+function defaultApiBase(): string {
+  if (import.meta.env.DEV) return 'http://127.0.0.1:8765';
+  const host = window.location.hostname.toLowerCase();
+  if (window.location.protocol === 'http:' && (host === '127.0.0.1' || host === 'localhost')) {
+    return `http://${host}:${window.location.port || '80'}`;
+  }
+  return 'http://127.0.0.1:8765';
 }
 
 export function isLocalApiBase(value: string): boolean {
