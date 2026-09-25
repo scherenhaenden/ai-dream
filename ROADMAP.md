@@ -23,10 +23,10 @@ Status snapshot: 25 September 2026. This file is the working checklist for the l
 | Area | First usable slice | Next increments |
 |---|---|---|
 | Hugging Face model downloader | Search public repositories/files, choose a GGUF, show progress, cancel safely, check known file size, resume with validated Range/ETag, save without overwrite and rescan | Checksums, richer Hub metadata, optional authenticated access |
-| Chat | Persistent local history, restore text turns, rename/delete/export, streaming, stop/cancel, validated presets, local images for vision-capable llama.cpp models | Retry/regenerate, persist and restore image references, per-chat model/options, document/audio attachments |
+| Chat | Persistent local history, restore text turns, rename/delete/export, streaming, stop/cancel, validated presets, images for vision-capable models, bounded local TXT/Markdown/text-PDF attachments | Retry/regenerate, persist and restore attachment references, per-chat model/options, audio attachments |
 | Agentic tools | Bounded tool calls in chat over typed, read-only hardware/model/runtime APIs, with redacted result summaries and stop reasons | User-visible cancellation and richer bounded audit; any file actions require explicit approval |
 | Voice | Detect optional local speech tools; local speech output and background recording/transcription where available | Push-to-talk UI, streaming STT/TTS, voice selection, interruption/configuration (API work in progress) |
-| Other inputs/outputs | Local PNG/JPEG/WebP image attachments with size and count limits | Document ingestion, audio attachments, export options and accessibility |
+| Other inputs/outputs | Local PNG/JPEG/WebP images and bounded local TXT/Markdown/text-PDF extraction | Audio attachments, export options and accessibility |
 
 ## Functional requirements to complete
 
@@ -47,6 +47,7 @@ Status snapshot: 25 September 2026. This file is the working checklist for the l
 - [x] Support system prompt, temperature, response limit, stop strings, reasoning/context/load options and validated reusable presets.
 - [x] Keep conversation history consistent between saved chats and the backend on reload/model change.
 - [x] Attach bounded local PNG/JPEG/WebP images to normal chat requests. Requires a vision-capable llama.cpp model; agent mode rejects image attachments. Image bytes are not restored from chat history after restart.
+- [x] Extract bounded local TXT/Markdown and text-PDF references, with untrusted text delimiters and clear scanned-PDF/optional-dependency errors. Extracted contents are not persisted in chat history after restart.
 
 ### Agentic operation
 

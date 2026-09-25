@@ -31,6 +31,7 @@ class AIDreamWindow:
         self._pending_generation = None
         self._generation_controls = []
         self._pending_images = []
+        self._pending_documents = []
         sessions = self.chat_store.list_sessions()
         self.sessions = sessions
         self.chat_session = sessions[0] if sessions else self.chat_store.create()
@@ -166,11 +167,19 @@ class AIDreamWindow:
         self.record_button.pack(side=tk.LEFT, padx=5)
         self.attach_images_button = ttk.Button(voice_row, text="Attach image(s)", command=self.attach_images)
         self.attach_images_button.pack(side=tk.LEFT, padx=5)
+        self.attach_documents_button = ttk.Button(voice_row, text="Attach document(s)", command=self.attach_documents)
+        self.attach_documents_button.pack(side=tk.LEFT)
         self.clear_images_button = ttk.Button(voice_row, text="Clear images", command=self.clear_images, state=tk.DISABLED)
-        self.clear_images_button.pack(side=tk.LEFT)
-        self._generation_controls.extend([self.attach_images_button, self.clear_images_button])
+        self.clear_images_button.pack(side=tk.LEFT, padx=(4, 0))
+        self.clear_documents_button = ttk.Button(voice_row, text="Clear documents", command=self.clear_documents,
+                                                 state=tk.DISABLED)
+        self.clear_documents_button.pack(side=tk.LEFT, padx=(4, 0))
+        self._generation_controls.extend([self.attach_images_button, self.attach_documents_button,
+                                          self.clear_images_button, self.clear_documents_button])
         self.images_status = ttk.Label(voice_row, text="")
         self.images_status.pack(side=tk.LEFT, padx=6)
+        self.documents_status = ttk.Label(voice_row, text="")
+        self.documents_status.pack(side=tk.LEFT, padx=4)
         self.chat = tk.Text(right, state=tk.DISABLED, wrap=tk.WORD)
         self.chat.pack(fill=tk.BOTH, expand=True, pady=4)
         self._restore_chat()
@@ -707,7 +716,7 @@ class AIDreamWindow:
             messagebox.showerror("Runtime unavailable", details, parent=self.root)
             return
         prompt = self.prompt.get("1.0", tk.END).strip()
-        if not prompt and not self._pending_images:
+        if not prompt and not self._pending_images and not self._pending_documents:
             return
         if self._pending_images and self.agent_mode_var.get():
             messagebox.showerror("Images unavailable in agent mode", "Send image attachments in regular chat mode.")
@@ -715,11 +724,26 @@ class AIDreamWindow:
         image_attachments = []
         if self._pending_images:
             try:
-                from aidream.image_input import load_image_attachment, build_multimodal_message
+                from aidream.image_input import load_image_attachment
                 image_attachments = [load_image_attachment(path) for path in self._pending_images]
-                # Validate aggregate size and serialized content before loading a model.
-                build_multimodal_message(prompt, image_attachments)
             except (OSError, ValueError) as exc:
+                messagebox.showerror("Invalid image attachment", str(exc), parent=self.root)
+                return
+        document_attachments = []
+        runtime_prompt = prompt
+        if self._pending_documents:
+            try:
+                from aidream.document_input import load_document_attachment, build_document_prompt
+                document_attachments = [load_document_attachment(path) for path in self._pending_documents]
+                runtime_prompt = build_document_prompt(prompt, document_attachments)
+            except (OSError, ValueError) as exc:
+                messagebox.showerror("Invalid document attachment", str(exc), parent=self.root)
+                return
+        if image_attachments:
+            try:
+                from aidream.image_input import build_multimodal_message
+                build_multimodal_message(runtime_prompt, image_attachments)
+            except ValueError as exc:
                 messagebox.showerror("Invalid image attachment", str(exc), parent=self.root)
                 return
         model = self.models[selected[0]]
@@ -794,12 +818,17 @@ class AIDreamWindow:
         self._generation_busy = True
         self._generation_event = threading.Event()
         saved_prompt = prompt
+        labels = []
         if image_attachments:
-            labels = ", ".join(image.path.name for image in image_attachments)
-            saved_prompt = (prompt + "\n" if prompt else "") + f"[Attached image(s): {labels}]"
+            labels.append("image(s): " + ", ".join(image.path.name for image in image_attachments))
+        if document_attachments:
+            labels.append("document(s): " + ", ".join(document.name for document in document_attachments))
+        if labels:
+            saved_prompt = (prompt + "\n" if prompt else "") + f"[Attached {'; '.join(labels)}]"
         self._pending_generation = {"session_id": session_id, "prompt": prompt,
                                     "saved_prompt": saved_prompt,
                                     "image_paths": list(self._pending_images),
+                                    "document_paths": list(self._pending_documents),
                                     "parts": [], "agent_note": None, "backend": backend}
         self.send_button.configure(state=tk.DISABLED)
         self.stop_button.configure(state=tk.NORMAL)
@@ -821,7 +850,7 @@ class AIDreamWindow:
                     self._generation_results.put(("status", f"Loaded {model.path} with {backend.name}."))
                 if agent_mode:
                     from aidream.agent import LocalAgent
-                    result = LocalAgent(backend).run(prompt, history=prior,
+                    result = LocalAgent(backend).run(runtime_prompt, history=prior,
                                                      cancel_event=self._generation_event)
                     answer = result.text or ("Agent stopped by user." if result.stop_reason == "cancelled" else "")
                     support = "supported" if result.tool_calls_supported else "not supported by this model/runtime"
@@ -837,11 +866,11 @@ class AIDreamWindow:
                     self._generation_results.put(("delta", answer))
                 elif hasattr(backend, "generate_stream"):
                     answer = backend.generate_stream(
-                        prompt, options=generation_options,
+                        runtime_prompt, options=generation_options,
                         on_delta=lambda text: self._generation_results.put(("delta", text)),
                         cancel_event=self._generation_event)
                 else:
-                    answer = backend.generate(prompt, options=generation_options)
+                    answer = backend.generate(runtime_prompt, options=generation_options)
                     self._generation_results.put(("delta", answer))
                 if self._generation_event.is_set() and not (agent_mode and result.stop_reason == "cancelled"):
                     raise RuntimeError("Generation stopped")
@@ -885,6 +914,34 @@ class AIDreamWindow:
         self._pending_images.clear()
         self.images_status.configure(text="")
         self.clear_images_button.configure(state=tk.DISABLED)
+
+    def attach_documents(self):
+        from aidream.document_input import build_document_prompt, load_document_attachment
+
+        paths = filedialog.askopenfilenames(
+            parent=self.root,
+            title="Choose local documents",
+            filetypes=(("Documents", "*.txt *.md *.markdown *.pdf"), ("All files", "*")),
+        )
+        if not paths:
+            return
+        proposed = list(dict.fromkeys([*self._pending_documents, *paths]))
+        try:
+            attachments = [load_document_attachment(path) for path in proposed]
+            build_document_prompt("", attachments)
+        except (OSError, ValueError) as exc:
+            messagebox.showerror("Invalid document attachment", str(exc), parent=self.root)
+            return
+        self._pending_documents = [str(item.path) for item in attachments]
+        self.documents_status.configure(text=f"{len(attachments)} document(s) attached")
+        self.clear_documents_button.configure(state=tk.NORMAL)
+
+    def clear_documents(self):
+        if self._generation_busy:
+            return
+        self._pending_documents.clear()
+        self.documents_status.configure(text="")
+        self.clear_documents_button.configure(state=tk.DISABLED)
 
     def stop_generation(self):
         if not self._generation_busy:
@@ -944,8 +1001,11 @@ class AIDreamWindow:
                     self._pending_generation = None
                     if kind == "complete":
                         self._pending_images.clear()
+                        self._pending_documents.clear()
                         self.images_status.configure(text="")
+                        self.documents_status.configure(text="")
                         self.clear_images_button.configure(state=tk.DISABLED)
+                        self.clear_documents_button.configure(state=tk.DISABLED)
                     self.send_button.configure(state=tk.NORMAL)
                     self.stop_button.configure(state=tk.DISABLED)
                     for widget in self._generation_controls:
@@ -961,9 +1021,13 @@ class AIDreamWindow:
         self.prompt.delete("1.0", tk.END)
         self.prompt.insert("1.0", pending.get("prompt", ""))
         self._pending_images = list(pending.get("image_paths", []))
+        self._pending_documents = list(pending.get("document_paths", []))
         if self._pending_images:
             self.images_status.configure(text=f"{len(self._pending_images)} image(s) attached for retry")
             self.clear_images_button.configure(state=tk.NORMAL)
+        if self._pending_documents:
+            self.documents_status.configure(text=f"{len(self._pending_documents)} document(s) attached for retry")
+            self.clear_documents_button.configure(state=tk.NORMAL)
 
     def _unload_current(self):
         backend, self.loaded_backend = self.loaded_backend, None
