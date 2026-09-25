@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -116,18 +117,65 @@ class LlamaCppBackend:
             return False
         return bool(self.capabilities().available and path and path.is_file() and path.suffix.lower() == ".gguf")
 
-    def restore_history(self, messages: list[Mapping[str, str]]) -> None:
+    def restore_history(self, messages: list[Mapping[str, Any]]) -> None:
         """Restore saved turns into the active server conversation context."""
         if not self._process or self._process.poll() is not None or self._loaded_model is None:
             raise RuntimeError("Load a model before restoring conversation history")
-        restored: list[dict[str, str]] = []
+        restored: list[dict[str, Any]] = []
         for item in messages:
-            if not isinstance(item, Mapping) or item.get("role") not in {"system", "user", "assistant"}:
+            if (not isinstance(item, Mapping) or not isinstance(item.get("role"), str)
+                    or item.get("role") not in {"system", "user", "assistant"}):
                 raise ValueError("history entries must have a system, user, or assistant role")
             content = item.get("content")
             if not isinstance(content, str) or not content.strip():
                 raise ValueError("history message content cannot be empty")
-            restored.append({"role": item["role"], "content": content})
+            role = item["role"]
+            message: dict[str, Any] = {"role": role, "content": content}
+            refs = item.get("attachments", [])
+            if refs:
+                try:
+                    from aidream.conversation import validate_attachment_references
+                    references = validate_attachment_references(refs)
+                except (ImportError, ValueError, TypeError):
+                    references = []
+                images = []
+                documents = []
+                from aidream.document_input import build_document_prompt, load_document_attachment
+                from aidream.image_input import load_image_attachment
+                for ref in references:
+                    try:
+                        path = Path(ref["path"]).resolve(strict=True)
+                        stat = path.stat()
+                        if (not path.is_file() or stat.st_size != ref["size_bytes"]
+                                or stat.st_mtime_ns != ref["mtime_ns"]):
+                            continue
+                        maximum = 8 * 1024 * 1024 if ref["kind"] == "image" else 5 * 1024 * 1024
+                        with path.open("rb") as stream:
+                            data = stream.read(maximum + 1)
+                        if len(data) > maximum or hashlib.sha256(data).hexdigest() != ref["sha256"]:
+                            continue
+                        if ref["kind"] == "image":
+                            images.append(load_image_attachment(path))
+                        else:
+                            documents.append(load_document_attachment(path))
+                    except (OSError, RuntimeError, ValueError, TypeError):
+                        # A removed, changed, or no-longer-supported attachment
+                        # should not make the rest of a saved chat unusable.
+                        continue
+                if documents:
+                    try:
+                        message["content"] = build_document_prompt(content, documents)
+                    except ValueError:
+                        # Over-limit or invalid documents are omitted as a group.
+                        pass
+                if images and role in {"user", "system"}:
+                    try:
+                        from aidream.image_input import build_multimodal_message
+                        message = build_multimodal_message(message["content"], images, role=role)
+                    except ValueError:
+                        # Keep plain text if historical images cannot be restored.
+                        pass
+            restored.append(message)
         self._messages = restored
 
     def validate_load(self, model: Any, placement: Any = None,

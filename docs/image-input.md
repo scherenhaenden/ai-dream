@@ -21,6 +21,8 @@ SVG, GIF, remote URLs, and unsupported formats are rejected.
 Limits are intentionally bounded: 8 MiB per image, 12 MiB combined image bytes,
 and four images per message. Only `user` and `system` roles are accepted by the
 builder. The data URI adds base64 overhead to the JSON request, so callers should
-also keep the server's overall request/body limit in mind. This API is not yet
-wired into the desktop UI, persisted conversation format, streaming chat, or
-image resizing/thumbnail generation.
+also keep the server's overall request/body limit in mind. Runtime history
+restores metadata-only image references as described in
+[`chat-attachment-history.md`](chat-attachment-history.md). Desktop UI
+attachment controls and image resizing/thumbnail generation remain separate
+work.

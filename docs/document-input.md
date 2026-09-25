@@ -13,6 +13,9 @@ document = load_document_attachment("/home/user/notes.md")
 prompt = build_document_prompt("Summarize the attached notes.", [document])
 ```
 
-This is a standalone module in the initial version; the chat UI/runtime integration is tracked separately.
+The runtime can restore document references in saved user turns and re-extract
+them with these same limits; see
+[`chat-attachment-history.md`](chat-attachment-history.md). Desktop UI
+attachment controls remain separate work.
 
 To enable PDF text extraction in a local environment, install `pypdf` into that environment. TXT and Markdown support has no extra dependency.

@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from aidream.conversation import ChatStore
+from aidream.conversation import ChatStore, make_attachment_reference, _valid_message
 
 
 class ChatStoreTests(unittest.TestCase):
@@ -21,6 +21,29 @@ class ChatStoreTests(unittest.TestCase):
         self.assertEqual(loaded["title"], "First question")
         self.assertEqual([m["role"] for m in loaded["messages"]], ["user", "assistant"])
         self.assertEqual(self.store.list_sessions()[0]["id"], session["id"])
+
+    def test_persists_bounded_local_attachment_references_and_legacy_messages(self):
+        session = self.store.create()
+        image = Path(self.temp.name) / "photo.png"
+        image.write_bytes(bytes([137, 80, 78, 71, 13, 10, 26, 10]) + b"image")
+        reference = make_attachment_reference("image", image)
+        self.store.append(session["id"], "user", "Describe", [reference])
+        loaded = self.store.load(session["id"])
+        self.assertEqual(loaded["messages"][0]["attachments"][0], reference)
+        # Message records written before the optional key remain valid.
+        self.assertTrue(_valid_message({"role": "assistant", "content": "old"}))
+
+    def test_rejects_unsafe_or_oversized_attachment_references(self):
+        session = self.store.create()
+        invalid = [
+            [{"kind": "image", "path": "relative.png", "name": "x.png", "size_bytes": 10, "mtime_ns": 1}],
+            [{"kind": "image", "path": "/tmp/x", "name": "../x", "size_bytes": 10, "mtime_ns": 1}],
+            [{"kind": "image", "path": "/tmp/x", "name": "x", "size_bytes": 9 * 1024 * 1024, "mtime_ns": 1}],
+            [{"kind": "remote", "path": "/tmp/x", "name": "x", "size_bytes": 10, "mtime_ns": 1}],
+        ]
+        for references in invalid:
+            with self.subTest(references=references), self.assertRaises(ValueError):
+                self.store.append(session["id"], "user", "text", references)
 
     def test_rename_and_reject_empty_title(self):
         session = self.store.create()

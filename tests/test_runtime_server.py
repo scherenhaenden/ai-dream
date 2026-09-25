@@ -219,6 +219,61 @@ class PersistentServerTest(unittest.TestCase):
             finally:
                 backend.unload()
 
+    def test_restores_only_unchanged_local_image_and_document_attachments(self):
+        from aidream.conversation import make_attachment_reference
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            executable = root / 'fake-server'
+            executable.write_text(FAKE_SERVER)
+            executable.chmod(0o755)
+            model = root / 'model.gguf'
+            model.write_bytes(b'mock')
+            image = root / 'photo.png'
+            image.write_bytes(bytes([137, 80, 78, 71, 13, 10, 26, 10]) + b'image')
+            doc = root / 'notes.md'
+            doc.write_text('Stored local note', encoding='utf-8')
+            stale = root / 'stale.txt'
+            stale.write_text('original', encoding='utf-8')
+            references = [make_attachment_reference('image', image),
+                          make_attachment_reference('document', doc),
+                          make_attachment_reference('document', stale)]
+            stale.write_text('changed after the chat was saved', encoding='utf-8')
+            backend = LlamaCppBackend(str(executable), startup_timeout=3)
+            backend.load(model)
+            try:
+                backend.restore_history([{'role': 'user', 'content': 'Remember these',
+                                          'attachments': references}])
+                self.assertEqual(backend.generate('Continue'), 'turn-2')
+                request = json.loads(Path(str(model) + '.requests').read_text().splitlines()[0])
+                historical = request['messages'][0]
+                self.assertIsInstance(historical['content'], list)
+                self.assertEqual(historical['content'][0]['type'], 'text')
+                self.assertIn('Remember these', historical['content'][0]['text'])
+                self.assertTrue(historical['content'][1]['image_url']['url'].startswith('data:image/png;'))
+                self.assertIn('Stored local note', historical['content'][0]['text'])
+                self.assertNotIn('changed after', json.dumps(historical))
+            finally:
+                backend.unload()
+
+    def test_invalid_attachment_references_do_not_block_legacy_history(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            executable = root / 'fake-server'
+            executable.write_text(FAKE_SERVER)
+            executable.chmod(0o755)
+            model = root / 'model.gguf'
+            model.write_bytes(b'mock')
+            backend = LlamaCppBackend(str(executable), startup_timeout=3)
+            backend.load(model)
+            try:
+                backend.restore_history([{'role': 'user', 'content': 'plain text', 'attachments': [
+                    {'kind': 'image', 'path': 'relative', 'name': 'bad', 'size_bytes': 1, 'mtime_ns': 1}
+                ]}])
+                self.assertEqual(backend._messages, [{'role': 'user', 'content': 'plain text'}])
+            finally:
+                backend.unload()
+
     def test_rejects_vision_projector_as_chat_model(self):
         with tempfile.TemporaryDirectory() as td:
             model = Path(td) / 'projector.gguf'

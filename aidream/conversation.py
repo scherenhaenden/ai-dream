@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
 import json
 import math
 import os
@@ -21,6 +22,10 @@ _LOAD_KEYS = {"context_size", "threads", "batch_size", "physical_batch_size", "m
               "unified_kv_cache", "flash_attention", "offload_kv_cache", "keep_model_in_memory", "mmap"}
 _GENERATION_KEYS = {"system_prompt", "reasoning", "temperature", "max_tokens", "stop_strings",
                     "context_size", "threads", "batch_size", "placement", "structured_output"}
+_ATTACHMENT_KINDS = {"image", "document"}
+_MAX_ATTACHMENTS = 8
+_MAX_ATTACHMENT_PATH = 4096
+_MAX_ATTACHMENT_NAME = 255
 
 
 def _default_session_settings() -> dict[str, Any]:
@@ -136,13 +141,19 @@ class ChatStore:
         self._write(session)
         return session["settings"]
 
-    def append(self, session_id: str, role: str, content: str) -> dict[str, Any]:
+    def append(self, session_id: str, role: str, content: str,
+               attachments: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         if role not in _ROLES:
             raise ValueError("role must be user, assistant, or system")
         if not isinstance(content, str) or not content.strip():
             raise ValueError("message content cannot be empty")
         session = self.load(session_id)
-        session["messages"].append({"role": role, "content": content, "created_at": _now()})
+        message = {"role": role, "content": content, "created_at": _now()}
+        if attachments is not None:
+            if role != "user" and attachments:
+                raise ValueError("only user messages may contain attachments")
+            message["attachments"] = _validate_attachments(attachments)
+        session["messages"].append(message)
         session["updated_at"] = _now()
         if role == "user" and session.get("title") == "New chat":
             session["title"] = content.strip().splitlines()[0][:72]
@@ -171,6 +182,9 @@ class ChatStore:
         labels = {"user": "You", "assistant": "Assistant", "system": "System"}
         for message in session["messages"]:
             lines.extend((f"## {labels[message['role']]}", "", message["content"], ""))
+            for attachment in message.get("attachments", []):
+                lines.append(f"Attachment ({attachment['kind']}): {attachment['name']} — {attachment['path']}")
+                lines.append("")
         self._atomic_write(target, "\n".join(lines).rstrip() + "\n")
         return target
 
@@ -217,8 +231,90 @@ class ChatStore:
 
 
 def _valid_message(message: Any) -> bool:
-    return (isinstance(message, dict) and message.get("role") in _ROLES
-            and isinstance(message.get("content"), str))
+    if not (isinstance(message, dict) and isinstance(message.get("role"), str)
+            and message.get("role") in _ROLES
+            and isinstance(message.get("content"), str)):
+        return False
+    try:
+        if "attachments" in message:
+            _validate_attachments(message["attachments"])
+            if message["attachments"] and message["role"] != "user":
+                return False
+    except (ValueError, TypeError):
+        return False
+    return True
+
+
+def _validate_attachments(value: Any) -> list[dict[str, Any]]:
+    """Validate bounded local references while keeping legacy messages valid."""
+    if not isinstance(value, list) or len(value) > _MAX_ATTACHMENTS:
+        raise ValueError(f"attachments must be a list of at most {_MAX_ATTACHMENTS} items")
+    result = []
+    image_count = document_count = 0
+    for item in value:
+        if not isinstance(item, dict) or set(item) != {"kind", "path", "name", "size_bytes", "mtime_ns", "sha256"}:
+            raise ValueError("attachment reference has unsupported fields")
+        kind, path, name = item["kind"], item["path"], item["name"]
+        if not isinstance(kind, str) or kind not in _ATTACHMENT_KINDS:
+            raise ValueError("unsupported attachment kind")
+        if (not isinstance(path, str) or not path.startswith("/") or len(path) > _MAX_ATTACHMENT_PATH
+                or "\x00" in path):
+            raise ValueError("attachment path must be an absolute local path")
+        if (not isinstance(name, str) or not name or len(name) > _MAX_ATTACHMENT_NAME
+                or "\x00" in name or "/" in name or "\\" in name):
+            raise ValueError("attachment name is invalid")
+        if Path(path).name != name:
+            raise ValueError("attachment name must match the referenced file")
+        size = item["size_bytes"]
+        mtime = item["mtime_ns"]
+        maximum = 8 * 1024 * 1024 if kind == "image" else 5 * 1024 * 1024
+        if isinstance(size, bool) or not isinstance(size, int) or not 1 <= size <= maximum:
+            raise ValueError("attachment size is invalid")
+        if isinstance(mtime, bool) or not isinstance(mtime, int) or mtime < 0:
+            raise ValueError("attachment modification time is invalid")
+        digest = item["sha256"]
+        if not isinstance(digest, str) or not re.fullmatch(r"[a-f0-9]{64}", digest):
+            raise ValueError("attachment content digest is invalid")
+        if kind == "image":
+            image_count += 1
+        else:
+            document_count += 1
+        if image_count > 4 or document_count > 4:
+            raise ValueError("a message supports at most four images and four documents")
+        result.append({"kind": kind, "path": path, "name": name,
+                       "size_bytes": size, "mtime_ns": mtime, "sha256": digest})
+    return result
+
+
+def make_attachment_reference(kind: str, path: str | Path) -> dict[str, Any]:
+    """Create a bounded metadata-only reference for a selected local file.
+
+    Callers should first validate/extract through image_input or document_input;
+    this helper intentionally stores no file bytes or extracted document text.
+    """
+    if not isinstance(kind, str) or kind not in _ATTACHMENT_KINDS:
+        raise ValueError("unsupported attachment kind")
+    resolved = Path(path).expanduser().resolve(strict=True)
+    if not resolved.is_file():
+        raise ValueError("attachment path must point to a regular file")
+    stat = resolved.stat()
+    maximum = 8 * 1024 * 1024 if kind == "image" else 5 * 1024 * 1024
+    if stat.st_size <= 0 or stat.st_size > maximum:
+        raise ValueError("attachment exceeds the local size limit")
+    with resolved.open("rb") as stream:
+        data = stream.read(maximum + 1)
+    if len(data) > maximum:
+        raise ValueError("attachment exceeds the local size limit")
+    digest = hashlib.sha256(data).hexdigest()
+    reference = {"kind": kind, "path": str(resolved), "name": resolved.name,
+                 "size_bytes": stat.st_size, "mtime_ns": stat.st_mtime_ns,
+                 "sha256": digest}
+    return _validate_attachments([reference])[0]
+
+
+def validate_attachment_references(value: Any) -> list[dict[str, Any]]:
+    """Public schema validator for optional per-message local references."""
+    return _validate_attachments(value)
 
 
 def _validate_session_settings(value: Any) -> dict[str, Any]:
