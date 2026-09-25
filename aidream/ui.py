@@ -638,7 +638,7 @@ class AIDreamWindow:
                 self.loaded_key = requested_key
                 if hasattr(backend, "restore_history"):
                     history = [message for message in self.chat_session.get("messages", [])
-                               if message.get("role") in ("user", "assistant", "system")]
+                               if message.get("role") in ("user", "assistant")]
                     backend.restore_history(history)
                 self._append_chat(f"Loaded {model.path} with {backend.name}.")
             agent_note = None
@@ -648,15 +648,24 @@ class AIDreamWindow:
                          if message.get("role") in ("user", "assistant")]
                 result = LocalAgent(backend).run(prompt, history=prior)
                 answer = result.text
-                used = ", ".join(result.tools_called) if result.tools_called else "none"
                 support = "supported" if result.tool_calls_supported else "not supported by this model/runtime"
-                agent_note = f"Read-only tools: {used}; tool-call support: {support}; stop: {result.stop_reason}."
+                summaries = result.summary()["tools"]
+                details = "; ".join(
+                    f"{item['name']} [{item['status']}]: {item['result_snippet']}"
+                    for item in summaries
+                ) or "none"
+                agent_note = (f"Read-only agent ({support}; {result.elapsed_seconds:.1f}s; "
+                              f"{result.stop_reason}). Tools: {details}")[:1800]
             else:
                 answer = backend.generate(prompt, options=generation_options)
             self.chat_session = self.chat_store.append(self.chat_session["id"], "user", prompt)
             if agent_note:
                 self.chat_session = self.chat_store.append(self.chat_session["id"], "system", agent_note)
             self.chat_session = self.chat_store.append(self.chat_session["id"], "assistant", answer)
+            if agent_note and hasattr(backend, "restore_history"):
+                history = [message for message in self.chat_session.get("messages", [])
+                           if message.get("role") in ("user", "assistant")]
+                backend.restore_history(history)
             self.last_answer = answer
             self._refresh_sessions()
             self._restore_chat()

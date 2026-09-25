@@ -23,9 +23,9 @@ Status snapshot: 25 September 2026. This file is the working checklist for the l
 | Area | First usable slice | Next increments |
 |---|---|---|
 | Hugging Face model downloader | Search public repositories/files, choose a GGUF, show progress, cancel safely, check known file size against free disk space, save without overwrite in a registered folder, then rescan | Resume, checksums, model metadata/license display, optional authenticated access |
-| Chat | Persistent local conversations, saved-turn context restoration and message history around the existing runtime | Streaming tokens, rename/delete/export conversations, attachments, per-chat model/options |
-| Agentic tools | Bounded tool calls in chat over typed, read-only hardware/model/runtime APIs; unknown and mutating calls are rejected | Visible tool results, cancellation, richer plans, audit log and user-approved file actions |
-| Voice | Detect optional local speech tools; local speech output and transcription where available | Async push-to-talk UI, streaming STT/TTS, voice selection, interruption and device configuration |
+| Chat | Persistent local conversation history, saved-turn context restoration, rename/delete/export | Streaming tokens, cancellation, attachments, per-chat model/options |
+| Agentic tools | Bounded tool calls in chat over typed, read-only hardware/model/runtime APIs, with redacted result summaries | Cancellation, richer plans, full inspectable audit and user-approved file actions |
+| Voice | Detect optional local speech tools; local speech output and background recording/transcription where available | Push-to-talk UI, streaming STT/TTS, voice selection, interruption and device configuration |
 | Other inputs/outputs | Preserve a modality-ready message/attachment contract | Image input, document ingestion, audio attachments, export and accessibility |
 
 ## Functional requirements to complete
@@ -41,7 +41,7 @@ Status snapshot: 25 September 2026. This file is the working checklist for the l
 
 ### Chat and generation
 
-- [x] Create, persist and resume the visible chat transcript locally, including restoring old turns into runtime context. Rename, delete and export remain pending.
+- [x] Create, persist and resume the visible chat transcript locally, including restoring old turns into runtime context; rename, delete and export as Markdown.
 - [ ] Add streaming generation, stop/cancel, retry and clear error states.
 - [x] Support system prompt, temperature, response limit, stop strings and a reasoning toggle. Context policy and reusable presets remain pending.
 - [x] Keep conversation history consistent between saved chats and the backend on reload/model change.
@@ -49,15 +49,15 @@ Status snapshot: 25 September 2026. This file is the working checklist for the l
 
 ### Agentic operation
 
-- [x] Make agent mode visible in chat; the initial tools are read-only and need no write permissions.
+- [x] Make agent mode visible in chat; the initial tools are read-only and need no write permissions, with bounded redacted result snippets in the transcript.
 - [x] Reject arbitrary shell execution and all unregistered or mutating tool names.
 - [x] Bound tool calls by time, count and output size. Cancellation and detailed result inspection remain pending.
-- [x] Record tool names and stop reason in the local chat transcript. Full tool arguments/results remain pending.
+- [x] Record tool names, status, redacted result snippets and stop reason in the local chat transcript. Full arguments/results remain intentionally out of the log.
 
 ### Voice and accessibility
 
 - [x] Detect local speech recognition and speech synthesis engines without contacting a cloud service.
-- [x] Offer basic microphone recording and transcription when local dependencies are present. Device selection, push-to-talk and correction remain pending.
+- [x] Offer basic background microphone recording and transcription when local dependencies are present. Device selection, push-to-talk and correction remain pending.
 - [x] Speak assistant output locally when a supported TTS engine is present. Stop/interruption and voice configuration remain pending.
 - [ ] Add keyboard navigation, readable status announcements and scalable layout.
 

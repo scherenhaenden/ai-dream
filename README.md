@@ -30,14 +30,12 @@ The current dated Linux test build is generated under `build/linux/25.09.2026/`.
 - Persistent llama.cpp server with chat completions, runtime capability detection and context/thread/batch/placement settings.
 - Explicit multi-GPU tensor splits automatically disable llama.cpp auto-fit by default. This avoids a reproduced server abort in the installed llama.cpp build. Set the `fit` load option explicitly when using the Python API to override it.
 - Thinking is disabled by default in the GUI because the installed Gemma build otherwise spends a short response budget only in its private reasoning channel; the checkbox exposes the runtime's reasoning on/off setting.
-- Local JSON conversation history and conversation switching in the UI, with saved turns restored into the runtime when a chat is resumed or the model is reloaded.
+- Local JSON conversation history, resume, rename, delete and Markdown export; saved turns are restored into the runtime when a chat is resumed or the model is reloaded.
 - Vision-projector GGUFs remain catalogued but are rejected as standalone chat models.
 - Optional offline voice output via `espeak-ng`/`espeak`; recording and transcription via `arecord`, `whisper-cli`/`whisper-cpp`, and a local Whisper model.
-- The **Read-only agent tools** checkbox uses bounded llama.cpp tool calls backed by typed, local hardware/model/runtime queries. Tool calls are logged in the chat transcript; arbitrary commands and writes are not exposed.
+- The **Read-only agent tools** checkbox uses bounded llama.cpp tool calls backed by typed, local hardware/model/runtime queries. A short redacted result summary is stored in the transcript; arbitrary commands and writes are not exposed.
 
-Hugging Face access in this preview covers public repositories only. Voice programs are optional system dependencies; AI Dream does not send microphone audio to a cloud service.
-
-Agent tools currently provide a read-only registry API; the model-driven tool-call loop and UI are pending.
+Hugging Face access in this preview covers public repositories only. Voice programs are optional system dependencies; AI Dream does not send microphone audio to a cloud service. Recording/transcription runs in the background so the chat window stays responsive.
 
 ## Storage
 
