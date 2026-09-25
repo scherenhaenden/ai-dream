@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from aidream.voice import LocalVoice, SpeechWorker, VoiceCapabilities, discover_whisper_models
+from aidream.voice import LocalVoice, RecordingWorker, SpeechWorker, VoiceCapabilities, discover_whisper_models
 
 
 class VoiceTests(unittest.TestCase):
@@ -56,6 +56,61 @@ class VoiceTests(unittest.TestCase):
             worker.wait(timeout=2)
             self.assertTrue(worker.done)
             self.assertTrue(worker.cancelled)
+
+    @unittest.skipUnless(os.name == "posix", "process-group recording is POSIX-only")
+    def test_push_to_talk_recording_stops_early_and_finalizes_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            script = root / "fake-arecord"
+            script.write_text(
+                "#!/usr/bin/env python3\n"
+                "import pathlib, signal, sys, time\n"
+                "out=pathlib.Path(sys.argv[-1]); pathlib.Path(str(out)+'.started').touch()\n"
+                "def stop(sig, frame): out.write_bytes(b'fake wav'); sys.exit(0)\n"
+                "signal.signal(signal.SIGINT, stop)\n"
+                "while True: time.sleep(.02)\n", encoding="utf-8")
+            script.chmod(0o755)
+            output = root / "capture.wav"
+            worker = RecordingWorker(str(script), output, max_seconds=17)
+            marker = Path(str(output) + ".started")
+            deadline = time.monotonic() + 3
+            while not marker.exists() and time.monotonic() < deadline:
+                time.sleep(.01)
+            self.assertTrue(marker.exists())
+            worker.stop()
+            self.assertEqual(worker.wait(timeout=3), output)
+            self.assertEqual(output.read_bytes(), b"fake wav")
+
+    @unittest.skipUnless(os.name == "posix", "process-group recording is POSIX-only")
+    def test_push_to_talk_cancel_removes_partial_audio(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            script = root / "fake-arecord"
+            script.write_text(
+                "#!/usr/bin/env python3\n"
+                "import pathlib, sys, time\n"
+                "out=pathlib.Path(sys.argv[-1]); out.write_bytes(b'partial'); pathlib.Path(str(out)+'.started').touch()\n"
+                "while True: time.sleep(.02)\n", encoding="utf-8")
+            script.chmod(0o755)
+            output = root / "capture.wav"
+            worker = RecordingWorker(str(script), output, max_seconds=17)
+            marker = Path(str(output) + ".started")
+            deadline = time.monotonic() + 3
+            while not marker.exists() and time.monotonic() < deadline:
+                time.sleep(.01)
+            self.assertTrue(marker.exists())
+            worker.cancel()
+            with self.assertRaisesRegex(RuntimeError, "cancelled"):
+                worker.wait(timeout=3)
+            self.assertFalse(output.exists())
+
+    def test_recording_max_duration_is_bounded(self):
+        voice = LocalVoice()
+        voice.capabilities = VoiceCapabilities(None, "/bin/true", None)
+        with tempfile.TemporaryDirectory() as tmp:
+            for invalid in (0, 121, True):
+                with self.assertRaises(ValueError):
+                    voice.start_recording(Path(tmp) / "audio.wav", max_seconds=invalid)
 
     def test_worker_propagates_tool_failure(self):
         with tempfile.TemporaryDirectory() as tmp:

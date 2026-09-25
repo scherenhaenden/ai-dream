@@ -130,6 +130,86 @@ class SpeechWorker:
             self._done.set()
 
 
+class RecordingWorker:
+    """Capture a local microphone stream until stop() or a fixed safety limit."""
+    def __init__(self, executable: str, output: str | Path, max_seconds: int):
+        self.output = Path(output).expanduser().resolve()
+        self.max_seconds = max_seconds
+        self._executable = executable
+        self._process: subprocess.Popen | None = None
+        self._lock = threading.Lock()
+        self._stop_requested = threading.Event()
+        self._cancelled = threading.Event()
+        self._done = threading.Event()
+        self._error: RuntimeError | None = None
+        self._thread = threading.Thread(target=self._run, name="ai-dream-recording", daemon=True)
+        self._thread.start()
+
+    @property
+    def done(self) -> bool:
+        return self._done.is_set()
+
+    @property
+    def cancelled(self) -> bool:
+        return self._cancelled.is_set()
+
+    def stop(self) -> None:
+        """Stop early and finalize the WAV file; safe to call repeatedly."""
+        self._stop_requested.set()
+        self._signal(signal.SIGINT)
+
+    def cancel(self) -> None:
+        """Abort capture and remove its partial output."""
+        self._cancelled.set()
+        self._signal(signal.SIGTERM)
+
+    def wait(self, timeout: float | None = None) -> Path:
+        if not self._done.wait(timeout):
+            raise TimeoutError("Microphone recording is still running")
+        if self._error:
+            raise self._error
+        if self._cancelled.is_set():
+            raise RuntimeError("Microphone recording was cancelled")
+        return self.output
+
+    def _signal(self, sig: int) -> None:
+        with self._lock:
+            process = self._process
+        if process is not None and process.poll() is None:
+            try:
+                os.killpg(process.pid, sig)
+            except ProcessLookupError:
+                pass
+
+    def _run(self) -> None:
+        try:
+            self.output.parent.mkdir(parents=True, exist_ok=True)
+            self.output.unlink(missing_ok=True)
+            process = subprocess.Popen(
+                [self._executable, "-q", "-f", "S16_LE", "-r", "16000", "-c", "1",
+                 "-d", str(self.max_seconds), str(self.output)],
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                start_new_session=True)
+            with self._lock:
+                self._process = process
+            if self._cancelled.is_set():
+                self._signal(signal.SIGTERM)
+            elif self._stop_requested.is_set():
+                self._signal(signal.SIGINT)
+            _, stderr = process.communicate()
+            if self._cancelled.is_set():
+                self.output.unlink(missing_ok=True)
+            elif process.returncode not in (0, -signal.SIGINT):
+                detail = (stderr or b"").decode(errors="replace") if isinstance(stderr, bytes) else (stderr or "")
+                self._error = RuntimeError(f"Recorder exited with status {process.returncode}: {detail.strip()[-1200:]}")
+            elif not self.output.is_file() or self.output.stat().st_size == 0:
+                self._error = RuntimeError("Recorder did not produce an audio file")
+        except (OSError, subprocess.SubprocessError) as exc:
+            self._error = RuntimeError(f"Could not record microphone audio: {exc}")
+        finally:
+            self._done.set()
+
+
 class LocalVoice:
     """Run local TTS, microphone capture, and whisper.cpp transcription tools."""
     def __init__(self):
@@ -149,6 +229,14 @@ class LocalVoice:
 
     def speak(self, text: str) -> None:
         self.speak_async(text).wait()
+
+    def start_recording(self, output: str | Path, max_seconds: int = 30) -> RecordingWorker:
+        exe = self.capabilities.recorder_executable
+        if not exe:
+            raise RuntimeError("Microphone recording unavailable; " + self.capabilities.setup_help())
+        if isinstance(max_seconds, bool) or not isinstance(max_seconds, int) or not 1 <= max_seconds <= 120:
+            raise ValueError("Maximum recording duration must be from 1 to 120 seconds")
+        return RecordingWorker(exe, output, max_seconds)
 
     def record(self, output: str | Path, seconds: int = 5) -> Path:
         exe = self.capabilities.recorder_executable

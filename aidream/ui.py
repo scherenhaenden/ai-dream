@@ -214,6 +214,18 @@ class AIDreamWindow:
         self.transcribe_audio_button = ttk.Button(voice_input_row, text="Transcribe audio file…",
                                                   command=self.transcribe_audio_file)
         self.transcribe_audio_button.pack(side=tk.LEFT, padx=6)
+        ptt_row = ttk.Frame(right)
+        ptt_row.pack(fill=tk.X, pady=(2, 0))
+        self.push_to_talk_button = ttk.Button(ptt_row, text="Hold to talk")
+        self.push_to_talk_button.pack(side=tk.LEFT)
+        self.push_to_talk_button.bind("<ButtonPress-1>", self._push_to_talk_down, add="+")
+        self.push_to_talk_button.bind("<ButtonRelease-1>", self._push_to_talk_up, add="+")
+        self.push_to_talk_button.bind("<KeyPress-space>", self._push_to_talk_down, add="+")
+        self.push_to_talk_button.bind("<KeyRelease-space>", self._push_to_talk_up, add="+")
+        ttk.Label(ptt_row, text="Press and hold; release to insert transcription. Local only.").pack(side=tk.LEFT, padx=8)
+        self._ptt_worker = None
+        self._ptt_model = None
+        self._ptt_path = None
         self.chat = tk.Text(right, state=tk.DISABLED, wrap=tk.WORD)
         self.chat.pack(fill=tk.BOTH, expand=True, pady=4)
         self._restore_chat()
@@ -921,6 +933,97 @@ class AIDreamWindow:
 
         threading.Thread(target=work, name="ai-dream-voice-input", daemon=True).start()
 
+    def _push_to_talk_down(self, _event=None):
+        if self._voice_busy or self._ptt_worker:
+            return "break"
+        if not self.voice.capabilities.recording or not self.voice.capabilities.speech_to_text:
+            messagebox.showinfo("Push-to-talk unavailable", self.voice.capabilities.setup_help(), parent=self.root)
+            return "break"
+        model = self.whisper_model_var.get().strip()
+        if not model or not Path(model).is_file():
+            messagebox.showinfo("Choose a Whisper model", "Select an installed local Whisper model first.",
+                                parent=self.root)
+            return "break"
+        try:
+            maximum = int(self.record_seconds_var.get())
+            if not 1 <= maximum <= 120:
+                raise ValueError
+        except ValueError:
+            messagebox.showerror("Invalid maximum duration", "Push-to-talk is limited to 1–120 seconds.",
+                                 parent=self.root)
+            return "break"
+        handle = tempfile.NamedTemporaryFile(prefix="ai-dream-ptt-", suffix=".wav", delete=False)
+        path = Path(handle.name)
+        handle.close()
+        path.unlink(missing_ok=True)
+        try:
+            self._ptt_model, self._ptt_path = model, path
+            self._ptt_worker = self.voice.start_recording(path, max_seconds=maximum)
+            self._voice_busy = True
+            self.record_button.configure(state=tk.DISABLED)
+            self.transcribe_audio_button.configure(state=tk.DISABLED)
+            self.push_to_talk_button.configure(text="Release to transcribe…")
+            self.voice_status.configure(text=f"Listening (max {maximum}s)… release to transcribe")
+            try:
+                self.push_to_talk_button.grab_set()
+            except tk.TclError:
+                pass
+            self.root.after(75, self._poll_push_to_talk)
+        except (OSError, RuntimeError, ValueError) as exc:
+            path.unlink(missing_ok=True)
+            self._ptt_worker = self._ptt_path = self._ptt_model = None
+            messagebox.showerror("Push-to-talk failed", str(exc), parent=self.root)
+        return "break"
+
+    def _push_to_talk_up(self, _event=None):
+        worker = self._ptt_worker
+        if worker:
+            try:
+                self.push_to_talk_button.grab_release()
+            except tk.TclError:
+                pass
+            self.push_to_talk_button.configure(text="Transcribing…")
+            self.voice_status.configure(text="Stopping microphone and transcribing locally…")
+            worker.stop()
+        return "break"
+
+    def _poll_push_to_talk(self):
+        worker = self._ptt_worker
+        if not worker:
+            return
+        if not worker.done:
+            self.root.after(75, self._poll_push_to_talk)
+            return
+        try:
+            try:
+                self.push_to_talk_button.grab_release()
+            except tk.TclError:
+                pass
+            audio = worker.wait(0)
+            model = self._ptt_model
+        except (OSError, RuntimeError, ValueError) as exc:
+            self._voice_results.put(("error", str(exc)))
+            self._cleanup_push_to_talk()
+            return
+
+        def transcribe():
+            try:
+                self._voice_results.put(("status", "Transcribing local speech…"))
+                text = self.voice.transcribe(audio, model)
+                self._voice_results.put(("success", text))
+            except (OSError, RuntimeError, ValueError) as exc:
+                self._voice_results.put(("error", str(exc)))
+            finally:
+                audio.unlink(missing_ok=True)
+                self._cleanup_push_to_talk()
+
+        threading.Thread(target=transcribe, name="ai-dream-ptt-transcription", daemon=True).start()
+
+    def _cleanup_push_to_talk(self):
+        self._ptt_worker = None
+        self._ptt_model = None
+        self._ptt_path = None
+
     def _poll_voice_results(self):
         try:
             while True:
@@ -931,6 +1034,7 @@ class AIDreamWindow:
                     self._voice_busy = False
                     self.record_button.configure(state=tk.NORMAL)
                     self.transcribe_audio_button.configure(state=tk.NORMAL)
+                    self.push_to_talk_button.configure(state=tk.NORMAL, text="Hold to talk")
                     if kind == "success":
                         self.prompt.delete("1.0", tk.END)
                         self.prompt.insert("1.0", value)
@@ -1292,6 +1396,10 @@ class AIDreamWindow:
             backend.unload()
 
     def close(self):
+        if self._ptt_worker and not self._ptt_worker.done:
+            self._ptt_worker.cancel()
+        if self._ptt_path:
+            self._ptt_path.unlink(missing_ok=True)
         if self._speech_worker and not self._speech_worker.done:
             self._speech_worker.cancel()
         if self._generation_event:
