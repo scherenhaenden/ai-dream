@@ -4,7 +4,7 @@ import { ApiService } from '../core/api.service';
 type Model = { id: string; path?: string; format?: string };
 type ChatSummary = { id: string; title?: string; created_at?: string; updated_at?: string };
 type TranscriptMessage = { role: string; content: string; created_at?: string; key: string };
-type ChatEvent = { text?: string; chat_id?: string; assistant?: string | { role?: string; content?: string }; message?: string; error?: string };
+type ChatEvent = { text?: string; chat_id?: string; assistant?: string | { role?: string; content?: string }; response?: string | { content?: string }; message?: string; error?: string };
 
 @Component({
   standalone: true,
@@ -166,7 +166,7 @@ export class ChatPage implements OnInit {
   }
 
   busy(): boolean { return this.streaming() || this.sending() || this.creatingChat(); }
-  canCompose(): boolean { return this.api.connected() && !!this.selectedChatId() && !this.streaming() && !this.sending(); }
+  canCompose(): boolean { return this.api.connected() && !!this.selectedChatId() && !this.streaming() && !this.sending() && !this.creatingChat(); }
   canSend(): boolean { return this.canCompose() && !!this.selectedModelId() && !!this.prompt().trim() && !this.modelsLoading(); }
 
   onComposerKey(event: KeyboardEvent): void {
@@ -258,7 +258,8 @@ export class ChatPage implements OnInit {
     if (eventName === 'error' || event.error) throw new Error(event.error || event.message || 'The model returned an error.');
     if (eventName === 'complete') {
       this.streamCompleted = true;
-      const assistant = typeof event.assistant === 'string' ? event.assistant : event.assistant?.content;
+      const value = event.assistant ?? event.response;
+      const assistant = typeof value === 'string' ? value : value?.content;
       if (typeof assistant === 'string' && !this.streamText()) this.streamText.set(assistant);
     }
   }
