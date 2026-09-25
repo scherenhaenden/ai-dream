@@ -66,7 +66,7 @@ class LlamaCppBackend:
         self._base_url: str | None = None
         self._loaded_model: Path | None = None
         self._placement: list[str] = []
-        self._messages: list[dict[str, str]] = []
+        self._messages: list[dict[str, Any]] = []
         self._active_response = None
         self._active_socket = None
         self._response_lock = threading.Lock()
@@ -258,7 +258,7 @@ class LlamaCppBackend:
         opts = {} if options is None else options
         if not isinstance(opts, Mapping):
             raise ValueError("generation options must be a mapping")
-        unknown = set(opts) - {"temperature", "max_tokens", "system_prompt", "stop"}
+        unknown = set(opts) - {"temperature", "max_tokens", "system_prompt", "stop", "images"}
         if unknown:
             raise ValueError(f"Unsupported generation option(s): {', '.join(sorted(unknown))}")
         if not self.capabilities().chat_completions:
@@ -278,7 +278,17 @@ class LlamaCppBackend:
                     payload_messages.insert(0, {"role": "system", "content": system_prompt})
         if not isinstance(prompt, str):
             raise ValueError("prompt must be a string")
-        payload_messages.append({"role": "user", "content": prompt})
+        images = opts.get("images", [])
+        if not isinstance(images, (list, tuple)):
+            raise ValueError("images must be a list of validated local attachments")
+        if images:
+            from aidream.image_input import ImageAttachment, build_multimodal_message
+            if not all(isinstance(image, ImageAttachment) for image in images):
+                raise ValueError("images must contain validated local attachments")
+            user_message = build_multimodal_message(prompt, images)
+        else:
+            user_message = {"role": "user", "content": prompt}
+        payload_messages.append(user_message)
         payload = {"messages": payload_messages, "temperature": temperature, "stream": True}
         if "max_tokens" in opts:
             payload["max_tokens"] = _positive_int(opts["max_tokens"], "max_tokens")
@@ -289,7 +299,7 @@ class LlamaCppBackend:
             if not isinstance(stop, (list, tuple)) or not all(isinstance(x, str) for x in stop):
                 raise ValueError("stop must be a string or a list of strings")
             payload["stop"] = list(stop)
-        self._messages.append({"role": "user", "content": prompt})
+        self._messages.append(user_message)
         request = Request(self._base_url + "/v1/chat/completions", data=json.dumps(payload).encode(),
                           headers={"Content-Type": "application/json"}, method="POST")
         answer_parts: list[str] = []

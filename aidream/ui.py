@@ -29,6 +29,7 @@ class AIDreamWindow:
         self._generation_busy = False
         self._pending_generation = None
         self._generation_controls = []
+        self._pending_images = []
         sessions = self.chat_store.list_sessions()
         self.sessions = sessions
         self.chat_session = sessions[0] if sessions else self.chat_store.create()
@@ -154,6 +155,12 @@ class AIDreamWindow:
         ttk.Button(voice_row, text="Speak last answer", command=self.speak_last_answer).pack(side=tk.LEFT)
         self.record_button = ttk.Button(voice_row, text="Record & transcribe", command=self.record_and_transcribe)
         self.record_button.pack(side=tk.LEFT, padx=5)
+        self.attach_images_button = ttk.Button(voice_row, text="Attach image(s)", command=self.attach_images)
+        self.attach_images_button.pack(side=tk.LEFT, padx=5)
+        self.clear_images_button = ttk.Button(voice_row, text="Clear images", command=self.clear_images, state=tk.DISABLED)
+        self.clear_images_button.pack(side=tk.LEFT)
+        self.images_status = ttk.Label(voice_row, text="")
+        self.images_status.pack(side=tk.LEFT, padx=6)
         self.chat = tk.Text(right, state=tk.DISABLED, wrap=tk.WORD)
         self.chat.pack(fill=tk.BOTH, expand=True, pady=4)
         self._restore_chat()
@@ -584,8 +591,21 @@ class AIDreamWindow:
             messagebox.showerror("Runtime unavailable", "Install a usable llama.cpp CLI and check 'app backends'.")
             return
         prompt = self.prompt.get("1.0", tk.END).strip()
-        if not prompt:
+        if not prompt and not self._pending_images:
             return
+        if self._pending_images and self.agent_mode_var.get():
+            messagebox.showerror("Images unavailable in agent mode", "Send image attachments in regular chat mode.")
+            return
+        image_attachments = []
+        if self._pending_images:
+            try:
+                from aidream.image_input import load_image_attachment, build_multimodal_message
+                image_attachments = [load_image_attachment(path) for path in self._pending_images]
+                # Validate aggregate size and serialized content before loading a model.
+                build_multimodal_message(prompt, image_attachments)
+            except (OSError, ValueError) as exc:
+                messagebox.showerror("Invalid image attachment", str(exc), parent=self.root)
+                return
         model = self.models[selected[0]]
         device = self.device_var.get().strip()
         placement = {}
@@ -639,6 +659,8 @@ class AIDreamWindow:
             stops = [line.strip() for line in self.stop_strings.get("1.0", tk.END).splitlines() if line.strip()]
             if stops:
                 generation_options["stop"] = stops
+        if image_attachments:
+            generation_options["images"] = image_attachments
         session_id = self.chat_session["id"]
         prior = [message.copy() for message in self.chat_session.get("messages", [])
                  if message.get("role") in ("user", "assistant")]
@@ -648,14 +670,19 @@ class AIDreamWindow:
         requested_key = (id(backend), model_key, placement_key, tuple(sorted(load_options.items())))
         self._generation_busy = True
         self._generation_event = threading.Event()
+        saved_prompt = prompt
+        if image_attachments:
+            labels = ", ".join(image.path.name for image in image_attachments)
+            saved_prompt = (prompt + "\n" if prompt else "") + f"[Attached image(s): {labels}]"
         self._pending_generation = {"session_id": session_id, "prompt": prompt,
+                                    "saved_prompt": saved_prompt,
                                     "parts": [], "agent_note": None, "backend": backend}
         self.send_button.configure(state=tk.DISABLED)
         self.stop_button.configure(state=tk.NORMAL)
         for widget in self._generation_controls:
             widget.configure(state=tk.DISABLED)
         self.prompt.delete("1.0", tk.END)
-        self._append_chat(f"You: {prompt}\n\nAssistant: ")
+        self._append_chat(f"You: {saved_prompt}\n\nAssistant: ")
 
         def work():
             try:
@@ -702,6 +729,38 @@ class AIDreamWindow:
 
         threading.Thread(target=work, name="ai-dream-generation", daemon=True).start()
 
+    def attach_images(self):
+        from aidream.image_input import MAX_IMAGES_PER_MESSAGE, MAX_TOTAL_IMAGE_BYTES, load_image_attachment
+
+        paths = filedialog.askopenfilenames(
+            parent=self.root,
+            title="Choose local images",
+            filetypes=(("Images", "*.png *.jpg *.jpeg *.webp"), ("All files", "*")),
+        )
+        if not paths:
+            return
+        proposed = list(dict.fromkeys([*self._pending_images, *paths]))
+        if len(proposed) > MAX_IMAGES_PER_MESSAGE:
+            messagebox.showerror("Too many images", f"A message can contain at most {MAX_IMAGES_PER_MESSAGE} images.", parent=self.root)
+            return
+        try:
+            attachments = [load_image_attachment(path) for path in proposed]
+            if sum(item.size_bytes for item in attachments) > MAX_TOTAL_IMAGE_BYTES:
+                raise ValueError(f"Images exceed the {MAX_TOTAL_IMAGE_BYTES} byte combined limit.")
+        except (OSError, ValueError) as exc:
+            messagebox.showerror("Invalid image attachment", str(exc), parent=self.root)
+            return
+        self._pending_images = [str(item.path) for item in attachments]
+        self.images_status.configure(text=f"{len(attachments)} image(s) attached")
+        self.clear_images_button.configure(state=tk.NORMAL)
+
+    def clear_images(self):
+        if self._generation_busy:
+            return
+        self._pending_images.clear()
+        self.images_status.configure(text="")
+        self.clear_images_button.configure(state=tk.DISABLED)
+
     def stop_generation(self):
         if not self._generation_busy:
             return
@@ -732,7 +791,7 @@ class AIDreamWindow:
                 else:
                     cancelled = kind == "cancelled"
                     if kind == "complete" and self.chat_session.get("id") == pending["session_id"]:
-                        self.chat_session = self.chat_store.append(pending["session_id"], "user", pending["prompt"])
+                        self.chat_session = self.chat_store.append(pending["session_id"], "user", pending["saved_prompt"])
                         if pending["agent_note"]:
                             self.chat_session = self.chat_store.append(pending["session_id"], "system", pending["agent_note"])
                         self.chat_session = self.chat_store.append(pending["session_id"], "assistant", value)
@@ -754,6 +813,10 @@ class AIDreamWindow:
                     self._generation_busy = False
                     self._generation_event = None
                     self._pending_generation = None
+                    if kind in {"complete", "cancelled"}:
+                        self._pending_images.clear()
+                        self.images_status.configure(text="")
+                        self.clear_images_button.configure(state=tk.DISABLED)
                     self.send_button.configure(state=tk.NORMAL)
                     self.stop_button.configure(state=tk.DISABLED)
                     for widget in self._generation_controls:
