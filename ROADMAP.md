@@ -31,10 +31,10 @@ This snapshot is the next executable preview after those milestones; features be
 
 | Area | First usable slice | Next increments |
 |---|---|---|
-| Angular web interface | User-provided dark local-AI-studio design is the reference; Angular standalone shell is in progress with lazy screens and real loopback API data | Connect chat streaming and Hugging Face downloads; complete model/runtime controls, then move the launcher to the local web shell |
-| Hugging Face model downloader | Search public repositories/files, inspect license/tags/task/size, choose a GGUF, show progress, cancel safely, check known file size, resume with validated Range/ETag, save without overwrite and rescan | Checksums and optional authenticated access |
-| Chat | Persistent local history, restore text turns and unchanged local attachment references, rename/delete/export, streaming, stop/cancel, validated presets and per-chat model/backend/placement/generation settings, images for vision-capable models, bounded local document attachments | Retry/regenerate, audio attachments, Angular streaming client |
-| Agentic tools | Bounded read-only hardware/model/runtime calls, cancellation, redacted results and a bounded audit that omits argument values | Richer plans; any file actions require explicit user approval |
+| Angular web interface | Standalone Angular shell with lazy routes, real hardware/model/runtime data, persistent sessions, streamed chat, Hugging Face search/download, SSE progress that reconnects after refresh, bounded read-only Agent mode, and a loopback production host; the browser launcher is primary | Web chat rename/delete, regenerate and per-chat settings; accessibility polish |
+| Hugging Face model downloader | Desktop and Angular search, GGUF repository inspection, managed-directory download, live progress, cancellation, resume, no-overwrite, and catalog registration | File checksums, optional authenticated access, and clearer per-file size estimates |
+| Chat | Persistent local history, unchanged attachment references, desktop rename/delete/export, streaming and cancellation; web chat has session selection, stream/stop, Markdown export, response copy and retry after errors | Web rename/delete, regenerate, per-chat settings/presets, attachments, audio attachments |
+| Agentic tools | Desktop and Angular bounded read-only hardware/model/runtime calls, cancellation, redacted results and a bounded persistent audit that omits argument values | Richer plans; any file actions require explicit user approval |
 | Voice | Detect optional local speech tools; configurable-duration recording, push-to-talk, local audio-file transcription, selectable installed Whisper model and stoppable local TTS | Streaming STT/TTS and speech voice selection |
 | Other inputs/outputs | Local PNG/JPEG/WebP images and bounded local TXT/Markdown/text-PDF extraction | Audio attachments, export options and accessibility |
 

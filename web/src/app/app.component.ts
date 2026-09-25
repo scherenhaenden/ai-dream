@@ -5,6 +5,7 @@ import { ApiService } from './core/api.service';
 
 const NAV = [
   { label: 'Chat', path: '/chat', icon: '◫', group: 'WORKSPACE' },
+  { label: 'Agent', path: '/agent', icon: '✳', group: 'WORKSPACE' },
   { label: 'Models', path: '/models', icon: '⬡', group: 'LIBRARY' },
   { label: 'Model Hub', path: '/hub', icon: '⌕', group: 'LIBRARY' },
   { label: 'Hardware', path: '/hardware', icon: '▤', group: 'SYSTEM' },

@@ -3,6 +3,7 @@ import { Routes } from '@angular/router';
 export const routes: Routes = [
   { path: '', pathMatch: 'full', redirectTo: 'chat' },
   { path: 'chat', loadComponent: () => import('./pages/chat.page').then(m => m.ChatPage) },
+  { path: 'agent', loadComponent: () => import('./pages/agent.page').then(m => m.AgentPage) },
   { path: 'models', loadComponent: () => import('./pages/models.page').then(m => m.ModelsPage) },
   { path: 'hub', loadComponent: () => import('./pages/hub.page').then(m => m.HubPage) },
   { path: 'hardware', loadComponent: () => import('./pages/hardware.page').then(m => m.HardwarePage) },

@@ -45,6 +45,30 @@ class FakeCatalog:
         self.models = models if models is not None else [{"id": "model-1", "path": "/models/a.gguf"}]
     def list_models(self):
         return self.models
+    def add_source(self, path):
+        return str(path)
+
+
+class FakeHub:
+    def validate_repo_id(self, repo_id):
+        if repo_id != "owner/model":
+            raise ValueError("bad repo")
+        return repo_id
+    def validate_file(self, file_name):
+        if file_name != "model.Q4_K_M.gguf":
+            raise ValueError("bad file")
+        return file_name
+    def search(self, query, limit):
+        return [SimpleNamespace(repo_id="owner/model", downloads=12, likes=3)]
+    def list_gguf_files(self, repo_id, revision):
+        return ["model.Q4_K_M.gguf"]
+    def repository_details(self, repo_id):
+        return SimpleNamespace(repo_id=repo_id, downloads=12)
+    def download(self, repo_id, file_name, destination, progress=None, revision="main", cancel_event=None):
+        if progress:
+            progress(8, 16)
+            progress(16, 16)
+        return Path(destination) / file_name
 
 
 class FakeChatBackend(FakeBackend):
@@ -75,6 +99,19 @@ class FakeChatBackend(FakeBackend):
         self.cancelled.set()
     def unload(self):
         self.unloaded += 1
+
+
+class FakeAgentBackend(FakeChatBackend):
+    def __init__(self):
+        super().__init__()
+        self.agent_turn = 0
+    def chat_with_tools(self, messages, tools, timeout):
+        self.agent_turn += 1
+        if self.agent_turn == 1:
+            return {"role": "assistant", "content": "", "tool_calls": [{
+                "id": "call-1", "type": "function",
+                "function": {"name": "hardware_status", "arguments": "{}"}}]}
+        return {"role": "assistant", "content": "This machine has test hardware."}
 
 
 class FakeModelCatalog:
@@ -151,6 +188,40 @@ class HTTPAPITests(unittest.TestCase):
             runtime = json.loads(response.read())
         self.assertTrue(runtime["data"]["backends"][0]["available"])
         self.assertEqual(runtime["data"]["backends"][0]["name"], "fixture")
+
+    def test_hub_search_file_listing_and_download_sse_use_managed_directory(self):
+        with TemporaryDirectory() as temp:
+            api = ReadOnlyAPI(hardware=FakeHardware(), catalog=FakeCatalog(),
+                              runtimes=FakeRuntime(), hub=FakeHub(), download_dir=Path(temp) / "models")
+            self.server.services = api
+            with self.request("/api/hub/search?q=small&limit=5") as response:
+                result = json.loads(response.read())
+            self.assertEqual(result["data"]["items"][0]["repo_id"], "owner/model")
+            with self.request("/api/hub/repos/owner%2Fmodel/files?revision=main") as response:
+                result = json.loads(response.read())
+            self.assertEqual(result["data"]["repo_id"], "owner/model")
+            self.assertEqual(result["data"]["files"], [{"file_name": "model.Q4_K_M.gguf"}])
+            with self.post_json("/api/downloads", {"repo_id": "owner/model", "file_name": "model.Q4_K_M.gguf"}) as response:
+                self.assertEqual(response.status, 202)
+                created = json.loads(response.read())["data"]
+            self.assertIn(created["state"], {"queued", "downloading", "complete"})
+            with self.request(f"/api/downloads/{created['id']}/events") as response:
+                stream = response.read().decode()
+            self.assertIn('"state":"complete"', stream)
+            self.assertIn('"downloaded_bytes":16', stream)
+            self.assertTrue((Path(temp) / "models").is_dir())
+
+    def test_hub_routes_reject_repository_traversal_and_bad_download_body(self):
+        with self.assertRaises(HTTPError) as caught:
+            self.request("/api/hub/repos/owner%2F..%2Fsecret/files")
+        self.assertEqual(caught.exception.code, 400)
+        caught.exception.read()
+        caught.exception.close()
+        with self.assertRaises(HTTPError) as caught:
+            self.post_json("/api/downloads", {"repo_id": "owner/model", "file_name": "../bad.gguf"})
+        self.assertEqual(caught.exception.code, 400)
+        caught.exception.read()
+        caught.exception.close()
 
     def test_rejects_unknown_routes_query_and_bad_host(self):
         for path in ("/api/unknown", "/api/health?x=1"):
@@ -290,6 +361,57 @@ class HTTPAPITests(unittest.TestCase):
                 stream = response.read().decode("utf-8")
             self.assertIn('event: error\ndata: {"error":"Model id was not found in the local catalog"}', stream)
             self.assertEqual(backend.loaded, 0)
+
+    def test_agent_endpoint_runs_fixed_read_only_tools_and_persists_chat(self):
+        with TemporaryDirectory() as temp:
+            store = ChatStore(Path(temp) / "chats")
+            backend = FakeAgentBackend()
+            api = ReadOnlyAPI(hardware=FakeHardware(), catalog=FakeModelCatalog(),
+                              runtimes=FakeRuntime(), chat_store=store)
+            api.runtimes = SimpleNamespace(list_backends=lambda: [backend])
+            self.server.services = api
+            chat_id = store.create()["id"]
+            with self.post_json("/api/agent", {"chat_id": chat_id, "model_id": "safe-model",
+                                                 "prompt": "What hardware is here?"}) as response:
+                self.assertEqual(response.headers.get_content_type(), "text/event-stream")
+                stream = response.read().decode("utf-8")
+            self.assertIn('event: status\ndata:', stream)
+            self.assertIn('event: complete\ndata:', stream)
+            self.assertIn('"assistant":"This machine has test hardware."', stream)
+            self.assertIn('"name":"hardware.status"', stream)
+            self.assertIn('"stop_reason":"completed"', stream)
+            saved = store.load(chat_id)["messages"]
+            self.assertEqual([message["role"] for message in saved], ["user", "assistant", "system"])
+            public = ReadOnlyAPI.public_transcript(store.load(chat_id))
+            self.assertEqual(len(public["messages"]), 2)
+            self.assertEqual(public["agent_audits"][-1]["tools"][0]["name"], "hardware.status")
+            self.assertNotIn("AI_DREAM_AGENT_AUDIT", json.dumps(public))
+            self.assertEqual(backend.loaded, 1)
+
+    def test_agent_rejects_model_path_and_cors_preflight_is_explicit(self):
+        with TemporaryDirectory() as temp:
+            store = ChatStore(Path(temp) / "chats")
+            backend = FakeAgentBackend()
+            api = ReadOnlyAPI(hardware=FakeHardware(), catalog=FakeModelCatalog(),
+                              runtimes=FakeRuntime(), chat_store=store)
+            api.runtimes = SimpleNamespace(list_backends=lambda: [backend])
+            self.server.services = api
+            chat_id = store.create()["id"]
+            with self.post_json("/api/agent", {"chat_id": chat_id, "model_id": "/etc/passwd",
+                                                 "prompt": "inspect"}) as response:
+                stream = response.read().decode("utf-8")
+            self.assertIn("Model id was not found in the local catalog", stream)
+            self.assertEqual(backend.loaded, 0)
+            with self.request("/api/agent", method="OPTIONS", headers={
+                    "Origin": "http://127.0.0.1:5173"}) as response:
+                self.assertEqual(response.status, 204)
+            invalid = Request(self.base + "/api/agent", method="POST", headers={
+                "Origin": "http://127.0.0.1:5173", "Content-Type": "application/json"},
+                data=json.dumps({"chat_id": chat_id, "model_id": "safe-model"}).encode())
+            with self.assertRaises(HTTPError) as caught:
+                urlopen(invalid, timeout=2)
+            self.assertEqual(caught.exception.code, 400)
+            caught.exception.close()
 
     def test_chat_body_is_bounded_and_invalid_ids_never_read_paths(self):
         with TemporaryDirectory() as temp:

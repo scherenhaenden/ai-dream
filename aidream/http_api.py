@@ -9,6 +9,7 @@ from dataclasses import asdict, is_dataclass
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import os
 import re
 import select
 from pathlib import Path
@@ -17,7 +18,8 @@ import socket
 import threading
 import time
 from typing import Any
-from urllib.parse import unquote_to_bytes, urlsplit
+from urllib.parse import parse_qs, unquote_to_bytes, urlsplit
+import uuid
 
 LOOPBACK_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
@@ -39,6 +41,9 @@ MAX_REQUEST_BYTES = 32 * 1024
 MAX_PROMPT_CHARS = 8_000
 MAX_CHAT_OUTPUT_CHARS = 64 * 1024
 MAX_STATIC_FILE_BYTES = 32 * 1024 * 1024
+MAX_HUB_QUERY_CHARS = 200
+MAX_DOWNLOAD_JOBS = 8
+AGENT_AUDIT_PREFIX = "[[AI_DREAM_AGENT_AUDIT]]"
 
 
 def _jsonable(value: Any) -> Any:
@@ -136,7 +141,7 @@ class ChatRun:
 class ReadOnlyAPI:
     """HTTP adapter backed by the existing local catalog, chat and runtime services."""
 
-    def __init__(self, *, hardware=None, catalog=None, runtimes=None, chat_store=None):
+    def __init__(self, *, hardware=None, catalog=None, runtimes=None, chat_store=None, hub=None, download_dir=None):
         if hardware is None:
             from aidream.hardware import HardwareService
             hardware = HardwareService()
@@ -153,6 +158,16 @@ class ReadOnlyAPI:
         self.catalog = catalog
         self.runtimes = runtimes
         self.chat_store = chat_store
+        if hub is None:
+            from aidream.huggingface import HuggingFaceDownloader
+            hub = HuggingFaceDownloader()
+        self.hub = hub
+        data_home = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")).expanduser()
+        self.download_dir = Path(download_dir) if download_dir else data_home / "ai-dream" / "models"
+        self._downloads: dict[str, dict[str, Any]] = {}
+        self._download_lock = threading.Lock()
+        self._download_changed = threading.Condition(self._download_lock)
+        self._download_worker_active = False
         self._chat_lock = threading.Lock()
         self._active_backend = None
         self._active_binding = None
@@ -165,18 +180,49 @@ class ReadOnlyAPI:
     @staticmethod
     def public_transcript(session):
         messages = session.get("messages", [])
-        if len(messages) > MAX_TRANSCRIPT_MESSAGES:
-            raise APIError("This chat exceeds the browser transcript limit")
         public_messages = []
+        agent_audits = []
         total_chars = 0
         for item in messages:
             content = item.get("content", "")
+            if item.get("role") == "system" and isinstance(content, str) and content.startswith(AGENT_AUDIT_PREFIX):
+                try:
+                    audit = json.loads(content[len(AGENT_AUDIT_PREFIX):])
+                    if isinstance(audit, dict) and isinstance(audit.get("tools"), list):
+                        tools = []
+                        for tool in audit["tools"][:12]:
+                            if not isinstance(tool, dict):
+                                continue
+                            names = tool.get("argument_names", [])
+                            names = names[:16] if isinstance(names, list) else []
+                            tools.append({
+                                "name": str(tool.get("name", ""))[:80],
+                                "status": str(tool.get("status", ""))[:32],
+                                "result_snippet": str(tool.get("result_snippet", ""))[:240],
+                                "sequence": min(max(int(tool.get("sequence", 0)), 0), 12),
+                                "duration_ms": min(max(int(tool.get("duration_ms", 0)), 0), 120_000),
+                                "argument_names": [str(name)[:80] for name in names],
+                                "result_bytes": min(max(int(tool.get("result_bytes", 0)), 0), 1_048_576),
+                            })
+                        agent_audits.append({
+                            "tools": tools,
+                            "tool_call_count": min(max(int(audit.get("tool_call_count", 0)), 0), 12),
+                            "elapsed_seconds": round(min(max(float(audit.get("elapsed_seconds", 0)), 0), 120), 3),
+                            "stop_reason": str(audit.get("stop_reason", ""))[:64],
+                            "tool_calls_supported": bool(audit.get("tool_calls_supported", False)),
+                        })
+                except (TypeError, ValueError, OverflowError):
+                    pass
+                continue
+            if len(public_messages) >= MAX_TRANSCRIPT_MESSAGES:
+                raise APIError("This chat exceeds the browser transcript limit")
             total_chars += len(content)
             if total_chars > MAX_TRANSCRIPT_CHARS:
                 raise APILimit("This chat exceeds the browser transcript size limit")
             public_messages.append({"role": item.get("role"), "content": content,
                                    "created_at": item.get("created_at", "")})
-        return {**ReadOnlyAPI._public_summary(session), "messages": public_messages}
+        return {**ReadOnlyAPI._public_summary(session), "messages": public_messages,
+                "agent_audits": agent_audits[-24:]}
 
     def _safe_load_chat(self, chat_id: str):
         if not isinstance(chat_id, str) or not CHAT_ID_RE.fullmatch(chat_id):
@@ -295,6 +341,11 @@ class ReadOnlyAPI:
             self._chat_lock.release()
             raise APIError("Local model could not be loaded") from exc
 
+    def prepare_agent(self, chat_id: str, model_id: str, prompt: str):
+        """Prepare a bounded read-only LocalAgent turn on the shared model lock."""
+        from aidream.agent_api import prepare_agent
+        return prepare_agent(self, chat_id, model_id, prompt)
+
     def _unload_active(self):
         backend = self._active_backend
         self._active_backend = None
@@ -333,7 +384,139 @@ class ReadOnlyAPI:
                 backends.append({"name": str(backend.name), "capabilities": _jsonable(capabilities),
                                  "available": bool(capabilities.available)})
             return 200, {"data": {"backends": backends}}
+        if path == "/api/downloads":
+            with self._download_lock:
+                return 200, {"data": {"downloads": [self._public_download(item) for item in self._downloads.values()]}}
+        match = re.fullmatch(r"/api/downloads/([a-f0-9]{32})", path)
+        if match:
+            item = self._download_snapshot(match.group(1))
+            return 200, {"data": {"download": item}}
         return 404, {"error": "Not found"}
+
+    @staticmethod
+    def _public_download(job):
+        return {key: job.get(key) for key in ("id", "repo_id", "file_name", "status", "received", "total", "path", "error")}
+
+    @staticmethod
+    def _download_api_state(job):
+        states = {"queued": "queued", "downloading": "downloading", "cancelling": "cancelling",
+                  "complete": "complete", "failed": "failed", "cancelled": "cancelled"}
+        result = {"id": job["id"], "state": states.get(job["status"], "failed"),
+                  "downloaded_bytes": job.get("received", 0), "file_name": job.get("file_name")}
+        if job.get("total") is not None:
+            result["total_bytes"] = job["total"]
+            result["progress"] = min(100.0, job["received"] * 100.0 / max(1, job["total"]))
+        else:
+            result["progress"] = None
+        if job.get("error"):
+            result["error"] = job["error"]
+        return result
+
+    def _download_snapshot(self, job_id):
+        with self._download_lock:
+            item = self._downloads.get(job_id)
+            if item is None:
+                raise APINotFound("Download job not found")
+            return self._public_download(item)
+
+    def hub_search(self, query: str, limit: int):
+        if len(query) > MAX_HUB_QUERY_CHARS:
+            raise APIError("Search text is too long")
+        try:
+            models = self.hub.search(query, limit)
+        except (ValueError, RuntimeError) as exc:
+            raise APIError(str(exc)) from exc
+        return {"data": {"items": [_jsonable(model) for model in models]}}
+
+    def hub_files(self, repo_id: str, revision: str):
+        try:
+            repo_id = self.hub.validate_repo_id(repo_id)
+            files = self.hub.list_gguf_files(repo_id, revision)
+            details = self.hub.repository_details(repo_id)
+        except (ValueError, RuntimeError) as exc:
+            raise APIError(str(exc)) from exc
+        return {"data": {"repo_id": repo_id, "repo": _jsonable(details),
+                          "files": [{"file_name": name} for name in files], "revision": revision}}
+
+    def create_download(self, repo_id: str, file_name: str, revision: str):
+        try:
+            repo_id = self.hub.validate_repo_id(repo_id)
+            file_name = self.hub.validate_file(file_name)
+            if not re.fullmatch(r"[A-Za-z0-9._/-]{1,128}", revision) or ".." in revision.split("/"):
+                raise ValueError("Invalid repository revision.")
+        except ValueError as exc:
+            raise APIError(str(exc)) from exc
+        with self._download_lock:
+            if self._download_worker_active:
+                raise APIError("Another model download is active")
+            if len(self._downloads) >= MAX_DOWNLOAD_JOBS:
+                completed = [key for key, job in self._downloads.items() if job["status"] in {"complete", "failed", "cancelled"}]
+                for key in completed:
+                    self._downloads.pop(key, None)
+            if len(self._downloads) >= MAX_DOWNLOAD_JOBS:
+                raise APIError("Download job limit reached")
+            self.download_dir.mkdir(parents=True, exist_ok=True)
+            if self.download_dir.is_symlink() or not self.download_dir.resolve().is_dir():
+                raise APIError("Application model directory is not a safe directory")
+            job_id = uuid.uuid4().hex
+            cancel = threading.Event()
+            job = {"id": job_id, "repo_id": repo_id, "file_name": file_name, "status": "queued",
+                   "received": 0, "total": None, "path": None, "error": None, "cancel": cancel,
+                   "revision": revision}
+            self._downloads[job_id] = job
+            self._download_worker_active = True
+            self._download_changed.notify_all()
+        threading.Thread(target=self._run_download, args=(job_id,), daemon=True,
+                         name=f"ai-dream-download-{job_id[:8]}").start()
+        return self._download_api_state(job)
+
+    def _run_download(self, job_id):
+        from aidream.huggingface import DownloadCancelledError
+        with self._download_lock:
+            job = self._downloads.get(job_id)
+            if job is None:
+                self._download_worker_active = False
+                return
+            job["status"] = "downloading"
+            cancel = job["cancel"]
+            revision = job["revision"]
+            self._download_changed.notify_all()
+        def progress(received, total):
+            with self._download_lock:
+                current = self._downloads.get(job_id)
+                if current is not None:
+                    current["received"], current["total"] = received, total
+                    self._download_changed.notify_all()
+        try:
+            path = self.hub.download(job["repo_id"], job["file_name"], self.download_dir,
+                                     progress=progress, revision=revision, cancel_event=cancel)
+            self.catalog.add_source(self.download_dir)
+            with self._download_lock:
+                job["status"], job["path"] = "complete", str(path)
+                self._download_changed.notify_all()
+        except DownloadCancelledError:
+            with self._download_lock:
+                job["status"] = "cancelled"
+                self._download_changed.notify_all()
+        except (OSError, RuntimeError, ValueError) as exc:
+            with self._download_lock:
+                job["status"], job["error"] = "failed", str(exc)[:240]
+                self._download_changed.notify_all()
+        finally:
+            with self._download_lock:
+                self._download_worker_active = False
+                self._download_changed.notify_all()
+
+    def cancel_download(self, job_id):
+        with self._download_lock:
+            job = self._downloads.get(job_id)
+            if job is None:
+                raise APINotFound("Download job not found")
+            if job["status"] in {"queued", "downloading"}:
+                job["cancel"].set()
+                job["status"] = "cancelling"
+                self._download_changed.notify_all()
+            return self._download_api_state(job)
 
 
 def default_web_dist() -> Path:
@@ -440,10 +623,21 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
                 self._send_json(400, {"error": "Fragments are not supported"})
                 return
             if parsed.path == "/api" or parsed.path.startswith("/api/"):
-                if parsed.query or parsed.path != self.path:
-                    self._send_json(400, {"error": "Query strings and encoded API paths are not supported"})
+                if (parsed.path != self.path.split("?", 1)[0]
+                        or (parsed.query and parsed.path != "/api/hub/search" and "/api/hub/repos/" not in parsed.path)):
+                    self._send_json(400, {"error": "Query strings are not supported for this API path"})
                     return
-                self._serve_api(parsed.path)
+                if parsed.path == "/api/hub/search":
+                    self._serve_hub_search(parsed.query)
+                elif parsed.path.startswith("/api/hub/repos/") and parsed.path.endswith("/files"):
+                    self._serve_hub_files(parsed.path, parsed.query)
+                elif re.fullmatch(r"/api/downloads/[a-f0-9]{32}/events", parsed.path):
+                    self._serve_download_events(parsed.path.split("/")[3])
+                else:
+                    if parsed.query:
+                        self._send_json(400, {"error": "Query strings are not supported for this API path"})
+                        return
+                    self._serve_api(parsed.path)
                 return
             if server_static_root is not None:
                 self._serve_static(parsed.path)
@@ -466,6 +660,91 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
                 self._send_json(504, {"error": "Local service request timed out"})
             except (OSError, RuntimeError, ValueError, TypeError):
                 self._send_json(503, {"error": "Local service is temporarily unavailable"})
+
+        def _serve_hub_search(self, query):
+            try:
+                params = parse_qs(query, keep_blank_values=True, strict_parsing=False)
+                if set(params) - {"q", "limit"} or any(len(values) != 1 for values in params.values()):
+                    raise APIError("Only one q and limit value are accepted")
+                text = params.get("q", [""])[0]
+                limit_text = params.get("limit", ["30"])[0]
+                if not limit_text.isascii() or not limit_text.isdigit() or len(limit_text) > 3:
+                    raise APIError("limit must be between 1 and 100")
+                status, value = 200, self.server.services.hub_search(text, int(limit_text))
+                self._send_json(status, value)
+            except APIError as exc:
+                self._send_json(exc.status, {"error": str(exc)})
+            except (OSError, RuntimeError, ValueError, TypeError):
+                self._send_json(503, {"error": "Hugging Face is temporarily unavailable"})
+
+        def _serve_hub_files(self, path, query):
+            try:
+                params = parse_qs(query, keep_blank_values=True, strict_parsing=False)
+                if set(params) - {"revision"} or any(len(values) != 1 for values in params.values()):
+                    raise APIError("Only one revision value is accepted")
+                revision = params.get("revision", ["main"])[0]
+                encoded_repo = path[len("/api/hub/repos/"):-len("/files")].rstrip("/")
+                repo_id = unquote_to_bytes(encoded_repo).decode("utf-8")
+                value = self.server.services.hub_files(repo_id, revision)
+                self._send_json(200, value)
+            except (UnicodeDecodeError, APIError) as exc:
+                self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
+            except (OSError, RuntimeError, ValueError, TypeError):
+                self._send_json(503, {"error": "Hugging Face is temporarily unavailable"})
+
+        def _serve_download_events(self, job_id):
+            try:
+                self.server.services._download_snapshot(job_id)
+            except APIError as exc:
+                self._send_json(exc.status, {"error": str(exc)})
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            self.send_header("Cache-Control", "no-cache, no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("X-Accel-Buffering", "no")
+            self._write_cors_headers()
+            self.send_header("Connection", "close")
+            self.end_headers()
+            last_payload = None
+            terminal = {"complete", "failed", "cancelled"}
+            try:
+                while True:
+                    with self.server.services._download_changed:
+                        job = self.server.services._downloads.get(job_id)
+                        if job is None:
+                            break
+                        payload = self.server.services._download_api_state(job)
+                        status = job["status"]
+                        if payload != last_payload:
+                            last_payload = payload
+                        else:
+                            self.server.services._download_changed.wait(timeout=0.5)
+                            job = self.server.services._downloads.get(job_id)
+                            if job is None:
+                                break
+                            payload = self.server.services._download_api_state(job)
+                            status = job["status"]
+                            if payload == last_payload:
+                                try:
+                                    readable, _, _ = select.select([self.connection], [], [], 0)
+                                    if readable and self.connection.recv(1, socket.MSG_PEEK) == b"":
+                                        return
+                                    self.wfile.write(b": keep-alive\n\n")
+                                    self.wfile.flush()
+                                except (OSError, socket.timeout):
+                                    return
+                                continue
+                    if payload != last_payload:
+                        last_payload = payload
+                    try:
+                        self._send_event("progress", payload)
+                    except (BrokenPipeError, ConnectionResetError, socket.timeout, OSError):
+                        return
+                    if status in terminal:
+                        return
+            finally:
+                self.close_connection = True
 
         def _serve_static(self, request_path: str):
             try:
@@ -588,6 +867,17 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
             if self.path == "/api/chat":
                 self._post_chat()
                 return
+            if self.path == "/api/agent":
+                self._post_agent()
+                return
+            cancel_match = re.fullmatch(r"/api/downloads/([a-f0-9]{32})/cancel", self.path)
+            if cancel_match:
+                try:
+                    item = self.server.services.cancel_download(cancel_match.group(1))
+                    self._send_json(200, {"data": item})
+                except APIError as exc:
+                    self._send_json(exc.status, {"error": str(exc)})
+                return
             if self.path == "/api/chats":
                 try:
                     body = self._read_json_body()
@@ -600,6 +890,23 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
                 except OSError:
                     self._send_json(503, {"error": "Could not create a local chat"})
                 return
+            if self.path == "/api/downloads":
+                try:
+                    body = self._read_json_body()
+                    if set(body) - {"repo_id", "file_name", "revision"} or not {"repo_id", "file_name"} <= set(body):
+                        raise APIError("repo_id and file_name are required")
+                    if any(not isinstance(body.get(key), str) for key in ("repo_id", "file_name")):
+                        raise APIError("repo_id and file_name must be strings")
+                    revision = body.get("revision", "main")
+                    if not isinstance(revision, str):
+                        raise APIError("revision must be a string")
+                    result = self.server.services.create_download(body["repo_id"], body["file_name"], revision)
+                    self._send_json(202, {"data": result})
+                except (APIError, ValueError) as exc:
+                    self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
+                except OSError:
+                    self._send_json(503, {"error": "Could not prepare the application model directory"})
+                return
             self._reject_write()
 
         def do_PUT(self):
@@ -609,7 +916,21 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
             self._reject_write()
 
         def do_DELETE(self):
-            self._reject_write()
+            if not self._valid_host():
+                self._send_json(400, {"error": "Invalid Host header"})
+                return
+            if not self._write_origin_ok():
+                self._send_json(403, {"error": "A permitted Origin is required"})
+                return
+            match = re.fullmatch(r"/api/downloads/([a-f0-9]{32})/cancel", self.path)
+            if not match:
+                self._reject_write()
+                return
+            try:
+                item = self.server.services.cancel_download(match.group(1))
+                self._send_json(200, {"data": item})
+            except APIError as exc:
+                self._send_json(exc.status, {"error": str(exc)})
 
         def do_TRACE(self):
             self._reject_write()
@@ -761,6 +1082,91 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
                     run.close()
                 self.close_connection = True
 
+        def _post_agent(self):
+            """Run the fixed read-only agent loop and return bounded audit via SSE."""
+            try:
+                body = self._read_json_body()
+            except APIError as exc:
+                self._send_json(exc.status, {"error": str(exc)})
+                return
+            if set(body) != {"chat_id", "model_id", "prompt"}:
+                self._send_json(400, {"error": "chat_id, model_id and prompt are required"})
+                return
+            if any(not isinstance(body.get(key), str) for key in ("chat_id", "model_id", "prompt")):
+                self._send_json(400, {"error": "chat_id, model_id and prompt must be strings"})
+                return
+            if not body["prompt"].strip() or len(body["prompt"]) > MAX_PROMPT_CHARS:
+                self._send_json(400, {"error": f"prompt must contain 1 to {MAX_PROMPT_CHARS} characters"})
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            self.send_header("Cache-Control", "no-cache, no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("X-Accel-Buffering", "no")
+            self._write_cors_headers()
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.wfile.flush()
+            cancel = threading.Event()
+            disconnected = threading.Event()
+            finished = threading.Event()
+            run_ref = {"run": None}
+            write_lock = threading.Lock()
+
+            def cancel_run():
+                disconnected.set()
+                cancel.set()
+                run = run_ref["run"]
+                if run is not None:
+                    cancel_backend = getattr(run.backend, "cancel_generation", None)
+                    if callable(cancel_backend):
+                        cancel_backend()
+
+            def monitor_disconnect():
+                heartbeat = time.monotonic()
+                while not finished.wait(0.1):
+                    try:
+                        readable, _, _ = select.select([self.connection], [], [], 0)
+                        if readable and self.connection.recv(1, socket.MSG_PEEK) == b"":
+                            cancel_run()
+                            return
+                        if time.monotonic() - heartbeat >= 0.75:
+                            with write_lock:
+                                self.wfile.write(b": keep-alive\n\n")
+                                self.wfile.flush()
+                            heartbeat = time.monotonic()
+                    except (OSError, ValueError, socket.timeout):
+                        cancel_run()
+                        return
+
+            watcher = threading.Thread(target=monitor_disconnect, daemon=True)
+            watcher.start()
+            run = None
+            try:
+                self._send_event("status", {"status": "running", "message": "Checking local model and read-only tools…"})
+                run = self.server.services.prepare_agent(body["chat_id"], body["model_id"], body["prompt"])
+                run_ref["run"] = run
+                if cancel.is_set():
+                    cancel_run()
+                result = run.run(cancel)
+                if not cancel.is_set():
+                    # result contains at most 12k response chars and the agent's
+                    # bounded, value-redacted audit summary.
+                    self._send_event("complete", result)
+            except Exception as exc:
+                if not disconnected.is_set():
+                    safe_error = str(exc) if isinstance(exc, APIError) else "Local agent request failed"
+                    try:
+                        self._send_event("error", {"error": safe_error[:240]})
+                    except (BrokenPipeError, ConnectionResetError, socket.timeout, OSError):
+                        cancel_run()
+            finally:
+                finished.set()
+                watcher.join(timeout=0.5)
+                if run is not None:
+                    run.close()
+                self.close_connection = True
+
         def _reject_write(self):
             # Unsupported write methods never read or act on the request body.
             if not self._valid_host():
@@ -784,7 +1190,7 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
             if not self._write_origin_ok():
                 self._send_json(403, {"error": "A permitted Origin is required"})
                 return
-            if self.path not in {"/api/chat", "/api/chats"}:
+            if self.path not in {"/api/chat", "/api/agent", "/api/chats", "/api/downloads"} and not re.fullmatch(r"/api/downloads/[a-f0-9]{32}/cancel", self.path):
                 self._send_json(404, {"error": "Not found"})
                 return
             self.send_response(204)

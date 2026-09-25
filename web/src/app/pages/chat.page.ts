@@ -20,6 +20,7 @@ type ChatEvent = { text?: string; chat_id?: string; assistant?: string | { role?
             @for (chat of chats(); track chat.id) { <option [value]="chat.id">{{ chat.title || 'New chat' }}</option> }
           </select>
           <button class="chat-new-button" (click)="createChat()" [disabled]="busy() || !api.connected()" title="Start a new conversation">＋ <span>New chat</span></button>
+          <button class="chat-action-button" (click)="exportTranscript()" [disabled]="messages().length === 0 || streaming()" title="Download this conversation as Markdown">Export</button>
         </div>
       </header>
 
@@ -29,20 +30,21 @@ type ChatEvent = { text?: string; chat_id?: string; assistant?: string | { role?
         <div class="chat-notice error-notice" role="alert"><span>!</span><div><b>Could not load chat data</b><p>{{ apiError() }}</p></div><button (click)="reload()" [disabled]="busy()">Retry</button></div>
       }
 
-      <section class="transcript" #transcript aria-label="Conversation messages">
+      <section class="transcript" #transcript aria-label="Conversation messages" [attr.aria-busy]="transcriptLoading() || streaming()">
+        @if (transcriptLoading()) { <div class="transcript-loading" role="status">Loading conversation…</div> }
         @if (messages().length === 0 && !streaming() && !turnError()) {
           <div class="chat-empty"><div class="empty-illustration">◫</div><h2>{{ selectedChatId() ? 'Start this conversation' : 'Your local chat workspace' }}</h2><p>{{ selectedChatId() ? 'Choose a model below and send a message.' : 'Create a conversation to chat with a model installed on this device.' }}</p></div>
         }
         @for (message of messages(); track message.key) {
           <article class="message-row" [class.user-message]="message.role === 'user'" [class.assistant-message]="message.role !== 'user'">
             <div class="message-avatar" [class.user-avatar]="message.role === 'user'">{{ message.role === 'user' ? 'ED' : 'A' }}</div>
-            <div class="message-body"><div class="message-author">{{ message.role === 'user' ? 'You' : 'AI Dream' }} @if (message.created_at) {<time>{{ formatTime(message.created_at) }}</time>}</div><div class="message-content">{{ message.content }}</div></div>
+            <div class="message-body"><div class="message-author">{{ message.role === 'user' ? 'You' : 'AI Dream' }} @if (message.created_at) {<time>{{ formatTime(message.created_at) }}</time>} @if (message.role !== 'user') {<button class="message-copy" (click)="copyMessage(message)" [attr.aria-label]="copiedKey() === message.key ? 'Copied response' : 'Copy response'">{{ copiedKey() === message.key ? 'Copied' : 'Copy' }}</button>}</div><div class="message-content">{{ message.content }}</div></div>
           </article>
         }
         @if (streaming()) {
           <article class="message-row assistant-message" aria-label="Assistant response in progress"><div class="message-avatar">A</div><div class="message-body"><div class="message-author">AI Dream <span class="stream-indicator">Generating</span></div><div class="message-content">{{ streamText() }}<span class="stream-cursor" aria-hidden="true"></span></div></div></article>
         }
-        @if (turnError()) { <div class="turn-error" role="alert">{{ turnError() }}</div> }
+        @if (turnError()) { <div class="turn-error" role="alert"><span>{{ turnError() }}</span>@if (prompt().trim() && api.connected()) {<button (click)="send()" [disabled]="busy() || !selectedModelId()">Retry message</button>}</div> }
         <div #scrollAnchor></div>
       </section>
 
@@ -77,10 +79,13 @@ export class ChatPage implements OnInit {
   readonly streaming = signal(false);
   readonly sending = signal(false);
   readonly chatsLoading = signal(false);
+  readonly transcriptLoading = signal(false);
   readonly creatingChat = signal(false);
   readonly modelsLoading = signal(false);
   readonly turnError = signal('');
   readonly apiError = signal('');
+  readonly copiedKey = signal('');
+  private selectionVersion = 0;
   private aborter: AbortController | null = null;
   private streamCompleted = false;
   private readonly scrollAnchor = viewChild<ElementRef<HTMLElement>>('scrollAnchor');
@@ -131,19 +136,23 @@ export class ChatPage implements OnInit {
   }
 
   selectChat(id: string): void {
+    const version = ++this.selectionVersion;
     this.selectedChatId.set(id);
     this.messages.set([]);
     this.turnError.set('');
+    this.transcriptLoading.set(!!id);
     if (!id) return;
     this.api.get<unknown>(`/api/chats/${encodeURIComponent(id)}`).subscribe({
       next: (response) => {
+        if (version !== this.selectionVersion) return;
+        this.transcriptLoading.set(false);
         const data = unwrap(response) as any;
         const chat = data?.chat || data;
         if (!chat || chat.id !== id || !Array.isArray(chat.messages)) { this.apiError.set('The conversation response has an unexpected shape.'); return; }
         this.messages.set(chat.messages.map((message: any, index: number) => ({ role: message.role === 'user' ? 'user' : 'assistant', content: typeof message.content === 'string' ? message.content : '', created_at: message.created_at, key: `${id}:${index}:${message.created_at || ''}` })));
         this.apiError.set('');
       },
-      error: (error) => this.apiError.set(error?.error?.error || error?.message || 'Could not load this conversation.')
+      error: (error) => { if (version !== this.selectionVersion) return; this.transcriptLoading.set(false); this.apiError.set(error?.error?.error || error?.message || 'Could not load this conversation.'); }
     });
   }
 
@@ -286,11 +295,32 @@ export class ChatPage implements OnInit {
   }
 
   cancel(): void { this.aborter?.abort(); }
+  async copyMessage(message: TranscriptMessage): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(message.content);
+      this.copiedKey.set(message.key);
+      window.setTimeout(() => { if (this.copiedKey() === message.key) this.copiedKey.set(''); }, 1800);
+    } catch { this.turnError.set('Clipboard access is unavailable. Select and copy the response text manually.'); }
+  }
+
+  exportTranscript(): void {
+    const chat = this.chats().find(item => item.id === this.selectedChatId());
+    const title = chat?.title?.trim() || 'AI Dream conversation';
+    const body = [`# ${title}`, '', ...this.messages().flatMap(message => [`## ${message.role === 'user' ? 'You' : 'AI Dream'}`, '', message.content, ''])].join('\n');
+    const blob = new Blob([body], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `${safeFilename(title)}.md`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
   modelLabel(model: Model): string { return model.path?.split(/[\\/]/).pop() || model.id; }
   formatTime(value: string): string { const date = new Date(value); return Number.isNaN(date.valueOf()) ? '' : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
 }
 
 function unwrap(response: any): any { return response && typeof response === 'object' && 'data' in response ? response.data : response; }
+function safeFilename(value: string): string { return value.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 72) || 'conversation'; }
 async function responseMessage(response: Response): Promise<string> {
   try { const body = await response.json(); return body?.error || body?.message || `Local API returned HTTP ${response.status}`; }
   catch { return `Local API returned HTTP ${response.status}`; }

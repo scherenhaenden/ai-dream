@@ -2,9 +2,9 @@
 Version=1.0
 Type=Application
 Name=AI Dream
-Comment=Open the local AI model manager
-TryExec=/usr/bin/python3
-Exec=/home/edward/Development/ai-dream/open-ai-dream
+Comment=Open the local AI Dream console in your browser
+TryExec=/home/edward/Development/ai-dream/open-ai-dream-web
+Exec=/home/edward/Development/ai-dream/open-ai-dream-web
 Path=/home/edward/Development/ai-dream
 Terminal=false
 Categories=Utility;

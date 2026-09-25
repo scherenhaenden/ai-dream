@@ -4,11 +4,13 @@ AI Dream is a local-first Linux application for discovering hardware, managing G
 
 ## Run
 
-From the repository root:
+To open the Angular console in your browser:
 
 ```sh
-./open-ai-dream
+./open-ai-dream-web
 ```
+
+The root `AI Dream.desktop` one-click launcher opens the same browser app. The established desktop interface remains available with `./open-ai-dream`.
 
 Or use the CLI:
 
@@ -39,6 +41,7 @@ The current dated Linux test build is generated under `build/linux/25.09.2026/`.
 - Vision-projector GGUFs remain catalogued but are rejected as standalone chat models.
 - Optional offline voice output via `espeak-ng`/`espeak` with a responsive Stop speaking control; configurable-duration microphone recording, press-and-hold push-to-talk, and local audio-file transcription via `arecord`, `whisper-cli`/`whisper-cpp`, and a selectable local Whisper model.
 - The **Read-only agent tools** checkbox uses bounded llama.cpp tool calls backed by typed, local hardware/model/runtime queries. A short redacted result summary is stored in the transcript; arbitrary commands and writes are not exposed.
+- The Angular console also provides an **Agent** screen with the same fixed read-only tools. It requires a selected local runtime/model that supports tool calls, limits turns to four reads and 45 seconds, supports cancellation, and saves a bounded audit alongside each completed response.
 
 Hugging Face access in this preview covers public repositories only. Voice programs are optional system dependencies; AI Dream does not send microphone audio to a cloud service. Recording/transcription runs in the background so the chat window stays responsive.
 
@@ -50,5 +53,5 @@ Model sources are indexed in place and remain untouched. Chat JSON files live un
 
 See [ROADMAP.md](ROADMAP.md) for the implemented and pending functions.
 
-- Optional local API for the browser client: `python3 -m aidream.cli serve` (or `app serve` after installing the package). It binds only to `127.0.0.1` and provides health, hardware, local model catalog, runtime availability, saved chats and streaming local chat. See [docs/local-http-api.md](docs/local-http-api.md).
-- Angular browser app: build with `npm --prefix web run build`, then launch with `./open-ai-dream-web` (or install/use `AI Dream Web.desktop`). The production bundle is served with the local API from one loopback origin; see [docs/local-http-api.md](docs/local-http-api.md).
+- Optional local API for the browser client: `python3 -m aidream.cli serve` (or `app serve` after installing the package). It binds only to `127.0.0.1` and provides health, hardware, local model catalog, runtime availability, saved chats, streaming local chat, and bounded read-only agent turns. See [docs/local-http-api.md](docs/local-http-api.md).
+- Angular browser app: build with `npm --prefix web run build`, then launch with `./open-ai-dream-web` (or use `AI Dream.desktop`). The production bundle is served with the local API from one loopback origin; see [docs/local-http-api.md](docs/local-http-api.md).
