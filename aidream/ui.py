@@ -7,6 +7,7 @@ from tkinter import filedialog, messagebox, ttk
 import threading
 import queue
 import tempfile
+import shlex
 from pathlib import Path
 
 
@@ -103,9 +104,10 @@ class AIDreamWindow:
         self.backend_var = tk.StringVar(value=names[0] if names else "")
         self.backend_box = ttk.Combobox(settings, textvariable=self.backend_var, values=names, state="readonly", width=20)
         self.backend_box.pack(side=tk.LEFT, padx=6)
-        ttk.Label(settings, text="Runtime device name").pack(side=tk.LEFT)
+        ttk.Label(settings, text="Runtime device").pack(side=tk.LEFT)
         self.device_var = tk.StringVar(value="")
-        self.device_box = ttk.Entry(settings, textvariable=self.device_var, width=18)
+        self.device_box = ttk.Combobox(settings, textvariable=self.device_var, values=("",),
+                                        state="readonly", width=18)
         self.device_box.pack(side=tk.LEFT, padx=6)
         placement = ttk.LabelFrame(right, text="Advanced placement (runtime-supported)", padding=4)
         placement.pack(fill=tk.X, pady=(4, 0))
@@ -117,6 +119,19 @@ class AIDreamWindow:
         self.tensor_split_var = tk.StringVar()
         self.tensor_split_entry = ttk.Entry(placement, textvariable=self.tensor_split_var, width=18)
         self.tensor_split_entry.pack(side=tk.LEFT, padx=4)
+        ttk.Label(placement, text="Split mode").pack(side=tk.LEFT, padx=(8, 3))
+        self.split_mode_var = tk.StringVar()
+        self.split_mode_box = ttk.Entry(placement, textvariable=self.split_mode_var, width=9)
+        self.split_mode_box.pack(side=tk.LEFT, padx=3)
+        ttk.Label(placement, text="Main GPU").pack(side=tk.LEFT, padx=(8, 3))
+        self.main_gpu_var = tk.StringVar()
+        self.main_gpu_entry = ttk.Entry(placement, textvariable=self.main_gpu_var, width=5)
+        self.main_gpu_entry.pack(side=tk.LEFT)
+        self.manual_device_var = tk.BooleanVar(value=False)
+        self.manual_device_check = ttk.Checkbutton(placement, text="Manual device override",
+                                                    variable=self.manual_device_var,
+                                                    command=self._update_capabilities)
+        self.manual_device_check.pack(side=tk.LEFT, padx=6)
         self.backend_box.bind("<<ComboboxSelected>>", lambda _e: self._update_capabilities())
         self.capability_label = ttk.Label(right, text="")
         self.capability_label.pack(anchor="w", pady=4)
@@ -129,10 +144,34 @@ class AIDreamWindow:
         self._setting_entry(load_settings, "Context", self.context_var, "context_size", 9)
         self._setting_entry(load_settings, "CPU threads", self.threads_var, "threads", 7)
         self._setting_entry(load_settings, "Batch size", self.batch_var, "batch_size", 7)
+        self.physical_batch_var = tk.StringVar()
+        self.max_concurrent_var = tk.StringVar()
+        self._setting_entry(load_settings, "Physical batch", self.physical_batch_var, "physical_batch_size", 7)
+        self._setting_entry(load_settings, "Max concurrent", self.max_concurrent_var, "max_concurrent", 7)
+        self._advanced_load_vars = {}
+        for key, label in (("flash_attention", "Flash attention"),
+                           ("unified_kv_cache", "Unified KV cache"),
+                           ("offload_kv_cache", "Offload KV cache"), ("mmap", "mmap"),
+                           ("keep_model_in_memory", "Keep model in memory"), ("fit", "Fit")):
+            variable = tk.BooleanVar(value=False)
+            self._advanced_load_vars[key] = variable
+            check = ttk.Checkbutton(load_settings, text=label, variable=variable)
+            check.pack(side=tk.LEFT, padx=3)
+            self._settings_widgets[key] = check
+        self._settings_widgets["split_mode"] = self.split_mode_box
+        self._settings_widgets["main_gpu"] = self.main_gpu_entry
         self.reasoning_var = tk.BooleanVar(value=False)
         self.reasoning_check = ttk.Checkbutton(load_settings, text="Enable thinking", variable=self.reasoning_var)
         self.reasoning_check.pack(side=tk.LEFT, padx=(4, 10))
-        ttk.Label(load_settings, text="Load settings apply on next send; changing them reloads the model.").pack(anchor="w")
+        ttk.Label(load_settings, text="Load settings apply when the model is loaded or reloaded.").pack(anchor="w")
+
+        runtime_actions = ttk.Frame(right)
+        runtime_actions.pack(fill=tk.X, pady=(0, 4))
+        ttk.Button(runtime_actions, text="Load model", command=self.load_selected_model).pack(side=tk.LEFT)
+        ttk.Button(runtime_actions, text="Unload model", command=self.unload_model).pack(side=tk.LEFT, padx=4)
+        ttk.Button(runtime_actions, text="Reload model", command=self.reload_model).pack(side=tk.LEFT)
+        ttk.Button(runtime_actions, text="Runtime status", command=self.show_runtime_status).pack(side=tk.LEFT, padx=4)
+        ttk.Button(runtime_actions, text="Show effective llama.cpp command", command=self.show_effective_command).pack(side=tk.LEFT)
 
         generation = ttk.LabelFrame(right, text="Generation settings", padding=4)
         generation.pack(fill=tk.X, pady=(0, 4))
@@ -255,6 +294,122 @@ class AIDreamWindow:
         entry.pack(side=tk.LEFT, padx=(0, 10))
         self._settings_widgets[capability] = entry
 
+    def _selected_runtime_configuration(self):
+        backend = self.backend_by_name.get(self.backend_var.get())
+        selected = self.model_list.curselection()
+        if not backend:
+            raise ValueError("Choose an available runtime.")
+        if not selected or selected[0] >= len(self.models):
+            raise ValueError("Select a model from the catalog first.")
+        model = self.models[selected[0]]
+        placement = {}
+        if self.device_var.get().strip():
+            placement["device"] = self.device_var.get().strip()
+        if self.gpu_layers_var.get().strip():
+            placement["gpu_layers"] = int(self.gpu_layers_var.get().strip())
+        if self.tensor_split_var.get().strip():
+            placement["tensor_split"] = self.tensor_split_var.get().strip()
+        if self.split_mode_var.get().strip():
+            placement["split_mode"] = self.split_mode_var.get().strip()
+        if self.main_gpu_var.get().strip():
+            placement["main_gpu"] = int(self.main_gpu_var.get().strip())
+        caps = backend.capabilities()
+        options = {}
+        for key, variable in (("context_size", self.context_var), ("threads", self.threads_var),
+                              ("batch_size", self.batch_var)):
+            value = variable.get().strip()
+            if value and getattr(caps, key, False):
+                options[key] = int(value)
+        for key, variable in (("physical_batch_size", self.physical_batch_var),
+                              ("max_concurrent", self.max_concurrent_var)):
+            value = variable.get().strip()
+            if value and getattr(caps, key, False):
+                options[key] = int(value)
+        for key, variable in self._advanced_load_vars.items():
+            if getattr(caps, key, False):
+                options[key] = variable.get()
+        if caps.reasoning:
+            options["reasoning"] = self.reasoning_var.get()
+        validate = getattr(backend, "validate_load", None)
+        if validate:
+            validate(model, placement or None, options)
+        return backend, model, placement or None, options
+
+    def load_selected_model(self):
+        try:
+            backend, model, placement, options = self._selected_runtime_configuration()
+            if not backend.can_load(model):
+                raise ValueError(f"{backend.name} cannot load this model.")
+            self._save_current_chat_settings()
+        except (ValueError, TypeError, OSError, RuntimeError) as exc:
+            messagebox.showerror("Model configuration unavailable", str(exc), parent=self.root)
+            return
+        self.voice_status.configure(text=f"Loading {model.path}…")
+        def work():
+            try:
+                if self.loaded_backend:
+                    self.loaded_backend.unload()
+                backend.load(model, placement, options=options)
+                self.loaded_backend = backend
+                self.loaded_key = (id(backend), getattr(model, "id", model.path),
+                                   tuple(sorted((placement or {}).items())), tuple(sorted(options.items())))
+                result = f"Loaded {model.path} with {backend.name}."
+            except Exception as exc:
+                self.loaded_backend = None
+                self.loaded_key = None
+                result = f"Load failed: {exc}"
+            self.root.after(0, lambda: self.voice_status.configure(text=result))
+        threading.Thread(target=work, daemon=True).start()
+
+    def unload_model(self):
+        backend = self.loaded_backend
+        if backend is None:
+            self.voice_status.configure(text="No model is loaded.")
+            return
+        self.voice_status.configure(text="Unloading model…")
+        def work():
+            try:
+                backend.unload()
+                result = "Model unloaded."
+            except Exception as exc:
+                result = f"Unload failed: {exc}"
+            self.loaded_backend = None
+            self.loaded_key = None
+            self.root.after(0, lambda: self.voice_status.configure(text=result))
+        threading.Thread(target=work, daemon=True).start()
+
+    def reload_model(self):
+        self.unload_model()
+        self.root.after(100, self.load_selected_model)
+
+    def show_runtime_status(self):
+        backend = self.loaded_backend
+        model = getattr(backend, "_loaded_model", None) if backend else None
+        process = getattr(backend, "_process", None) if backend else None
+        running = bool(process and process.poll() is None)
+        message = (f"Backend: {backend.name if backend else 'none'}\n"
+                   f"Model: {model or 'none'}\nStatus: {'running' if running else 'unloaded'}")
+        messagebox.showinfo("Runtime status", message, parent=self.root)
+
+    def show_effective_command(self):
+        try:
+            backend, model, placement, options = self._selected_runtime_configuration()
+            command = getattr(backend, "effective_command", None)
+            if command is None:
+                raise ValueError("This runtime does not expose its effective command.")
+            value = command(model, placement, options)
+            if not isinstance(value, str):
+                value = shlex.join(list(map(str, value)))
+            win = tk.Toplevel(self.root)
+            win.title("Effective llama.cpp command")
+            text = tk.Text(win, width=100, height=5, wrap=tk.WORD)
+            text.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+            text.insert("1.0", value)
+            text.configure(state=tk.DISABLED)
+            ttk.Button(win, text="Copy", command=lambda: (self.root.clipboard_clear(), self.root.clipboard_append(value))).pack(pady=(0, 8))
+        except (ValueError, TypeError, OSError, RuntimeError) as exc:
+            messagebox.showerror("Command unavailable", str(exc), parent=self.root)
+
     def _current_preset_settings(self):
         def optional_int(variable, label):
             value = variable.get().strip()
@@ -274,6 +429,10 @@ class AIDreamWindow:
             placement["device"] = self.device_var.get().strip()
         if self.tensor_split_var.get().strip():
             placement["tensor_split"] = self.tensor_split_var.get().strip()
+        if self.split_mode_var.get().strip():
+            placement["split_mode"] = self.split_mode_var.get().strip()
+        if self.main_gpu_var.get().strip():
+            placement["main_gpu"] = int(self.main_gpu_var.get().strip())
         return {
             "system_prompt": self.system_prompt_var.get(),
             "reasoning": self.reasoning_var.get(),
@@ -292,7 +451,9 @@ class AIDreamWindow:
                                    ("temperature_var", "temperature"),
                                    ("max_tokens_var", "max_tokens"),
                                    ("context_var", "context_size"),
-                                   ("threads_var", "threads"), ("batch_var", "batch_size")):
+                                   ("threads_var", "threads"), ("batch_var", "batch_size"),
+                                   ("physical_batch_var", "physical_batch_size"),
+                                   ("max_concurrent_var", "max_concurrent")):
             value = settings.get(key)
             getattr(self, variable_name).set("" if value is None else str(value))
         self.reasoning_var.set(settings.get("reasoning", False))
@@ -305,6 +466,11 @@ class AIDreamWindow:
         self.gpu_layers_var.set(str(placement.get("gpu_layers", "")))
         self.device_var.set(str(placement.get("device", "")))
         self.tensor_split_var.set(str(placement.get("tensor_split", "")))
+        self.split_mode_var.set(str(placement.get("split_mode", "")))
+        self.main_gpu_var.set(str(placement.get("main_gpu", "")))
+        for key, variable in self._advanced_load_vars.items():
+            if key in settings:
+                variable.set(bool(settings[key]))
 
     def _capture_chat_settings(self):
         selected = self.model_list.curselection()
@@ -316,12 +482,18 @@ class AIDreamWindow:
             placement["device"] = self.device_var.get().strip()
         if self.tensor_split_var.get().strip():
             placement["tensor_split"] = self.tensor_split_var.get().strip()
+        if self.split_mode_var.get().strip():
+            placement["split_mode"] = self.split_mode_var.get().strip()
+        if self.main_gpu_var.get().strip():
+            placement["main_gpu"] = int(self.main_gpu_var.get().strip())
         load = {}
         for key, variable in (("context_size", self.context_var), ("threads", self.threads_var),
-                              ("batch_size", self.batch_var)):
+                              ("batch_size", self.batch_var), ("physical_batch_size", self.physical_batch_var),
+                              ("max_concurrent", self.max_concurrent_var)):
             value = variable.get().strip()
             if value:
                 load[key] = int(value)
+        load.update({key: variable.get() for key, variable in self._advanced_load_vars.items()})
         return {
             "backend_name": self.backend_var.get().strip(),
             "model_id": getattr(model, "id", "") if model else "",
@@ -365,10 +537,15 @@ class AIDreamWindow:
         self.gpu_layers_var.set(str(placement.get("gpu_layers", "")))
         self.device_var.set(str(placement.get("device", "")))
         self.tensor_split_var.set(str(placement.get("tensor_split", "")))
+        self.split_mode_var.set(str(placement.get("split_mode", "")))
+        self.main_gpu_var.set(str(placement.get("main_gpu", "")))
         load = runtime.get("load", {})
         for key, variable in (("context_size", self.context_var), ("threads", self.threads_var),
-                              ("batch_size", self.batch_var)):
+                              ("batch_size", self.batch_var), ("physical_batch_size", self.physical_batch_var),
+                              ("max_concurrent", self.max_concurrent_var)):
             variable.set(str(load[key]) if key in load else "")
+        for key, variable in self._advanced_load_vars.items():
+            variable.set(bool(load.get(key, False)))
         generation = dict(settings.get("generation", {}))
         generation["context_size"] = load.get("context_size", generation.get("context_size") or 4096)
         generation["threads"] = load.get("threads", generation.get("threads"))
@@ -454,15 +631,23 @@ class AIDreamWindow:
             self.capability_label.configure(text="No inference runtime found. Install llama.cpp CLI to run GGUF models.")
             self.reasoning_check.configure(state=tk.DISABLED)
             self.reasoning_var.set(False)
+            self.device_box.configure(state=tk.DISABLED, values=("",))
+            self.manual_device_check.configure(state=tk.DISABLED)
+            self.gpu_layers_entry.configure(state=tk.DISABLED)
+            self.tensor_split_entry.configure(state=tk.DISABLED)
+            self.split_mode_box.configure(state=tk.DISABLED)
+            self.main_gpu_entry.configure(state=tk.DISABLED)
             for name, widget in self._settings_widgets.items():
                 widget.configure(state=tk.DISABLED)
                 if name == "stop_strings":
                     widget.configure(state=tk.NORMAL)
                     widget.delete("1.0", tk.END)
                     widget.configure(state=tk.DISABLED)
-                elif name in ("context_size", "threads", "batch_size", "max_tokens", "system_prompt"):
-                    variable_name = {"context_size":"context_var", "threads":"threads_var", "batch_size":"batch_var", "max_tokens":"max_tokens_var", "system_prompt":"system_prompt_var"}[name]
+                elif name in ("context_size", "threads", "batch_size", "physical_batch_size", "max_concurrent", "max_tokens", "system_prompt"):
+                    variable_name = {"context_size":"context_var", "threads":"threads_var", "batch_size":"batch_var", "physical_batch_size":"physical_batch_var", "max_concurrent":"max_concurrent_var", "max_tokens":"max_tokens_var", "system_prompt":"system_prompt_var"}[name]
                     getattr(self, variable_name).set("")
+                elif name in self._advanced_load_vars:
+                    self._advanced_load_vars[name].set(False)
             return
         caps = backend.capabilities()
         controls = []
@@ -475,13 +660,32 @@ class AIDreamWindow:
         if caps.reasoning:
             controls.append("reasoning")
         status = f"Executable: {caps.executable or 'not found'}; controls: {', '.join(controls) or 'CPU/default only'}"
-        self.device_box.configure(state=tk.NORMAL if caps.device_selection else tk.DISABLED)
+        native_devices = []
+        if caps.device_selection:
+            for gpu in getattr(self.hardware.detect(), "gpus", []):
+                for backend_name in (gpu.backends or []):
+                    normalized = str(backend_name).lower().replace("-", "")
+                    prefix = {"rocm": "ROCm", "vulkan": "Vulkan", "cuda": "CUDA"}.get(normalized)
+                    if prefix:
+                        native = f"{prefix}{gpu.index}"
+                        if native not in native_devices:
+                            native_devices.append(native)
+        self.device_box.configure(values=("", *native_devices),
+                                  state=(tk.NORMAL if caps.device_selection and self.manual_device_var.get() else
+                                         tk.READONLY if caps.device_selection else tk.DISABLED))
+        self.manual_device_check.configure(state=tk.NORMAL if caps.device_selection else tk.DISABLED)
         self.gpu_layers_entry.configure(state=tk.NORMAL if caps.gpu_layers else tk.DISABLED)
         self.tensor_split_entry.configure(state=tk.NORMAL if caps.tensor_split else tk.DISABLED)
+        self.split_mode_box.configure(state=tk.NORMAL if caps.split_mode else tk.DISABLED)
+        self.main_gpu_entry.configure(state=tk.NORMAL if caps.main_gpu else tk.DISABLED)
         if not caps.gpu_layers:
             self.gpu_layers_var.set("")
         if not caps.tensor_split:
             self.tensor_split_var.set("")
+        if not caps.split_mode:
+            self.split_mode_var.set("")
+        if not caps.main_gpu:
+            self.main_gpu_var.set("")
         self.reasoning_check.configure(state=tk.NORMAL if caps.reasoning else tk.DISABLED)
         if not caps.reasoning:
             self.reasoning_var.set(False)
@@ -489,10 +693,14 @@ class AIDreamWindow:
             self.device_var.set("")
             status += ". Device selection is not exposed by this runtime."
         else:
-            status += ". Device name uses the runtime's naming; it is not inferred from hardware indices."
+            status += ". Detected devices use llama.cpp runtime identifiers; enable manual override for another identifier."
         self.capability_label.configure(text=status)
         for name, widget in self._settings_widgets.items():
-            supported = (bool(getattr(caps, name, False)) if name in ("context_size", "threads", "batch_size")
+            supported = (bool(getattr(caps, name, False)) if name in ("context_size", "threads", "batch_size",
+                                                                       "physical_batch_size", "max_concurrent",
+                                                                       "flash_attention", "unified_kv_cache",
+                                                                       "offload_kv_cache", "mmap",
+                                                                       "keep_model_in_memory", "fit", "split_mode", "main_gpu")
                          else bool(caps.available))
             widget.configure(state=tk.NORMAL if supported else tk.DISABLED)
             if not supported:
@@ -500,9 +708,11 @@ class AIDreamWindow:
                     widget.configure(state=tk.NORMAL)
                     widget.delete("1.0", tk.END)
                     widget.configure(state=tk.DISABLED)
-                elif name in ("context_size", "threads", "batch_size", "max_tokens", "system_prompt"):
-                    variable = getattr(self, {"context_size":"context_var", "threads":"threads_var", "batch_size":"batch_var", "max_tokens":"max_tokens_var", "system_prompt":"system_prompt_var"}[name])
+                elif name in ("context_size", "threads", "batch_size", "physical_batch_size", "max_concurrent", "max_tokens", "system_prompt"):
+                    variable = getattr(self, {"context_size":"context_var", "threads":"threads_var", "batch_size":"batch_var", "physical_batch_size":"physical_batch_var", "max_concurrent":"max_concurrent_var", "max_tokens":"max_tokens_var", "system_prompt":"system_prompt_var"}[name])
                     variable.set("")
+                elif name in self._advanced_load_vars:
+                    self._advanced_load_vars[name].set(False)
 
     def add_folder(self):
         path = filedialog.askdirectory(title="Add existing model directory")
@@ -1106,6 +1316,14 @@ class AIDreamWindow:
         tensor_split = self.tensor_split_var.get().strip()
         if tensor_split:
             placement["tensor_split"] = tensor_split
+        if self.split_mode_var.get().strip():
+            placement["split_mode"] = self.split_mode_var.get().strip()
+        if self.main_gpu_var.get().strip():
+            try:
+                placement["main_gpu"] = int(self.main_gpu_var.get().strip())
+            except ValueError:
+                messagebox.showerror("Invalid main GPU", "Main GPU must be a non-negative whole number.")
+                return
         placement = placement or None
         caps = backend.capabilities()
         load_options = {}
@@ -1119,6 +1337,22 @@ class AIDreamWindow:
                 except ValueError:
                     messagebox.showerror("Invalid setting", f"{key.replace('_', ' ').title()} must be a positive whole number.")
                     return
+        for key, var in (("physical_batch_size", self.physical_batch_var), ("max_concurrent", self.max_concurrent_var)):
+            value = var.get().strip()
+            if value and getattr(caps, key, False):
+                try:
+                    load_options[key] = int(value)
+                    if load_options[key] < 1:
+                        raise ValueError
+                except ValueError:
+                    messagebox.showerror("Invalid setting", f"{key.replace('_', ' ').title()} must be a positive whole number.")
+                    return
+        for key, variable in self._advanced_load_vars.items():
+            if getattr(caps, key, False):
+                load_options[key] = variable.get()
+        for key, variable in self._advanced_load_vars.items():
+            if getattr(caps, key, False):
+                load_options[key] = variable.get()
         if caps.reasoning:
             load_options["reasoning"] = self.reasoning_var.get()
         generation_options = {}
