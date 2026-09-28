@@ -20,7 +20,7 @@ _PROFILE_ID = re.compile(r"[a-f0-9]{32}\Z")
 _PLACEMENT_KEYS = {"gpu_layers", "device", "tensor_split", "split_mode", "main_gpu"}
 _LOAD_KEYS = {
     "context_size", "threads", "batch_size", "physical_batch_size", "max_concurrent",
-    "threads_batch", "continuous_batching", "numa", "mlock", "kv_cache_type_k",
+    "threads_batch", "continuous_batching", "numa", "kv_cache_type_k",
     "kv_cache_type_v", "flash_attention", "unified_kv_cache", "offload_kv_cache",
     "mmap", "keep_model_in_memory", "fit",
 }
