@@ -50,6 +50,8 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--port", type=int, default=8765)
     web = sub.add_parser("web", help="serve the bundled Angular application and API")
     web.add_argument("--port", type=int, default=8765)
+    web.add_argument("--stop", action="store_true", help="stop a managed AI Dream web server")
+    web.add_argument("--restart", action="store_true", help="stop then start the web server")
     run = sub.add_parser("run", help="load a model and chat in the terminal")
     _add_model_runtime_args(run)
     load = sub.add_parser("load", help="load a model without sending a chat prompt")
@@ -128,8 +130,15 @@ def main(argv: list[str] | None = None) -> int:
             from aidream.http_api import serve
             serve(args.port)
         elif args.command == "web":
-            from aidream.http_api import serve_web
-            serve_web(args.port)
+            if args.stop and args.restart:
+                raise ValueError("--stop and --restart cannot be used together")
+            from aidream.http_api import serve_web, stop_web_server
+            if args.stop:
+                stop_web_server(args.port)
+            else:
+                if args.restart:
+                    stop_web_server(args.port, missing_ok=True)
+                serve_web(args.port)
         elif args.command == "backends":
             from aidream.runtime import RuntimeRegistry
             _print([

@@ -21,7 +21,10 @@ npm --prefix web run build
 
 The launcher runs `python3 -m aidream web`, serves both Angular and the JSON
 API on `http://127.0.0.1:8765`, and asks the system browser to open that URL.
-Use `./open-ai-dream-web --port 8780` if that port is occupied. `AI Dream.desktop`
+Use `python3 -m aidream web --stop` to stop the managed server, or
+`python3 -m aidream web --restart` to stop and start it again. The server handles
+Ctrl+C and SIGTERM with a graceful shutdown. Use `./open-ai-dream-web --port 8780`
+if another application owns port 8765. `AI Dream Web.desktop`
 in the repository root launches the same browser interface with one click. It
 contains absolute paths to this checkout; update its `Exec`, `TryExec`, and
 `Path` entries if the checkout is moved. A dated preview, when present, has its
