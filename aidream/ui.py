@@ -33,6 +33,7 @@ class AIDreamWindow:
         self._generation_controls = []
         self._pending_images = []
         self._pending_documents = []
+        self._closing = False
         sessions = self.chat_store.list_sessions()
         self.sessions = sessions
         self.chat_session = sessions[0] if sessions else self.chat_store.create()
@@ -1630,20 +1631,50 @@ class AIDreamWindow:
             backend.unload()
 
     def close(self):
+        if self._closing:
+            return
+        self._closing = True
         if self._ptt_worker and not self._ptt_worker.done:
-            self._ptt_worker.cancel()
+            threading.Thread(target=self._ptt_worker.cancel, name="ai-dream-stop-recording", daemon=True).start()
         if self._ptt_path:
-            self._ptt_path.unlink(missing_ok=True)
+            try:
+                self._ptt_path.unlink(missing_ok=True)
+            except OSError:
+                pass
         if self._speech_worker and not self._speech_worker.done:
-            self._speech_worker.cancel()
+            threading.Thread(target=self._speech_worker.cancel, name="ai-dream-stop-speech", daemon=True).start()
         if self._generation_event:
             self._generation_event.set()
             backend = self._pending_generation.get("backend") if self._pending_generation else None
             cancel = getattr(backend, "cancel_generation", None)
             if cancel:
-                cancel()
-        self._unload_current()
-        self.root.destroy()
+                threading.Thread(target=cancel, name="ai-dream-cancel-generation", daemon=True).start()
+        try:
+            self.root.title("AI Dream — Closing")
+        except tk.TclError:
+            pass
+        stopped = threading.Event()
+
+        def cleanup():
+            try:
+                self._unload_current()
+            finally:
+                stopped.set()
+
+        threading.Thread(target=cleanup, name="ai-dream-shutdown", daemon=True).start()
+        self._finish_close(stopped)
+
+    def _finish_close(self, stopped):
+        if stopped.is_set():
+            try:
+                self.root.destroy()
+            except tk.TclError:
+                pass
+            return
+        try:
+            self.root.after(50, lambda: self._finish_close(stopped))
+        except tk.TclError:
+            pass
 
 
 def _session_label(session):
