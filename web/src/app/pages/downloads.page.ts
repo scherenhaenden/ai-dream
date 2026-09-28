@@ -16,14 +16,31 @@ import { ModelDownload, HubService } from '../core/hub.service';
       <span class="page-badge"><i [class.online]="activeCount() > 0"></i>{{ activeCount() }} ACTIVE</span>
     </div>
 
-    @if (!hub.downloads().length) {
+    @if (hub.downloadsError()) {
+      <section class="surface hub-empty" role="alert">
+        <div class="empty-illustration error-icon" aria-hidden="true">!</div>
+        <h2>Could not load downloads</h2>
+        <p>{{ hub.downloadsError() }}</p>
+        <button class="primary-button" type="button" [disabled]="hub.downloadsLoading()" (click)="retry()">
+          {{ hub.downloadsLoading() ? 'Retrying…' : 'Retry' }}
+        </button>
+      </section>
+    }
+
+    @if (hub.downloadsLoading() && !hub.downloads().length) {
+      <section class="surface hub-empty" role="status" aria-live="polite">
+        <div class="empty-illustration" aria-hidden="true">◌</div>
+        <h2>Loading downloads</h2>
+        <p>Checking for transfers on this device…</p>
+      </section>
+    } @else if (!hub.downloads().length && !hub.downloadsError()) {
       <section class="surface hub-empty">
         <div class="empty-illustration">⇩</div>
         <h2>No active downloads</h2>
         <p>Choose a GGUF file in the model hub to start a transfer.</p>
         <a class="primary-button" routerLink="/hub">Browse Model Hub <span>→</span></a>
       </section>
-    } @else {
+    } @else if (hub.downloads().length) {
       <section class="dl-list">
         @for (item of hub.downloads(); track item.id) {
           <article class="surface dl-card">
@@ -101,6 +118,10 @@ import { ModelDownload, HubService } from '../core/hub.service';
 
     .error-line { margin:4px 0 0 52px; padding:8px 12px; background:#2c1b1c; border-left:3px solid #e06c60; color:#e8a49c; font-size:11px; border-radius:0 6px 6px 0; }
 
+    .hub-empty .primary-button { font:inherit; cursor:pointer; }
+    .hub-empty .primary-button:disabled { opacity:0.65; cursor:wait; }
+    .hub-empty .error-icon { color:var(--red); border-color:#68423f; background:#281a1c; font-weight:700; }
+
     @media (max-width: 600px) {
       .dl-card { padding:14px; gap:12px; }
       .dl-top { gap:10px; }
@@ -116,8 +137,10 @@ export class DownloadsPage {
   readonly cancelling = signal<string|null>(null);
   readonly cancelErrors = signal<Record<string,string>>({});
 
-  constructor(readonly hub: HubService) {
-    void this.hub.refreshDownloads();
+  constructor(readonly hub: HubService) {}
+
+  async retry() {
+    await this.hub.refreshDownloads();
   }
 
   activeCount() {
