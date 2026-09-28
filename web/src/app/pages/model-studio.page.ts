@@ -255,8 +255,14 @@ export class ModelStudioPage implements OnInit {
     if (this.selectedModelId() === model.id) { this.selectedModelId.set(''); return; }
     this.selectedModelId.set(model.id); this.error.set(''); this.notice.set(''); this.runtimeStatus.set('');
     this.resetConfiguration();
-    try { this.profiles.set(await this.profileApi.list(model.id)); }
-    catch (error) { this.profileError.set(message(error)); }
+    this.profiles.set([]); this.selectedProfileId.set(''); this.profileName.set(''); this.profileError.set('');
+    const requestedModelId = model.id;
+    try {
+      const profiles = await this.profileApi.list(requestedModelId);
+      if (this.selectedModelId() === requestedModelId) this.profiles.set(profiles);
+    } catch (error) {
+      if (this.selectedModelId() === requestedModelId) this.profileError.set(message(error));
+    }
   }
 
   capabilities(): RuntimeCapabilities | null {
@@ -378,7 +384,8 @@ export class ModelStudioPage implements OnInit {
     const root = value && typeof value === 'object' ? value as Record<string, any> : {};
     const data = root['data'] && typeof root['data'] === 'object' ? root['data'] : root;
     const status = data['status'] && typeof data['status'] === 'object' ? data['status'] : data;
-    this.loadedModelPath.set(typeof status?.model === 'string' && status.loaded !== false ? status.model : '');
+    const modelPath = typeof status?.model_path === 'string' ? status.model_path : status?.model;
+    this.loadedModelPath.set(typeof modelPath === 'string' && status.loaded !== false ? modelPath : '');
   }
   isLoaded(model: ModelRecord): boolean { return !!this.loadedModelPath() && normalize(model.path) === normalize(this.loadedModelPath()); }
 
