@@ -5,7 +5,7 @@ import { ModelRecord, RuntimeCapabilities, RuntimeDevice, RuntimeInstallation, R
 export interface RuntimeBackend { name: string; available: boolean; capabilities: RuntimeCapabilities; }
 export interface RuntimeSnapshot { backends: RuntimeBackend[]; devices: RuntimeDevice[]; status: unknown; }
 export interface RuntimeSettingsRequest {
-  model_id: string; backend?: string; runtime_id?: string;
+  model_id: string; backend?: string; runtime_id?: string; profile_id?: string;
   placement?: RuntimePlacement; load?: RuntimeLoadOptions;
 }
 
