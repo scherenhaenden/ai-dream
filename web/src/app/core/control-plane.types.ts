@@ -92,7 +92,6 @@ export interface RuntimeLoadOptions {
   threads_batch?: number;
   continuous_batching?: boolean;
   numa?: string;
-  mlock?: boolean;
   kv_cache_type_k?: string;
   kv_cache_type_v?: string;
   flash_attention?: boolean;
@@ -146,6 +145,22 @@ export interface ChatSettings {
   generation?: GenerationOptions;
   preset_id?: string | null;
   profile_id?: string | null;
+}
+
+export interface RuntimeDefaults {
+  runtime_id: string | null;
+  backend_name: string | null;
+  placement: RuntimePlacement;
+  load: RuntimeLoadOptions;
+}
+
+export interface AppSettings {
+  runtime_defaults: RuntimeDefaults;
+  managed_models_dir: string;
+  config_dir: string;
+  data_dir: string;
+  default_profile_behavior: 'model' | 'global';
+  keep_last_model_loaded: boolean;
 }
 
 export interface BenchmarkResult {
