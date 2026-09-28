@@ -49,6 +49,7 @@ class AIDreamWindow:
         self.backend_by_name = {b.name: b for b in self.backends}
         self.loaded_backend = None
         self.loaded_key = None
+        self._runtime_action_busy = False
         self._settings_widgets = {}
         self._build()
         self.root.after(100, self._poll_voice_results)
@@ -337,6 +338,9 @@ class AIDreamWindow:
         return backend, model, placement or None, options
 
     def load_selected_model(self):
+        if self._generation_busy:
+            self.voice_status.configure(text="Stop the current generation before changing the loaded model.")
+            return
         try:
             backend, model, placement, options = self._selected_runtime_configuration()
             if not backend.can_load(model):
@@ -345,11 +349,30 @@ class AIDreamWindow:
         except (ValueError, TypeError, OSError, RuntimeError) as exc:
             messagebox.showerror("Model configuration unavailable", str(exc), parent=self.root)
             return
+        self._start_model_load(backend, model, placement, options)
+
+    def _start_model_load(self, backend, model, placement, options):
+        """Run one load/reload transaction off the Tk thread.
+
+        A reload is a single ordered operation. Keeping unload and load in the
+        same worker prevents the old implementation's timer-based race where
+        the new server could start before the previous server had stopped.
+        """
+        if self._runtime_action_busy:
+            self.voice_status.configure(text="A runtime action is already in progress.")
+            return
+        self._runtime_action_busy = True
         self.voice_status.configure(text=f"Loading {model.path}…")
+
         def work():
             try:
-                if self.loaded_backend:
-                    self.loaded_backend.unload()
+                previous = self.loaded_backend
+                if previous is not None and previous is not backend:
+                    previous.unload()
+                # LlamaCppBackend.load itself stops an existing process when
+                # reloading on the same backend.
+                self.loaded_backend = None
+                self.loaded_key = None
                 backend.load(model, placement, options=options)
                 self.loaded_backend = backend
                 self.loaded_key = (id(backend), getattr(model, "id", model.path),
@@ -359,14 +382,26 @@ class AIDreamWindow:
                 self.loaded_backend = None
                 self.loaded_key = None
                 result = f"Load failed: {exc}"
-            self.root.after(0, lambda: self.voice_status.configure(text=result))
+            self.root.after(0, lambda: self._finish_runtime_action(result))
+
         threading.Thread(target=work, daemon=True).start()
 
+    def _finish_runtime_action(self, result):
+        self._runtime_action_busy = False
+        self.voice_status.configure(text=result)
+
     def unload_model(self):
+        if self._generation_busy:
+            self.voice_status.configure(text="Stop the current generation before unloading the model.")
+            return
         backend = self.loaded_backend
         if backend is None:
             self.voice_status.configure(text="No model is loaded.")
             return
+        if self._runtime_action_busy:
+            self.voice_status.configure(text="A runtime action is already in progress.")
+            return
+        self._runtime_action_busy = True
         self.voice_status.configure(text="Unloading model…")
         def work():
             try:
@@ -374,14 +409,14 @@ class AIDreamWindow:
                 result = "Model unloaded."
             except Exception as exc:
                 result = f"Unload failed: {exc}"
-            self.loaded_backend = None
-            self.loaded_key = None
-            self.root.after(0, lambda: self.voice_status.configure(text=result))
+            else:
+                self.loaded_backend = None
+                self.loaded_key = None
+            self.root.after(0, lambda: self._finish_runtime_action(result))
         threading.Thread(target=work, daemon=True).start()
 
     def reload_model(self):
-        self.unload_model()
-        self.root.after(100, self.load_selected_model)
+        self.load_selected_model()
 
     def show_runtime_status(self):
         backend = self.loaded_backend
@@ -1261,6 +1296,9 @@ class AIDreamWindow:
     def send(self):
         if self._generation_busy:
             return
+        if self._runtime_action_busy:
+            self.voice_status.configure(text="Wait for the current model load or unload to finish.")
+            return
         selected = self.model_list.curselection()
         if not selected:
             messagebox.showinfo("Select a model", "Choose a GGUF model first.")
@@ -1656,6 +1694,15 @@ class AIDreamWindow:
         stopped = threading.Event()
 
         def cleanup():
+            # Let an explicit UI load finish before tearing its backend down.
+            # This avoids a close/load race that could otherwise leave a newly
+            # spawned llama-server process alive after the Tk window exits.
+            if getattr(self, "_runtime_action_busy", False):
+                try:
+                    self.root.after(50, cleanup)
+                except tk.TclError:
+                    pass
+                return
             try:
                 self._unload_current()
             finally:
