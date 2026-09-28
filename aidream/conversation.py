@@ -17,9 +17,9 @@ _SESSION_ID = re.compile(r"[a-f0-9]{32}\Z")
 _ROLES = {"user", "assistant", "system"}
 _PRESET_ID = re.compile(r"[a-f0-9]{32}\Z")
 _SESSION_SETTING_KEYS = {"backend_name", "model_id", "model_path", "runtime", "generation", "preset_id"}
-_PLACEMENT_KEYS = {"gpu_layers", "device", "tensor_split"}
+_PLACEMENT_KEYS = {"gpu_layers", "device", "tensor_split", "split_mode", "main_gpu"}
 _LOAD_KEYS = {"context_size", "threads", "batch_size", "physical_batch_size", "max_concurrent",
-              "unified_kv_cache", "flash_attention", "offload_kv_cache", "keep_model_in_memory", "mmap"}
+              "unified_kv_cache", "flash_attention", "offload_kv_cache", "keep_model_in_memory", "mmap", "fit"}
 _GENERATION_KEYS = {"system_prompt", "reasoning", "temperature", "max_tokens", "stop_strings",
                     "context_size", "threads", "batch_size", "placement", "structured_output"}
 _ATTACHMENT_KINDS = {"image", "document"}
@@ -417,6 +417,10 @@ def _validate_placement(value: Any, name: str) -> dict[str, Any]:
         if any(not math.isfinite(number) or number <= 0 for number in numbers):
             raise ValueError(f"{name}.tensor_split values must be positive and finite")
         result["tensor_split"] = split
+    if "split_mode" in value:
+        result["split_mode"] = _short_text(value["split_mode"], f"{name}.split_mode", 32)
+    if "main_gpu" in value:
+        result["main_gpu"] = _bounded_int(value["main_gpu"], f"{name}.main_gpu", 0, 255)
     return result
 
 

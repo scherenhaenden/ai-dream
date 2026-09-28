@@ -9,7 +9,7 @@ from aidream.runtime import GenerationCancelled, LlamaCppBackend
 FAKE_SERVER = r'''#!/usr/bin/env python3
 import http.server, json, sys, time
 if '--help' in sys.argv:
-    print('usage -m MODEL --host HOST --port PORT -ngl N --device NAME --tensor-split LIST -c CTX -t THREADS -b BATCH --fit on|off --reasoning on|off /v1/chat/completions')
+    print('usage -m MODEL --host HOST --port PORT -ngl N --device NAME --tensor-split LIST --split-mode MODE --main-gpu N -c CTX -t THREADS -b BATCH -ub UB --parallel N -fa --kv-unified --no-kv-offload --mmap --no-mmap --mlock --fit on|off --reasoning on|off /v1/chat/completions')
     raise SystemExit(0)
 port = int(sys.argv[sys.argv.index('--port') + 1])
 with open(sys.argv[sys.argv.index('-m') + 1] + '.argv', 'w') as f: f.write(json.dumps(sys.argv))
@@ -40,6 +40,48 @@ http.server.HTTPServer(('127.0.0.1', port), Handler).serve_forever()
 '''
 
 class PersistentServerTest(unittest.TestCase):
+    def test_all_advertised_load_settings_generate_exact_arguments(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            executable = root / 'fake-server'
+            executable.write_text(FAKE_SERVER)
+            executable.chmod(0o755)
+            model = root / 'model.gguf'
+            model.write_bytes(b'mock')
+            backend = LlamaCppBackend(str(executable), port=12345)
+            command = backend.effective_command(model, {
+                'gpu_layers': 18, 'device': 'ROCm0,ROCm1', 'tensor_split': '2,1',
+                'split_mode': 'layer', 'main_gpu': 1,
+            }, {
+                'context_size': 8192, 'threads': 8, 'batch_size': 512,
+                'physical_batch_size': 128, 'max_concurrent': 4,
+                'flash_attention': True, 'unified_kv_cache': True,
+                'offload_kv_cache': False, 'mmap': False,
+                'keep_model_in_memory': True,
+            })
+            pairs = set(zip(command, command[1:]))
+            for pair in (('-ngl', '18'), ('--device', 'ROCm0,ROCm1'),
+                         ('--tensor-split', '2,1'), ('--split-mode', 'layer'),
+                         ('--main-gpu', '1'), ('-c', '8192'), ('-t', '8'),
+                         ('-b', '512'), ('-ub', '128')):
+                self.assertIn(pair, pairs)
+            self.assertIn(('--parallel', '4'), pairs)
+            self.assertIn(('-fa', 'on'), pairs)
+            for flag in ('--kv-unified', '--no-kv-offload', '--no-mmap', '--mlock'):
+                self.assertIn(flag, command)
+
+    def test_unsupported_new_settings_are_rejected(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            executable = root / 'fake-server'
+            executable.write_text('#!/bin/sh\\nif [ "$1" = "--help" ]; then echo "usage -m MODEL"; fi\\n')
+            executable.chmod(0o755)
+            backend = LlamaCppBackend(str(executable))
+            with self.assertRaisesRegex(ValueError, 'does not advertise split_mode'):
+                backend._placement_options({'split_mode': 'layer'})
+            with self.assertRaisesRegex(ValueError, 'does not advertise flash_attention'):
+                backend._load_options({'flash_attention': True})
+
     def test_load_generates_with_history_and_unloads_process(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
