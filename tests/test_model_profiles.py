@@ -60,6 +60,12 @@ class ModelProfileResolutionTests(unittest.TestCase):
         self.assertEqual(load_fingerprint(base), load_fingerprint(unchanged))
         self.assertNotEqual(load_fingerprint(base), load_fingerprint(changed_load))
 
+    def test_profile_rejects_mlock_alias(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = ModelProfileStore(Path(td) / "profiles.json")
+            with self.assertRaisesRegex(ValueError, "unsupported load setting.*mlock"):
+                store.create({"name": "Invalid", "load": {"mlock": True}})
+
 
 if __name__ == "__main__":
     unittest.main()
