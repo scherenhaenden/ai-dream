@@ -52,8 +52,10 @@ installations before their advertised help/capabilities are trusted.
 
 `RuntimePlacement` is `{gpu_layers?, device?, tensor_split?, split_mode?,
 main_gpu?}`. `RuntimeLoadOptions` is `{context_size?, threads?, batch_size?,
-physical_batch_size?, max_concurrent?, flash_attention?, unified_kv_cache?,
-offload_kv_cache?, mmap?, keep_model_in_memory?, fit?}`. Only options advertised
+physical_batch_size?, max_concurrent?, threads_batch?, continuous_batching?,
+numa?, mlock?, kv_cache_type_k?, kv_cache_type_v?, flash_attention?,
+unified_kv_cache?, offload_kv_cache?, mmap?, keep_model_in_memory?, fit?`.
+Only options advertised
 by the selected installation are actionable; unsupported supplied values are
 rejected.
 

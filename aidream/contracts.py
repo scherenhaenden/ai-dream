@@ -47,6 +47,12 @@ class RuntimeCapabilities(TypedDict, total=False):
     batch_size: bool
     physical_batch_size: bool
     max_concurrent: bool
+    threads_batch: bool
+    continuous_batching: bool
+    numa: bool
+    mlock: bool
+    kv_cache_type_k: bool
+    kv_cache_type_v: bool
     flash_attention: bool
     unified_kv_cache: bool
     offload_kv_cache: bool
@@ -84,6 +90,12 @@ class RuntimeLoadOptions(TypedDict, total=False):
     batch_size: int
     physical_batch_size: int
     max_concurrent: int
+    threads_batch: int
+    continuous_batching: bool
+    numa: str
+    mlock: bool
+    kv_cache_type_k: str
+    kv_cache_type_v: str
     flash_attention: bool
     unified_kv_cache: bool
     offload_kv_cache: bool
