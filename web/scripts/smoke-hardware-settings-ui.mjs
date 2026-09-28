@@ -1,9 +1,12 @@
+import fs from 'fs';
 import { test, expect } from '@playwright/test';
 import { chromium } from 'playwright';
 import { spawn } from 'child_process';
 import path from 'path';
 
 const SCREENSHOT_DIR = path.join(process.cwd(), 'screenshots');
+fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
+
 
 const hardwareResponse = {
   data: {
@@ -35,8 +38,8 @@ const settingsResponse = {
 };
 
 const healthResponse = { data: { status: 'ok', version: '0.1.0' } };
-const snapshotResponse = { data: { runtime: { backends: [{name: 'vulkan', available: true}] } } };
-const installationsResponse = { data: [{id: 'llama-cpp-1', name: 'llama.cpp v1.0', kind: 'executable', enabled: true, available: true}] };
+const snapshotResponse = { data: { backends: [{name: 'vulkan', available: true}] } };
+const installationsResponse = { data: { installations: [{id: 'llama-cpp-1', name: 'llama.cpp v1.0', kind: 'executable', enabled: true, available: true}] } };
 
 
 async function runSmokeTests() {
@@ -63,8 +66,10 @@ async function runSmokeTests() {
     await page.route('**/api/health', route => route.fulfill({ json: healthResponse }));
     await page.route('**/api/hardware', route => route.fulfill({ json: hardwareResponse }));
     await page.route('**/api/settings', route => route.fulfill({ json: settingsResponse }));
-    await page.route('**/api/runtime/snapshot', route => route.fulfill({ json: snapshotResponse }));
+    await page.route('**/api/runtime', route => route.fulfill({ json: snapshotResponse }));
+    await page.route('**/api/runtime', route => route.fulfill({ json: snapshotResponse }));
     await page.route('**/api/runtime/installations', route => route.fulfill({ json: installationsResponse }));
+    await page.route('**/api/models', route => route.fulfill({ json: { data: { models: [] } } }));
 
     // Test Hardware Page
     console.log('testing hardware page...');
@@ -117,6 +122,14 @@ async function runSmokeTests() {
     await new Promise(resolve => setTimeout(resolve, 500));
 
     await expect(page.locator('text=Choose the default engine')).toBeVisible();
+
+    const backendSelect = page.locator('select').first();
+    await backendSelect.selectOption('vulkan');
+    await expect(backendSelect).toHaveValue('vulkan');
+    const runtimeSelect = page.locator('select').nth(1);
+    await runtimeSelect.selectOption('llama-cpp-1');
+    await expect(runtimeSelect).toHaveValue('llama-cpp-1');
+
 
     await page.screenshot({ path: path.join(SCREENSHOT_DIR, 'settings-page-runtime.png') });
     console.log('Settings page verified and screenshots saved.');
