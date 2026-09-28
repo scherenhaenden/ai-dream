@@ -6,7 +6,8 @@
     "start": "vite --host 127.0.0.1",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "test:runtime-layout": "node scripts/check-runtime-layout.mjs"
+    "test:runtime-layout": "node scripts/check-runtime-layout.mjs",
+    "test:hardware-settings-ui": "node scripts/smoke-hardware-settings-ui.mjs"
   },
   "dependencies": {
     "@angular/common": "^20.3.0",

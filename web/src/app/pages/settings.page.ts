@@ -110,7 +110,7 @@ type SettingsTab = 'general' | 'runtime';
               Default backend
               <select [value]="s.runtime_defaults.backend_name||''" (change)="updateBackend($any($event.target).value)">
                 <option value="">Use runtime default</option>
-                @for(b of backends();track b.name){<option [value]="b.name" [disabled]="!b.available">{{b.name}}{{b.available?'':' (unavailable)'}}</option>}
+                @for(b of backends();track b.name){<option [value]="b.name" [selected]="s.runtime_defaults.backend_name === b.name" [disabled]="!b.available">{{b.name}}{{b.available?'':' (unavailable)'}}</option>}
               </select>
               <small>Available choices come from the local runtime service.</small>
             </label>
@@ -118,7 +118,7 @@ type SettingsTab = 'general' | 'runtime';
               Default runtime
               <select [value]="s.runtime_defaults.runtime_id||''" (change)="updateRuntime($any($event.target).value)">
                 <option value="">Use backend default</option>
-                @for(r of installations();track r.id){<option [value]="r.id" [disabled]="!r.enabled||!r.available">{{r.name}} · {{r.backend||r.kind}}{{r.available?'':' (unavailable)'}}</option>}
+                @for(r of installations();track r.id){<option [value]="r.id" [selected]="s.runtime_defaults.runtime_id === r.id" [disabled]="!r.enabled||!r.available">{{r.name}} · {{r.backend||r.kind}}{{r.available?'':' (unavailable)'}}</option>}
               </select>
               <small>Registered llama.cpp installations detected by AI Dream.</small>
             </label>
