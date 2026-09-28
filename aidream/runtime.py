@@ -347,7 +347,8 @@ class LlamaCppBackend:
         except OSError:
             self._close_log()
             raise
-        self._base_url = f"http://127.0.0.1:{port}"
+        command_port = command[command.index("--port") + 1]
+        self._base_url = f"http://127.0.0.1:{command_port}"
         deadline = time.monotonic() + self.startup_timeout
         while time.monotonic() < deadline:
             if self._process.poll() is not None:
