@@ -4,28 +4,34 @@ AI Dream is a local-first Linux application for discovering hardware, managing G
 
 ## Run
 
-To open the Angular console in your browser:
+To open the standalone desktop application:
+
+```sh
+./open-ai-dream
+```
+
+The root `AI Dream.desktop` launcher starts this Tk application. To open the Angular web app in your browser:
 
 ```sh
 ./open-ai-dream-web
 ```
 
-The root `AI Dream.desktop` one-click launcher opens the same browser app. The established desktop interface remains available with `./open-ai-dream`.
+The root `AI Dream Web.desktop` launcher starts the browser app. Both launchers keep a terminal open with startup errors visible.
 
 Or use the CLI:
 
 ```sh
 python3 -m pip install -e .
-python3 -m aidream hardware
-python3 -m aidream models add ~/Models
-python3 -m aidream models scan
-python3 -m aidream models list
-python3 -m aidream backends
-python3 -m aidream run /path/to/model.gguf --backend auto
-app-gui
+aidream hardware
+aidream models add ~/Models
+aidream models scan
+aidream models list
+aidream backends
+aidream run /path/to/model.gguf --backend auto
+aidream-gui
 ```
 
-`app run` also accepts `--gpu-layers`, `--device`, and `--tensor-split` when the selected runtime supports them; `app backends` reports available controls. Device names are runtime-native identifiers rather than hardware-list indexes.
+`aidream run` also accepts `--gpu-layers`, `--device`, and `--tensor-split` when the selected runtime supports them; `aidream backends` reports available controls. Device names are runtime-native identifiers rather than hardware-list indexes. For a source checkout without installing the console script, use `python3 -m aidream`.
 
 The current dated Linux test build is generated under `build/linux/25.09.2026/`.
 
@@ -60,4 +66,4 @@ launch instructions, data paths, interface behavior, API, and optional inputs.
 See [ROADMAP.md](ROADMAP.md) for the implemented and pending functions.
 
 - Optional local API for the browser client: `python3 -m aidream.cli serve` (or `app serve` after installing the package). It binds only to `127.0.0.1` and provides health, hardware, local model catalog, runtime availability, saved chats, streaming local chat, and bounded read-only agent turns. See [docs/local-http-api.md](docs/local-http-api.md).
-- Angular browser app: build with `npm --prefix web run build`, then launch with `./open-ai-dream-web` (or use `AI Dream.desktop`). The production bundle is served with the local API from one loopback origin; see [docs/local-http-api.md](docs/local-http-api.md).
+- Angular browser app: build with `npm --prefix web run build`, then launch with `./open-ai-dream-web` (or use `AI Dream Web.desktop`). The production bundle is served with the local API from one loopback origin; see [docs/local-http-api.md](docs/local-http-api.md).

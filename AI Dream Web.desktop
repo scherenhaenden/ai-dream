@@ -6,5 +6,5 @@ Comment=Open the local AI Dream web app
 TryExec=/home/edward/Development/ai-dream/open-ai-dream-web
 Exec=/home/edward/Development/ai-dream/open-ai-dream-web
 Path=/home/edward/Development/ai-dream
-Terminal=false
+Terminal=true
 Categories=Utility;
