@@ -21,6 +21,7 @@ class AIDreamWindow:
         from aidream.voice import LocalVoice
 
         self.root = root
+        self._configure_theme()
         self.chat_store = ChatStore()
         self.voice = LocalVoice()
         self._speech_worker = None
@@ -39,7 +40,8 @@ class AIDreamWindow:
         self.chat_session = sessions[0] if sessions else self.chat_store.create()
         self.last_answer = ""
         self.root.title("AI Dream")
-        self.root.geometry("900x650")
+        self.root.geometry("1320x900")
+        self.root.minsize(1080, 700)
         self.catalog = ModelCatalog()
         self.hardware = HardwareService()
         self.registry = RuntimeRegistry()
@@ -58,6 +60,32 @@ class AIDreamWindow:
         self.refresh()
         self._apply_session_settings(self.chat_session)
 
+    def _configure_theme(self):
+        """Use a consistent dark palette on supported Tk themes."""
+        style = ttk.Style(self.root)
+        try:
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
+        bg, panel, fg, muted, accent = "#171b24", "#202633", "#e7ebf2", "#a7b1c2", "#4d78bd"
+        self.root.configure(background=bg)
+        style.configure(".", background=bg, foreground=fg, fieldbackground=panel,
+                        insertcolor=fg, bordercolor="#394354", lightcolor="#394354",
+                        darkcolor=bg, troughcolor=panel, focuscolor=accent)
+        style.configure("TFrame", background=bg)
+        style.configure("TLabelframe", background=bg, bordercolor="#394354")
+        style.configure("TLabelframe.Label", background=bg, foreground=fg)
+        style.configure("TLabel", background=bg, foreground=fg)
+        style.configure("TButton", background=panel, foreground=fg, padding=(8, 5))
+        style.map("TButton", background=[("active", "#2c3749"), ("disabled", bg)])
+        style.configure("TEntry", fieldbackground=panel, foreground=fg, insertcolor=fg)
+        style.configure("TCombobox", fieldbackground=panel, foreground=fg, arrowcolor=fg)
+        style.map("TCombobox", fieldbackground=[("readonly", panel)], foreground=[("readonly", fg)])
+        style.configure("TCheckbutton", background=bg, foreground=fg)
+        style.configure("TNotebook", background=bg, borderwidth=0)
+        style.configure("TNotebook.Tab", background=panel, foreground=muted, padding=(12, 7))
+        style.map("TNotebook.Tab", background=[("selected", accent)], foreground=[("selected", "white")])
+
     def _build(self):
         root = self.root
         pane = ttk.Panedwindow(root, orient=tk.HORIZONTAL)
@@ -66,16 +94,20 @@ class AIDreamWindow:
         left = ttk.Frame(pane, padding=8)
         pane.add(left, weight=1)
         ttk.Label(left, text="Hardware").pack(anchor="w")
-        self.hardware_text = tk.Text(left, height=8, width=38, state=tk.DISABLED, wrap=tk.WORD)
+        self.hardware_text = tk.Text(left, height=6, width=38, state=tk.DISABLED, wrap=tk.WORD,
+                                     background="#202633", foreground="#e7ebf2",
+                                     insertbackground="#e7ebf2", relief=tk.FLAT)
         self.hardware_text.pack(fill=tk.X, pady=(2, 8))
         ttk.Label(left, text="Model directories").pack(anchor="w")
-        self.sources = tk.Listbox(left, height=5, exportselection=False)
+        self.sources = tk.Listbox(left, height=5, exportselection=False, background="#202633",
+                                  foreground="#e7ebf2", selectbackground="#4d78bd",
+                                  selectforeground="white", relief=tk.FLAT)
         self.sources.pack(fill=tk.X, pady=2)
         row = ttk.Frame(left)
         row.pack(fill=tk.X)
         ttk.Button(row, text="Add folder", command=self.add_folder).pack(side=tk.LEFT)
         ttk.Button(row, text="Scan", command=self.scan).pack(side=tk.LEFT, padx=4)
-        ttk.Button(row, text="Download from Hugging Face", command=self.open_hf_downloader).pack(side=tk.LEFT)
+        ttk.Button(left, text="Download from Hugging Face", command=self.open_hf_downloader).pack(anchor="w", pady=(2, 4))
         ttk.Label(left, text="GGUF models").pack(anchor="w", pady=(8, 0))
         model_filter = ttk.Frame(left)
         model_filter.pack(fill=tk.X)
@@ -90,7 +122,9 @@ class AIDreamWindow:
                                            state="readonly", width=15)
         self.model_sort_box.pack(side=tk.RIGHT)
         self.model_sort_box.bind("<<ComboboxSelected>>", lambda _event: self._populate_model_list())
-        self.model_list = tk.Listbox(left, height=14, exportselection=False)
+        self.model_list = tk.Listbox(left, height=14, exportselection=False, background="#202633",
+                                     foreground="#e7ebf2", selectbackground="#4d78bd",
+                                     selectforeground="white", relief=tk.FLAT)
         self.model_list.pack(fill=tk.BOTH, expand=True, pady=2)
         self.model_list.bind("<<ListboxSelect>>", self.show_model_details)
         self.model_details = ttk.Label(left, text="Select a model to inspect its metadata.",
@@ -99,97 +133,109 @@ class AIDreamWindow:
 
         right = ttk.Frame(pane, padding=8)
         pane.add(right, weight=2)
-        settings = ttk.Frame(right)
-        settings.pack(fill=tk.X)
-        ttk.Label(settings, text="Runtime").pack(side=tk.LEFT)
+        config_tabs = ttk.Notebook(right)
+        config_tabs.pack(fill=tk.X, expand=False)
+        runtime_tab = ttk.Frame(config_tabs, padding=10)
+        generation = ttk.Frame(config_tabs, padding=10)
+        config_tabs.add(runtime_tab, text="Model & runtime")
+        config_tabs.add(generation, text="Generation")
+
+        placement = ttk.LabelFrame(runtime_tab, text="Runtime and placement", padding=10)
+        placement.pack(fill=tk.X, pady=(0, 8))
+        for col in range(4):
+            placement.columnconfigure(col, weight=1)
+        ttk.Label(placement, text="Backend").grid(row=0, column=0, sticky="w", padx=(0, 6), pady=4)
         names = [b.name for b in self.backends]
         self.backend_var = tk.StringVar(value=names[0] if names else "")
-        self.backend_box = ttk.Combobox(settings, textvariable=self.backend_var, values=names, state="readonly", width=20)
-        self.backend_box.pack(side=tk.LEFT, padx=6)
-        ttk.Label(settings, text="Runtime device").pack(side=tk.LEFT)
+        self.backend_box = ttk.Combobox(placement, textvariable=self.backend_var, values=names, state="readonly")
+        self.backend_box.grid(row=0, column=1, sticky="ew", padx=(0, 16), pady=4)
+        ttk.Label(placement, text="Runtime device").grid(row=0, column=2, sticky="w", padx=(0, 6), pady=4)
         self.device_var = tk.StringVar(value="")
-        self.device_box = ttk.Combobox(settings, textvariable=self.device_var, values=("",),
-                                        state="readonly", width=18)
-        self.device_box.pack(side=tk.LEFT, padx=6)
-        placement = ttk.LabelFrame(right, text="Advanced placement (runtime-supported)", padding=4)
-        placement.pack(fill=tk.X, pady=(4, 0))
-        ttk.Label(placement, text="GPU layers").pack(side=tk.LEFT)
+        self.device_box = ttk.Combobox(placement, textvariable=self.device_var, values=("",), state="readonly")
+        self.device_box.grid(row=0, column=3, sticky="ew", pady=4)
+        self.backend_box.bind("<<ComboboxSelected>>", lambda _e: self._update_capabilities())
+        ttk.Label(placement, text="GPU layers").grid(row=1, column=0, sticky="w", pady=4)
         self.gpu_layers_var = tk.StringVar()
-        self.gpu_layers_entry = ttk.Entry(placement, textvariable=self.gpu_layers_var, width=8)
-        self.gpu_layers_entry.pack(side=tk.LEFT, padx=(4, 12))
-        ttk.Label(placement, text="Tensor split").pack(side=tk.LEFT)
+        self.gpu_layers_entry = ttk.Entry(placement, textvariable=self.gpu_layers_var)
+        self.gpu_layers_entry.grid(row=1, column=1, sticky="ew", padx=(0, 16), pady=4)
+        ttk.Label(placement, text="Tensor split").grid(row=1, column=2, sticky="w", pady=4)
         self.tensor_split_var = tk.StringVar()
-        self.tensor_split_entry = ttk.Entry(placement, textvariable=self.tensor_split_var, width=18)
-        self.tensor_split_entry.pack(side=tk.LEFT, padx=4)
-        ttk.Label(placement, text="Split mode").pack(side=tk.LEFT, padx=(8, 3))
-        self.split_mode_var = tk.StringVar()
-        self.split_mode_box = ttk.Entry(placement, textvariable=self.split_mode_var, width=9)
-        self.split_mode_box.pack(side=tk.LEFT, padx=3)
-        ttk.Label(placement, text="Main GPU").pack(side=tk.LEFT, padx=(8, 3))
+        self.tensor_split_entry = ttk.Entry(placement, textvariable=self.tensor_split_var)
+        self.tensor_split_entry.grid(row=1, column=3, sticky="ew", pady=4)
+        ttk.Label(placement, text="Split mode").grid(row=2, column=0, sticky="w", pady=4)
+        self.split_mode_var = tk.StringVar(value="layer")
+        self.split_mode_box = ttk.Entry(placement, textvariable=self.split_mode_var)
+        self.split_mode_box.grid(row=2, column=1, sticky="ew", padx=(0, 16), pady=4)
+        ttk.Label(placement, text="Main GPU").grid(row=2, column=2, sticky="w", pady=4)
         self.main_gpu_var = tk.StringVar()
-        self.main_gpu_entry = ttk.Entry(placement, textvariable=self.main_gpu_var, width=5)
-        self.main_gpu_entry.pack(side=tk.LEFT)
+        self.main_gpu_entry = ttk.Entry(placement, textvariable=self.main_gpu_var)
+        self.main_gpu_entry.grid(row=2, column=3, sticky="ew", pady=4)
         self.manual_device_var = tk.BooleanVar(value=False)
         self.manual_device_check = ttk.Checkbutton(placement, text="Manual device override",
                                                     variable=self.manual_device_var,
                                                     command=self._update_capabilities)
-        self.manual_device_check.pack(side=tk.LEFT, padx=6)
-        self.backend_box.bind("<<ComboboxSelected>>", lambda _e: self._update_capabilities())
-        self.capability_label = ttk.Label(right, text="")
-        self.capability_label.pack(anchor="w", pady=4)
+        self.manual_device_check.grid(row=3, column=0, columnspan=2, sticky="w", pady=(5, 0))
+        self.capability_label = ttk.Label(runtime_tab, text="", wraplength=700, foreground="#a7b1c2")
+        self.capability_label.pack(anchor="w", pady=(0, 8))
 
-        load_settings = ttk.LabelFrame(right, text="Model load settings", padding=4)
-        load_settings.pack(fill=tk.X, pady=(0, 4))
+        load_settings = ttk.LabelFrame(runtime_tab, text="Selected model load profile", padding=10)
+        load_settings.pack(fill=tk.X)
+        for col in range(3):
+            load_settings.columnconfigure(col, weight=1)
         self.context_var = tk.StringVar(value="4096")
         self.threads_var = tk.StringVar()
         self.batch_var = tk.StringVar()
-        self._setting_entry(load_settings, "Context", self.context_var, "context_size", 9)
-        self._setting_entry(load_settings, "CPU threads", self.threads_var, "threads", 7)
-        self._setting_entry(load_settings, "Batch size", self.batch_var, "batch_size", 7)
         self.physical_batch_var = tk.StringVar()
         self.max_concurrent_var = tk.StringVar()
-        self._setting_entry(load_settings, "Physical batch", self.physical_batch_var, "physical_batch_size", 7)
-        self._setting_entry(load_settings, "Max concurrent", self.max_concurrent_var, "max_concurrent", 7)
+        for row, (label, variable, key) in enumerate((
+            ("Context size", self.context_var, "context_size"), ("CPU threads", self.threads_var, "threads"),
+            ("Batch size", self.batch_var, "batch_size"), ("Physical batch size", self.physical_batch_var, "physical_batch_size"),
+            ("Max concurrent", self.max_concurrent_var, "max_concurrent"))):
+            self._setting_grid_entry(load_settings, label, variable, key, row // 3, row % 3)
         self._advanced_load_vars = {}
-        for key, label in (("flash_attention", "Flash attention"),
+        for index, (key, label) in enumerate((("flash_attention", "Flash attention"),
                            ("unified_kv_cache", "Unified KV cache"),
-                           ("offload_kv_cache", "Offload KV cache"), ("mmap", "mmap"),
-                           ("keep_model_in_memory", "Keep model in memory"), ("fit", "Fit")):
+                           ("offload_kv_cache", "Offload KV cache"), ("mmap", "Memory map"),
+                           ("keep_model_in_memory", "Keep model in memory"), ("fit", "Fit memory"))):
             variable = tk.BooleanVar(value=False)
             self._advanced_load_vars[key] = variable
             check = ttk.Checkbutton(load_settings, text=label, variable=variable)
-            check.pack(side=tk.LEFT, padx=3)
+            check.grid(row=2 + index // 3, column=index % 3, sticky="w", pady=4)
             self._settings_widgets[key] = check
         self._settings_widgets["split_mode"] = self.split_mode_box
         self._settings_widgets["main_gpu"] = self.main_gpu_entry
-        self.reasoning_var = tk.BooleanVar(value=False)
-        self.reasoning_check = ttk.Checkbutton(load_settings, text="Enable thinking", variable=self.reasoning_var)
-        self.reasoning_check.pack(side=tk.LEFT, padx=(4, 10))
-        ttk.Label(load_settings, text="Load settings apply when the model is loaded or reloaded.").pack(anchor="w")
+        ttk.Label(load_settings, text="These options belong to the selected model and apply on load/reload.",
+                  foreground="#a7b1c2").grid(row=4, column=0, columnspan=3, sticky="w", pady=(6, 0))
 
         runtime_actions = ttk.Frame(right)
-        runtime_actions.pack(fill=tk.X, pady=(0, 4))
-        ttk.Button(runtime_actions, text="Load model", command=self.load_selected_model).pack(side=tk.LEFT)
-        ttk.Button(runtime_actions, text="Unload model", command=self.unload_model).pack(side=tk.LEFT, padx=4)
-        ttk.Button(runtime_actions, text="Reload model", command=self.reload_model).pack(side=tk.LEFT)
+        runtime_actions.pack(fill=tk.X, pady=(6, 8))
+        ttk.Button(runtime_actions, text="Load selected model", command=self.load_selected_model).pack(side=tk.LEFT)
+        ttk.Button(runtime_actions, text="Unload", command=self.unload_model).pack(side=tk.LEFT, padx=4)
+        ttk.Button(runtime_actions, text="Reload", command=self.reload_model).pack(side=tk.LEFT)
         ttk.Button(runtime_actions, text="Runtime status", command=self.show_runtime_status).pack(side=tk.LEFT, padx=4)
-        ttk.Button(runtime_actions, text="Show effective llama.cpp command", command=self.show_effective_command).pack(side=tk.LEFT)
+        ttk.Button(runtime_actions, text="Effective command", command=self.show_effective_command).pack(side=tk.LEFT)
 
-        generation = ttk.LabelFrame(right, text="Generation settings", padding=4)
-        generation.pack(fill=tk.X, pady=(0, 4))
+        generation_box = ttk.LabelFrame(generation, text="Conversation generation defaults", padding=10)
+        generation_box.pack(fill=tk.X)
+        for col in range(2):
+            generation_box.columnconfigure(col, weight=1)
         self.temperature_var = tk.StringVar(value="0.7")
         self.max_tokens_var = tk.StringVar()
-        self._setting_entry(generation, "Temperature", self.temperature_var, "temperature", 8)
-        self._setting_entry(generation, "Max response tokens", self.max_tokens_var, "max_tokens", 8)
-        ttk.Label(generation, text="System prompt").pack(side=tk.LEFT, padx=(12, 3))
+        self._setting_grid_entry(generation_box, "Temperature", self.temperature_var, "temperature", 0, 0)
+        self._setting_grid_entry(generation_box, "Max response tokens", self.max_tokens_var, "max_tokens", 0, 1)
+        ttk.Label(generation_box, text="System prompt").grid(row=1, column=0, sticky="w", pady=(10, 3))
         self.system_prompt_var = tk.StringVar()
-        self.system_prompt_entry = ttk.Entry(generation, textvariable=self.system_prompt_var)
-        self.system_prompt_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.system_prompt_entry = ttk.Entry(generation_box, textvariable=self.system_prompt_var)
+        self.system_prompt_entry.grid(row=1, column=1, sticky="ew", pady=(10, 3))
         self._settings_widgets["system_prompt"] = self.system_prompt_entry
-        ttk.Label(generation, text="Stop strings (one per line)").pack(anchor="w", pady=(4, 0))
-        self.stop_strings = tk.Text(generation, height=2, wrap=tk.NONE)
-        self.stop_strings.pack(fill=tk.X)
+        ttk.Label(generation_box, text="Stop strings (one per line)").grid(row=2, column=0, columnspan=2, sticky="w", pady=(10, 3))
+        self.stop_strings = tk.Text(generation_box, height=3, wrap=tk.NONE, background="#202633",
+                                    foreground="#e7ebf2", insertbackground="#e7ebf2", relief=tk.FLAT)
+        self.stop_strings.grid(row=3, column=0, columnspan=2, sticky="ew")
         self._settings_widgets["stop_strings"] = self.stop_strings
+        self.reasoning_var = tk.BooleanVar(value=False)
+        self.reasoning_check = ttk.Checkbutton(generation_box, text="Enable thinking", variable=self.reasoning_var)
+        self.reasoning_check.grid(row=4, column=0, sticky="w", pady=(8, 0))
 
         chat_tools = ttk.Frame(right)
         chat_tools.pack(fill=tk.X, pady=(4, 0))
@@ -267,12 +313,14 @@ class AIDreamWindow:
         self._ptt_worker = None
         self._ptt_model = None
         self._ptt_path = None
-        self.chat = tk.Text(right, state=tk.DISABLED, wrap=tk.WORD)
+        self.chat = tk.Text(right, state=tk.DISABLED, wrap=tk.WORD, background="#202633",
+                            foreground="#e7ebf2", insertbackground="#e7ebf2", relief=tk.FLAT)
         self.chat.pack(fill=tk.BOTH, expand=True, pady=4)
         self._restore_chat()
         prompt_row = ttk.Frame(right)
         prompt_row.pack(fill=tk.X)
-        self.prompt = tk.Text(prompt_row, height=4, wrap=tk.WORD)
+        self.prompt = tk.Text(prompt_row, height=4, wrap=tk.WORD, background="#202633",
+                              foreground="#e7ebf2", insertbackground="#e7ebf2", relief=tk.FLAT)
         self.prompt.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.prompt.bind("<Control-Return>", self._send_shortcut)
         self.send_button = ttk.Button(prompt_row, text="Load and send", command=self.send)
@@ -295,6 +343,16 @@ class AIDreamWindow:
         entry = ttk.Entry(parent, textvariable=variable, width=width)
         entry.pack(side=tk.LEFT, padx=(0, 10))
         self._settings_widgets[capability] = entry
+
+    def _setting_grid_entry(self, parent, label, variable, capability, row, column):
+        field = ttk.Frame(parent)
+        field.grid(row=row, column=column, sticky="ew", padx=(0, 14), pady=4)
+        field.columnconfigure(0, weight=1)
+        ttk.Label(field, text=label).grid(row=0, column=0, sticky="w", pady=(0, 3))
+        entry = ttk.Entry(field, textvariable=variable)
+        entry.grid(row=1, column=0, sticky="ew")
+        self._settings_widgets[capability] = entry
+        return entry
 
     def _selected_runtime_configuration(self):
         backend = self.backend_by_name.get(self.backend_var.get())
