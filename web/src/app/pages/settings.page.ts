@@ -10,176 +10,165 @@ type SettingsTab = 'general' | 'runtime';
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="flex-1 flex flex-col h-full bg-[#090e18] overflow-y-auto p-6 space-y-6 text-[#e0e2ec]">
-      <!-- Header -->
-      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-[#282f3d]">
+    <div class="settings-page">
+      <header class="settings-header">
         <div>
-          <h1 class="text-xl font-bold tracking-tight flex items-center gap-2">
-            <span class="material-symbols-outlined text-[#a0caff]">settings</span>
-            Workstation Engine & Hardware Preferences
-          </h1>
-          <p class="text-xs text-[#8991a2] mt-1 font-mono">
-            Low-level compilation flags, llama.cpp execution parameters, and local network bindings.
-          </p>
+          <div class="eyebrow">PREFERENCES</div>
+          <h1>Settings</h1>
+          <p>Local defaults for the AI Dream application.</p>
         </div>
-        <div class="flex items-center gap-3">
-          @if (saved()) {
-            <span class="text-xs font-mono text-emerald-400 flex items-center gap-1 animate-pulse" role="status">
-              <span class="material-symbols-outlined text-sm">check_circle</span>
-              Saved
-            </span>
-          }
-          <button (click)="saveSettings()" [disabled]="saving()" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold shadow-lg shadow-blue-500/20 disabled:opacity-50">
-            {{ saving() ? 'Saving...' : 'Save Changes' }}
+        <div class="header-actions">
+          @if (saved()) { <span class="save-status" role="status">Saved</span> }
+          <button class="primary-button" (click)="saveSettings()" [disabled]="saving() || !settings()">
+            {{ saving() ? 'Saving…' : 'Save changes' }}
           </button>
         </div>
-      </div>
+      </header>
 
-      <!-- Tabs -->
-      <nav class="flex gap-2 border-b border-[#282f3d] pb-2" aria-label="Settings categories" role="tablist">
-        <button role="tab" [attr.aria-selected]="tab() === 'general'" [class]="tab() === 'general' ? 'px-4 py-2 text-sm font-semibold text-blue-400 border-b-2 border-blue-400' : 'px-4 py-2 text-sm font-medium text-[#8991a2] hover:text-[#e0e2ec]'" (click)="tab.set('general')">Application</button>
-        <button role="tab" [attr.aria-selected]="tab() === 'runtime'" [class]="tab() === 'runtime' ? 'px-4 py-2 text-sm font-semibold text-blue-400 border-b-2 border-blue-400' : 'px-4 py-2 text-sm font-medium text-[#8991a2] hover:text-[#e0e2ec]'" (click)="tab.set('runtime')">Runtime defaults</button>
+      <nav class="settings-tabs" aria-label="Settings categories" role="tablist">
+        <button role="tab" [attr.aria-selected]="tab() === 'general'" [class.active]="tab() === 'general'" (click)="tab.set('general')">Application</button>
+        <button role="tab" [attr.aria-selected]="tab() === 'runtime'" [class.active]="tab() === 'runtime'" (click)="tab.set('runtime')">Runtime defaults</button>
       </nav>
 
-      @if (loading()) {
-        <p class="text-xs font-mono text-[#8991a2]" role="status">Loading settings…</p>
-      }
+      @if (loading()) { <p class="settings-message" role="status">Loading settings…</p> }
       @if (loadError()) {
-        <div class="p-4 bg-red-950/20 border border-red-500/30 rounded-lg space-y-2">
-          <p class="text-xs font-mono text-red-400" role="alert">{{ loadError() }}</p>
-          <button (click)="initialize()" class="px-3 py-1 bg-red-900/50 hover:bg-red-900 text-red-100 rounded text-xs">Retry</button>
+        <div class="settings-alert" role="alert">
+          <span>{{ loadError() }}</span>
+          <button class="secondary-button" (click)="initialize()">Retry</button>
         </div>
       }
 
       @if (settings(); as s) {
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-          @if (tab() === 'general') {
-            <!-- API Server & Network -->
-            <div class="bg-[#111722] border border-[#282f3d] rounded-xl p-5 space-y-4">
-              <div class="flex items-center justify-between">
-                <div class="flex items-center gap-2 text-sm font-bold font-mono">
-                  <span class="material-symbols-outlined text-[#a0caff]">lan</span>
-                  API Server
-                </div>
-                <span class="px-2 py-0.5 rounded text-[10px] font-mono border" [class]="api.connected() ? 'bg-emerald-950/30 text-emerald-400 border-emerald-500/30' : 'bg-amber-950/30 text-amber-400 border-amber-500/30'">
-                  {{ api.connected() ? 'Connected' : api.connection() === 'checking' ? 'Checking' : 'Unavailable' }}
-                </span>
+        @if (tab() === 'general') {
+          <div class="settings-grid">
+            <section class="surface settings-card">
+              <div class="section-heading">
+                <div><h2>Local API</h2><p>Requests stay on this device.</p></div>
+                <span class="status-tag" [class.ok]="api.connected()">{{ api.connected() ? 'Connected' : api.connection() === 'checking' ? 'Checking' : 'Unavailable' }}</span>
               </div>
-              <div class="space-y-4 text-xs">
-                <div>
-                  <label for="api-url" class="text-[#8991a2] font-mono block mb-1">Base URL</label>
-                  <div class="flex gap-2">
-                    <input id="api-url" type="url" [value]="url" (input)="url = $any($event.target).value" spellcheck="false" placeholder="http://127.0.0.1:8765" (keydown.enter)="saveApiUrl()" class="flex-1 bg-[#171c26] border border-[#282f3d] rounded-lg px-3 py-2 text-white font-mono focus:outline-none focus:border-[#a0caff]">
-                    <button (click)="saveApiUrl()" class="px-3 py-2 bg-[#282f3d] hover:bg-[#363f4e] text-white rounded-lg font-bold">Check</button>
-                  </div>
-                  <p class="text-[10px] text-[#8991a2] mt-1">Health check: <code>GET {{ api.baseUrl() }}/api/health</code>. Stored in browser local storage.</p>
-                  @if (urlError()) { <p class="text-red-400 mt-1" role="alert">{{ urlError() }}</p> }
-                  @else if (api.error()) { <p class="text-amber-400 mt-1">{{ api.error() }}</p> }
-                </div>
+              <label class="field-label" for="api-url">Base URL</label>
+              <div class="input-row">
+                <input id="api-url" type="url" [value]="url" (input)="url = $any($event.target).value" spellcheck="false" placeholder="http://127.0.0.1:8765" (keydown.enter)="saveApiUrl()">
+                <button class="secondary-button" (click)="saveApiUrl()">Save &amp; check</button>
               </div>
+              <p class="help">Health check: <code>GET {{ api.baseUrl() }}/api/health</code>. The URL is stored in this browser.</p>
+              @if (urlError()) { <p class="error-line" role="alert">{{ urlError() }}</p> }
+              @else if (api.error()) { <p class="error-line">{{ api.error() }}</p> }
+            </section>
+
+            <section class="surface settings-card">
+              <div class="section-heading"><div><h2>Application behavior</h2><p>Choose how saved model profiles are applied.</p></div></div>
+              <label class="setting-field" for="profile-behavior">
+                <span>Default profile behavior</span>
+                <select id="profile-behavior" [value]="s.default_profile_behavior" (change)="updateBehavior($any($event.target).value)">
+                  <option value="model">Use the model profile</option>
+                  <option value="global">Use global defaults</option>
+                </select>
+              </label>
+              <p class="help">Model-specific placement and load settings belong in each model’s profile.</p>
+              <label class="toggle-row">
+                <span><b>Keep last model loaded</b><small>Keep the active model available after a request finishes.</small></span>
+                <input type="checkbox" [checked]="s.keep_last_model_loaded" (change)="updateKeepLoaded($any($event.target).checked)">
+              </label>
+              @if (saveError()) { <p class="error-line" role="alert">{{ saveError() }}</p> }
+            </section>
+
+            <section class="surface settings-card paths-card">
+              <div class="section-heading"><div><h2>Local paths</h2><p>Read-only locations used by this installation.</p></div></div>
+              <div class="path-grid">
+                <label>Managed models directory<output>{{ s.managed_models_dir }}</output></label>
+                <label>Configuration directory<output>{{ s.config_dir }}</output></label>
+                <label>Data directory<output>{{ s.data_dir }}</output></label>
+              </div>
+            </section>
+          </div>
+        } @else {
+          <section class="surface settings-card runtime-card">
+            <div class="section-heading"><div><h2>Runtime defaults</h2><p>Choose the engine used when a model does not select one explicitly.</p></div></div>
+            @if (runtimeError()) { <p class="settings-alert inline-alert" role="alert">{{ runtimeError() }}</p> }
+            <div class="runtime-fields">
+              <label class="setting-field" for="default-backend">
+                <span>Default backend</span>
+                <select id="default-backend" [value]="s.runtime_defaults.backend_name || ''" (change)="updateBackend($any($event.target).value)">
+                  <option value="">Runtime default</option>
+                  @for (b of backends(); track b.name) { <option [value]="b.name" [disabled]="!b.available">{{ b.name }}{{ b.available ? '' : ' (unavailable)' }}</option> }
+                </select>
+                <small>Available backends reported by the local runtime service.</small>
+              </label>
+              <label class="setting-field" for="default-runtime">
+                <span>Default runtime</span>
+                <select id="default-runtime" [value]="s.runtime_defaults.runtime_id || ''" (change)="updateRuntime($any($event.target).value)">
+                  <option value="">Backend default</option>
+                  @for (r of installations(); track r.id) { <option [value]="r.id" [disabled]="!r.enabled || !r.available">{{ r.name }} · {{ r.backend || r.kind }}{{ r.available ? '' : ' (unavailable)' }}</option> }
+                </select>
+                <small>Installed runtimes registered with AI Dream.</small>
+              </label>
             </div>
-
-            <!-- Application Behavior -->
-            <div class="bg-[#111722] border border-[#282f3d] rounded-xl p-5 space-y-4">
-              <div class="flex items-center gap-2 text-sm font-bold font-mono">
-                <span class="material-symbols-outlined text-[#a0caff]">tune</span>
-                Application Behavior
-              </div>
-              <div class="space-y-4 text-xs">
-                <div>
-                  <label class="text-[#8991a2] font-mono block mb-1">Default Profile Behavior</label>
-                  <select [value]="s.default_profile_behavior" (change)="updateBehavior($any($event.target).value)" class="w-full bg-[#171c26] border border-[#282f3d] rounded-lg px-3 py-2 text-white font-mono focus:outline-none focus:border-[#a0caff]">
-                    <option value="model">Use the model profile</option>
-                    <option value="global">Use global defaults</option>
-                  </select>
-                  <p class="text-[10px] text-[#8991a2] mt-1">Model-specific placement and load options belong to each model profile.</p>
-                </div>
-                <div class="flex items-center justify-between p-3 bg-[#171c26] rounded-lg border border-[#282f3d]">
-                  <div>
-                    <div class="font-mono font-bold">Keep last model loaded</div>
-                    <div class="text-[11px] text-[#8991a2]">Do not unload the model after requests complete.</div>
-                  </div>
-                  <input type="checkbox" [checked]="s.keep_last_model_loaded" (change)="updateKeepLoaded($any($event.target).checked)" class="w-4 h-4 accent-blue-600 rounded cursor-pointer">
-                </div>
-              </div>
-              @if (saveError()) { <p class="text-red-400 text-xs mt-2" role="alert">{{ saveError() }}</p> }
-            </div>
-
-            <!-- Local Paths -->
-            <div class="bg-[#111722] border border-[#282f3d] rounded-xl p-5 space-y-4 md:col-span-2">
-              <div class="flex items-center gap-2 text-sm font-bold font-mono">
-                <span class="material-symbols-outlined text-[#a0caff]">folder</span>
-                Local Paths (Read-only)
-              </div>
-              <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
-                <div>
-                  <label class="text-[#8991a2] font-mono block mb-1">Managed Models</label>
-                  <div class="bg-[#171c26] border border-[#282f3d] rounded-lg px-3 py-2 text-[#aab4c5] font-mono break-all">{{ s.managed_models_dir }}</div>
-                </div>
-                <div>
-                  <label class="text-[#8991a2] font-mono block mb-1">Configuration</label>
-                  <div class="bg-[#171c26] border border-[#282f3d] rounded-lg px-3 py-2 text-[#aab4c5] font-mono break-all">{{ s.config_dir }}</div>
-                </div>
-                <div>
-                  <label class="text-[#8991a2] font-mono block mb-1">Data</label>
-                  <div class="bg-[#171c26] border border-[#282f3d] rounded-lg px-3 py-2 text-[#aab4c5] font-mono break-all">{{ s.data_dir }}</div>
-                </div>
-              </div>
-            </div>
-
-          } @else {
-            <!-- Runtime Defaults -->
-            <div class="bg-[#111722] border border-[#282f3d] rounded-xl p-5 space-y-4 md:col-span-2">
-              <div class="flex items-center gap-2 text-sm font-bold font-mono">
-                <span class="material-symbols-outlined text-[#a0caff]">memory</span>
-                Runtime Engine Defaults
-              </div>
-              <p class="text-xs text-[#8991a2] mb-4">Choose the default engine for new model loads. GPU placement and load tuning are configured per model.</p>
-
-              @if (runtimeError()) { <p class="text-xs font-mono text-red-400 p-3 bg-red-950/20 border border-red-500/30 rounded-lg mb-4" role="alert">{{ runtimeError() }}</p> }
-
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                <div>
-                  <label class="text-[#8991a2] font-mono block mb-1">Default Backend</label>
-                  <select [value]="s.runtime_defaults.backend_name || ''" (change)="updateBackend($any($event.target).value)" class="w-full bg-[#171c26] border border-[#282f3d] rounded-lg px-3 py-2 text-white font-mono focus:outline-none focus:border-[#a0caff]">
-                    <option value="">Use runtime default</option>
-                    @for (b of backends(); track b.name) {
-                      <option [value]="b.name" [disabled]="!b.available">{{ b.name }}{{ b.available ? '' : ' (unavailable)' }}</option>
-                    }
-                  </select>
-                  <p class="text-[10px] text-[#8991a2] mt-1">Available choices come from the local runtime service.</p>
-                </div>
-
-                <div>
-                  <label class="text-[#8991a2] font-mono block mb-1">Default Runtime</label>
-                  <select [value]="s.runtime_defaults.runtime_id || ''" (change)="updateRuntime($any($event.target).value)" class="w-full bg-[#171c26] border border-[#282f3d] rounded-lg px-3 py-2 text-white font-mono focus:outline-none focus:border-[#a0caff]">
-                    <option value="">Use backend default</option>
-                    @for (r of installations(); track r.id) {
-                      <option [value]="r.id" [disabled]="!r.enabled || !r.available">{{ r.name }} · {{ r.backend || r.kind }}{{ r.available ? '' : ' (unavailable)' }}</option>
-                    }
-                  </select>
-                  <p class="text-[10px] text-[#8991a2] mt-1">Registered llama.cpp installations detected by AI Dream.</p>
-                </div>
-              </div>
-
-              <div class="p-4 mt-4 bg-blue-950/20 border border-blue-500/30 rounded-lg space-y-1.5">
-                <div class="flex items-center gap-2 text-blue-400 font-bold font-mono text-xs">
-                  <span class="material-symbols-outlined text-base">info</span>
-                  Model-Specific Configuration
-                </div>
-                <p class="text-[11px] text-[#8991a2] leading-relaxed">
-                  Context size, GPU layers, device placement, tensor split, and other load options are model-specific. Configure them from the Runtime page for the selected model.
-                </p>
-              </div>
-              @if (saveError()) { <p class="text-red-400 text-xs mt-2" role="alert">{{ saveError() }}</p> }
-            </div>
-          }
-        </div>
+            <aside class="model-profile-note">
+              <b>Model configuration lives with each model</b>
+              <p>Context size, GPU placement, split mode, tensor split, and other load options can vary by model. Configure them in the model profile from <a href="#/models">Models</a> or when loading from <a href="#/runtime">Runtime</a>.</p>
+            </aside>
+            @if (saveError()) { <p class="error-line" role="alert">{{ saveError() }}</p> }
+          </section>
+        }
       }
     </div>
   `,
   styles: [`
-    :host { display: block; height: 100%; }
+    :host { display:block; min-height:100%; }
+    .settings-page { width:min(1050px,100%); margin:0 auto; color:var(--text); }
+    .settings-header { display:flex; align-items:flex-end; justify-content:space-between; gap:18px; margin:0 0 22px; }
+    .settings-header h1 { margin:0; font-size:23px; font-weight:550; letter-spacing:-.4px; }
+    .settings-header p { margin:7px 0 0; color:#929aaa; font-size:12px; }
+    .header-actions { display:flex; align-items:center; gap:12px; }
+    .save-status { color:var(--green); font:10px ui-monospace,monospace; }
+    .settings-tabs { display:flex; gap:5px; border-bottom:1px solid #2e3541; margin-bottom:14px; }
+    .settings-tabs button { padding:10px 13px; border:0; border-bottom:2px solid transparent; background:transparent; color:#8991a2; font:inherit; font-size:11px; cursor:pointer; }
+    .settings-tabs button:hover { color:#d7deeb; }
+    .settings-tabs button.active { color:#c5d8ff; border-color:#80aaff; }
+    .settings-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+    .settings-card { min-width:0; padding:18px; }
+    .section-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; padding-bottom:13px; margin-bottom:15px; border-bottom:1px solid #2e3541; }
+    .section-heading h2 { margin:0; color:#d9deea; font-size:13px; font-weight:550; }
+    .section-heading p { margin:5px 0 0; color:#8992a2; font-size:10px; line-height:1.5; }
+    .status-tag { flex:none; border:1px solid #484438; background:#29251c; color:var(--amber); border-radius:5px; padding:4px 7px; font:9px ui-monospace,monospace; }
+    .status-tag.ok { border-color:#275542; background:#162b24; color:var(--green); }
+    .field-label,.setting-field>span { display:block; color:#bdc4d2; font-size:10px; margin-bottom:7px; }
+    .input-row { display:flex; align-items:center; gap:8px; }
+    .input-row input,.setting-field select { min-width:0; width:100%; box-sizing:border-box; border:1px solid #3b4351; border-radius:6px; background:#10151e; color:var(--text); padding:9px 10px; font:11px ui-monospace,monospace; }
+    .input-row input { flex:1; }
+    .input-row input:focus,.setting-field select:focus { outline:2px solid #5473a7; outline-offset:1px; }
+    .secondary-button,.primary-button { flex:none; border:1px solid #3c4657; border-radius:6px; background:#222a38; color:#c7d6f4; padding:8px 11px; cursor:pointer; font-size:10px; white-space:nowrap; }
+    .secondary-button:hover { background:#2b3648; }
+    .primary-button { border-color:#5473a7; background:#253750; }
+    .primary-button:hover { background:#2b4162; }
+    .primary-button:disabled { opacity:.55; cursor:not-allowed; }
+    .help,.setting-field small { display:block; margin:8px 0 0; color:#848d9d; font-size:10px; line-height:1.55; }
+    .help code { color:#bdc8da; font:10px ui-monospace,monospace; overflow-wrap:anywhere; }
+    .error-line { margin:9px 0 0; color:var(--red); font-size:10px; line-height:1.5; overflow-wrap:anywhere; }
+    .settings-alert { display:flex; align-items:center; justify-content:space-between; gap:12px; max-width:100%; margin:0 0 13px; padding:11px 13px; border:1px solid #68423f; border-radius:7px; background:#281a1c; color:#e6b9b3; font-size:10px; }
+    .settings-alert .secondary-button { margin:0; border-color:#77514d; background:#372324; color:#ffd0c7; }
+    .settings-message { margin:14px 0; color:#929aaa; font-size:11px; }
+    .toggle-row { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-top:17px; padding:11px 12px; border:1px solid #2e3541; border-radius:7px; background:#111721; cursor:pointer; }
+    .toggle-row b,.toggle-row small { display:block; }
+    .toggle-row b { color:#cbd2df; font-size:10px; font-weight:550; }
+    .toggle-row small { margin-top:4px; color:#858e9e; font-size:9px; line-height:1.45; }
+    .toggle-row input { width:16px; height:16px; flex:none; accent-color:#739ce8; }
+    .paths-card { grid-column:1 / -1; }
+    .path-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
+    .path-grid label { min-width:0; color:#929aaa; font-size:10px; }
+    .path-grid output { display:block; margin-top:6px; padding:9px 10px; border:1px solid #303745; border-radius:6px; background:#10151e; color:#adb8ca; font:10px/1.5 ui-monospace,monospace; overflow-wrap:anywhere; }
+    .runtime-card { padding:19px; }
+    .runtime-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+    .setting-field { display:block; min-width:0; }
+    .setting-field select { display:block; }
+    .model-profile-note { margin-top:18px; padding:13px 14px; border:1px solid #303d52; border-radius:7px; background:#141b27; }
+    .model-profile-note b { color:#c7d6f4; font-size:10px; font-weight:550; }
+    .model-profile-note p { margin:6px 0 0; color:#929aaa; font-size:10px; line-height:1.65; }
+    .model-profile-note a { color:#a9c5ff; text-decoration:none; }
+    .model-profile-note a:hover { text-decoration:underline; }
+    @media(max-width:720px) { .settings-grid { grid-template-columns:1fr; }.paths-card { grid-column:auto; }.path-grid { grid-template-columns:1fr; }.settings-header { align-items:flex-start; }.runtime-fields { grid-template-columns:1fr; } }
+    @media(max-width:480px) { .settings-header { flex-direction:column; align-items:stretch; gap:14px; }.header-actions { justify-content:space-between; }.input-row { align-items:stretch; flex-direction:column; }.input-row .secondary-button { align-self:flex-start; }.settings-tabs button { padding:9px 10px; } }
   `]
 })
 export class SettingsPage implements OnInit {
