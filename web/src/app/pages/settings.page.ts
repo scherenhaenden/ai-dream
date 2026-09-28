@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, OnInit, signal } from '@angular/core';
 import { ApiService } from '../core/api.service';
 import { GlobalSettings, SettingsService } from '../core/settings.service';
-import { RuntimeLoadOptions, RuntimePlacement } from '../core/control-plane.types';
+import { RuntimePlacement } from '../core/control-plane.types';
 
 @Component({standalone:true,changeDetection:ChangeDetectionStrategy.OnPush,template:`
 <div class="page-head"><div><div class="eyebrow">PREFERENCES</div><h1>Settings</h1><p>Set local defaults used when resolving model runtime configuration.</p></div><span class="page-badge"><i></i>LOCAL</span></div>
@@ -23,8 +23,8 @@ export class SettingsPage implements OnInit {
   readonly numberFields: {key: 'context_size'|'threads'|'batch_size'|'physical_batch_size'|'max_concurrent'|'threads_batch';label:string}[]=[
     {key:'context_size',label:'Context size'},{key:'threads',label:'Threads'},{key:'batch_size',label:'Batch size'},
     {key:'physical_batch_size',label:'Physical batch size'},{key:'max_concurrent',label:'Max concurrent'},{key:'threads_batch',label:'Batch threads'}];
-  readonly boolFields: {key: 'continuous_batching'|'mlock'|'flash_attention'|'unified_kv_cache'|'offload_kv_cache'|'mmap'|'keep_model_in_memory'|'fit';label:string}[]=[
-    {key:'continuous_batching',label:'Continuous batching'},{key:'mlock',label:'Lock model in memory'}, {key:'flash_attention',label:'Flash attention'},
+  readonly boolFields: {key: 'continuous_batching'|'flash_attention'|'unified_kv_cache'|'offload_kv_cache'|'mmap'|'keep_model_in_memory'|'fit';label:string}[]=[
+    {key:'continuous_batching',label:'Continuous batching'}, {key:'flash_attention',label:'Flash attention'},
     {key:'unified_kv_cache',label:'Unified KV cache'},{key:'offload_kv_cache',label:'Offload KV cache'},{key:'mmap',label:'Memory map'},
     {key:'keep_model_in_memory',label:'Keep model in memory'},{key:'fit',label:'Fit to available memory'}];
   constructor(readonly api:ApiService,private readonly settingsApi:SettingsService){}
