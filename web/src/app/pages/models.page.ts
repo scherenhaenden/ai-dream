@@ -4,6 +4,8 @@ import { ModelProfile, ModelRecord, ModelSource, RuntimeCapabilities, RuntimeDev
 import { RuntimeBackend, RuntimeService } from '../core/runtime.service';
 import { ModelProfilesService } from '../core/model-profiles.service';
 
+type ProfileTab = 'placement' | 'load';
+
 @Component({
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -85,20 +87,30 @@ import { ModelProfilesService } from '../core/model-profiles.service';
                   <label>Profile name<input [value]="profileName()" (input)="profileName.set($any($event.target).value)" placeholder="e.g. Balanced on two GPUs"></label>
                   <label>Backend<select [value]="profileBackend()" (change)="profileBackend.set($any($event.target).value);refreshProfileCapabilities()"><option value="">Runtime default</option>@for(backend of profileBackends();track backend.name){<option [value]="backend.name" [disabled]="!backend.available">{{backend.name}}</option>}</select></label>
                   <label>Runtime<select [value]="profileRuntimeId()" (change)="profileRuntimeId.set($any($event.target).value);refreshProfileCapabilities()"><option value="">Backend default</option>@for(runtime of profileInstallations();track runtime.id){<option [value]="runtime.id" [disabled]="!runtime.enabled||!runtime.available">{{runtime.name}} · {{runtime.backend||runtime.kind}}</option>}</select></label>
+                </div>
+                <nav class="profile-tabs" aria-label="Profile settings" role="tablist"><button role="tab" [attr.aria-selected]="profileTab()==='placement'" [class.active]="profileTab()==='placement'" (click)="profileTab.set('placement')">Placement</button><button role="tab" [attr.aria-selected]="profileTab()==='load'" [class.active]="profileTab()==='load'" (click)="profileTab.set('load')">Load settings</button></nav>
+                @if(profileTab()==='placement'){
+                  <div class="profile-grid placement-grid">
                   @if(profileSupports('gpu_layers')){<label>GPU layers<input type="number" [value]="profilePlacement().gpu_layers??''" (input)="setProfilePlacement('gpu_layers',$any($event.target).value)"></label>}
-                  @if(profileSupports('device_selection')){<label>Device<select [value]="profilePlacement().device||''" (change)="setProfilePlacement('device',$any($event.target).value)"><option value="">Runtime default</option>@for(device of profileDevices();track device.runtime_id||device.id){<option [value]="device.runtime_id||device.id">{{device.name}} · {{device.runtime_id||device.id}}</option>}</select></label>}
+                  @if(profileSupports('device_selection')){<label>Detected device<select [value]="manualDevice()? '' : profilePlacement().device||''" (change)="setDetectedDevice($any($event.target).value)"><option value="">Runtime default</option>@for(device of profileDevices();track device.runtime_id||device.id){<option [value]="device.runtime_id||device.id">{{device.name}} · {{device.runtime_id||device.id}}</option>}</select></label>
+                    <details class="advanced-device"><summary>Advanced device override</summary><label class="profile-check"><input type="checkbox" [checked]="manualDevice()" (change)="toggleManualDevice($any($event.target).checked)">Use a manual runtime device ID</label>@if(manualDevice()){<label>Runtime device ID<input [value]="profilePlacement().device||''" (input)="setManualDevice($any($event.target).value)" placeholder="ROCm0, Vulkan1, CUDA0…"><small>Use an identifier supported by the selected llama.cpp runtime. The detected device selector remains the recommended choice.</small></label>@if(manualDeviceError()){<small class="error" role="alert">{{manualDeviceError()}}</small>}}</details>
+                  }
                   @if(profileSupports('split_mode')&&splitModes().length){<label>Split mode<select [value]="profilePlacement().split_mode||''" (change)="setProfilePlacement('split_mode',$any($event.target).value)"><option value="">Runtime default</option>@for(mode of splitModes();track mode){<option [value]="mode">{{mode}}</option>}</select></label>}
                   @if(profileSupports('tensor_split')){<label>Tensor split<input [value]="profilePlacement().tensor_split||''" (input)="setProfilePlacement('tensor_split',$any($event.target).value)"></label>}
                   @if(profileSupports('main_gpu')){<label>Main GPU<input type="number" [value]="profilePlacement().main_gpu??''" (input)="setProfilePlacement('main_gpu',$any($event.target).value)"></label>}
+                  </div>
+                } @else {
+                  <div class="profile-grid load-grid">
                   @for(field of profileNumberFields;track field.key){@if(profileSupports(field.key)){<label>{{field.label}}<input type="number" [value]="profileLoad()[field.key]??''" (input)="setProfileLoad(field.key,$any($event.target).value)"></label>}}
                   @for(field of profileStringFields;track field.key){@if(profileSupports(field.key)){<label>{{field.label}}<input [value]="profileLoad()[field.key]??''" (input)="setProfileLoad(field.key,$any($event.target).value)"></label>}}
                   @for(field of profileBoolFields;track field.key){@if(profileSupports(field.key)){<label class="profile-check"><input type="checkbox" [checked]="profileBoolValue(field.key)" [disabled]="field.key==='mmap'&&!profileSupports('mmap_disable')||field.key==='continuous_batching'&&!profileSupports('continuous_batching_disable')" (change)="setProfileLoad(field.key,$any($event.target).checked)">{{field.label}}</label>}}
-                </div>
+                  </div>
+                }
                 @if(profileError()){<p class="error" role="alert">{{profileError()}}</p>}@if(profileNotice()){<p class="profile-notice" role="status">{{profileNotice()}}</p>}
-                <div class="load-actions"><button class="secondary-button" (click)="saveProfile()" [disabled]="profileBusy()||!profileName().trim()">{{profileBusy()?'Saving…':selectedProfileId()?'Save profile':'Create profile'}}</button>@if(selectedProfileId()){<button class="danger-button" (click)="deleteProfile()" [disabled]="profileBusy()">Delete profile</button>}</div>
+                <div class="load-actions"><button class="secondary-button" (click)="saveProfile()" [disabled]="profileBusy()||!profileName().trim()||!canUseProfile()">{{profileBusy()?'Saving…':selectedProfileId()?'Save profile':'Create profile'}}</button>@if(selectedProfileId()){<button class="danger-button" (click)="deleteProfile()" [disabled]="profileBusy()">Delete profile</button>}</div>
               </section>
               <div class="load-actions">
-                <button class="primary-button" (click)="loadModel()" [disabled]="runtimeBusy()">{{ runtimeBusy() ? 'Loading…' : 'Load model' }}</button>
+                <button class="primary-button" (click)="loadModel()" [disabled]="runtimeBusy()||!canUseProfile()">{{ runtimeBusy() ? 'Loading…' : 'Load model' }}</button>
                 <button class="secondary-button" (click)="reloadModel()" [disabled]="runtimeBusy()">Reload model</button>
                 <button class="secondary-button" (click)="unloadModel()" [disabled]="runtimeBusy()">Unload model</button>
                 <button class="secondary-button" (click)="refreshRuntimeStatus()" [disabled]="runtimeBusy()">Runtime status</button>
@@ -117,7 +129,7 @@ import { ModelProfilesService } from '../core/model-profiles.service';
     :host{display:block}.page-head{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:22px}.page-head h1{margin:4px 0;font-size:30px}.page-head p,.add-source p,.detail-head p{margin:5px 0;color:var(--muted,#929baa)}
     .eyebrow{font-size:10px;letter-spacing:.14em;font-weight:700;color:var(--muted,#929baa)}h2{font-size:17px;margin:5px 0}.surface{background:var(--surface,#171a20);border:1px solid var(--border,#292d35);border-radius:12px;padding:18px}.add-source{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:18px}.add-source form{display:flex;gap:8px;width:min(620px,58%)}input{flex:1;min-width:120px;background:var(--bg,#101216);border:1px solid var(--border,#353943);border-radius:7px;padding:10px 12px;color:inherit;font:inherit}.primary-button,.secondary-button,.danger-button{border:1px solid var(--border,#353943);border-radius:7px;padding:9px 12px;color:inherit;background:var(--surface,#171a20);font:inherit;font-weight:600;cursor:pointer}.primary-button{background:var(--accent,#8b72ff);border-color:transparent;color:#fff}.danger-button{color:#ff9696}.primary-button:disabled,.secondary-button:disabled,.danger-button:disabled{opacity:.55;cursor:wait}.library-layout{display:grid;grid-template-columns:minmax(250px,.8fr) minmax(0,1.7fr);gap:16px;align-items:start}.section-heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}.count{font-size:12px;background:var(--bg,#101216);border-radius:20px;padding:4px 9px;color:var(--muted,#929baa)}.source-list,.model-list{list-style:none;padding:0;margin:0}.source-list li+li,.model-list li+li{border-top:1px solid var(--border,#292d35)}.source-item{display:flex;align-items:center;gap:10px;width:100%;padding:12px 8px;text-align:left;border:0;background:transparent;color:inherit;border-radius:8px;cursor:pointer}.source-item.selected{background:color-mix(in srgb,var(--accent,#8b72ff) 15%,transparent)}.folder-icon{color:var(--accent,#a28eff)}.source-copy{min-width:0;flex:1}.source-copy b,.source-copy small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.source-copy b{font-size:12px}.source-copy small,.arrow,.muted{color:var(--muted,#929baa);font-size:12px;margin-top:4px}.arrow{font-size:22px}.detail-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.detail-head h2{overflow-wrap:anywhere}.summary{display:flex;gap:26px;padding:14px 0;border-bottom:1px solid var(--border,#292d35);margin:8px 0 16px}.summary div{display:grid;gap:3px}.summary b{font-size:16px}.summary span{font-size:11px;color:var(--muted,#929baa)}.model-heading{margin-top:8px}.model-card{display:flex;gap:12px;padding:14px 4px}.model-icon{color:var(--accent,#a28eff);font-size:19px}.model-copy{min-width:0;flex:1}.model-copy h3{margin:0;font-size:14px}.model-copy p{font-size:11px;color:var(--muted,#929baa);overflow-wrap:anywhere;margin:4px 0 8px}.model-tags{display:flex;flex-wrap:wrap;gap:6px}.model-tags span{font-size:10px;padding:4px 7px;border-radius:12px;background:var(--bg,#101216);color:var(--muted,#c0c4ce)}details{margin-top:9px;font-size:11px}summary{cursor:pointer;color:var(--muted,#aeb4c0)}dl{display:grid;grid-template-columns:minmax(130px,.6fr) minmax(0,1fr);gap:5px 12px}dt{color:var(--muted,#929baa);overflow-wrap:anywhere}dd{margin:0;overflow-wrap:anywhere}.empty{padding:30px 12px;text-align:center;display:grid;gap:7px;color:var(--muted,#929baa);font-size:12px}.empty b{color:var(--text,#e8eaf0);font-size:14px}.empty.large{min-height:260px;place-content:center}.empty-icon{font-size:30px;color:var(--accent,#a28eff)}.notice{padding:11px 14px;border-radius:8px;margin-bottom:14px;font-size:13px}.error{background:#3a2024;color:#ffb4bb}.success{background:#1d382c;color:#9be0b5}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
     @media(max-width:820px){.library-layout{grid-template-columns:1fr}.add-source{align-items:stretch;flex-direction:column}.add-source form{width:100%}.page-head{align-items:flex-start}.detail-head{flex-direction:column}}
-    .model-selected{background:color-mix(in srgb,var(--accent,#8b72ff) 8%,transparent)}.load-panel{display:grid;gap:12px;margin-top:20px;padding:14px;border:1px solid var(--border,#292d35);border-radius:9px;background:var(--bg,#101216)}.load-panel>div:first-child{display:grid;gap:5px;min-width:0}.load-panel small{overflow-wrap:anywhere;color:var(--muted,#929baa)}.load-actions{display:flex;flex-wrap:wrap;gap:8px}.load-panel a{font-size:12px;color:var(--accent,#a28eff)}.runtime-status{white-space:pre-wrap;overflow-wrap:anywhere;padding:10px;border-radius:7px;background:var(--surface,#171a20);font-size:11px}.profile-panel{display:grid;gap:12px;padding:14px;border:1px solid var(--border,#30394a);border-radius:9px;background:color-mix(in srgb,var(--surface,#171a20) 78%,#111722)}.profile-title{display:flex;align-items:center;justify-content:space-between;gap:10px}.profile-title>div{display:grid;gap:5px}.profile-title b{font-size:12px}.profile-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:12px}.profile-grid label{display:grid;gap:6px;color:#bdc4d2;font-size:11px}.profile-grid input:not([type=checkbox]),.profile-grid select{box-sizing:border-box;width:100%;min-width:0;background:#10151e;border:1px solid #363f4e;border-radius:6px;padding:8px 9px;color:inherit;font:inherit}.profile-grid .profile-check{display:flex;align-items:center;gap:8px;min-height:34px}.profile-notice{margin:0;color:#9be0b5;font-size:11px}`]
+    .model-selected{background:color-mix(in srgb,var(--accent,#8b72ff) 8%,transparent)}.load-panel{display:grid;gap:12px;margin-top:20px;padding:14px;border:1px solid var(--border,#292d35);border-radius:9px;background:var(--bg,#101216)}.load-panel>div:first-child{display:grid;gap:5px;min-width:0}.load-panel small{overflow-wrap:anywhere;color:var(--muted,#929baa)}.load-actions{display:flex;flex-wrap:wrap;gap:8px}.load-panel a{font-size:12px;color:var(--accent,#a28eff)}.runtime-status{white-space:pre-wrap;overflow-wrap:anywhere;padding:10px;border-radius:7px;background:var(--surface,#171a20);font-size:11px}.profile-panel{display:grid;gap:12px;padding:14px;border:1px solid var(--border,#30394a);border-radius:9px;background:color-mix(in srgb,var(--surface,#171a20) 78%,#111722)}.profile-title{display:flex;align-items:center;justify-content:space-between;gap:10px}.profile-title>div{display:grid;gap:5px}.profile-title b{font-size:12px}.profile-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:12px}.profile-grid label{display:grid;gap:6px;color:#bdc4d2;font-size:11px}.profile-grid input:not([type=checkbox]),.profile-grid select{box-sizing:border-box;width:100%;min-width:0;background:#10151e;border:1px solid #363f4e;border-radius:6px;padding:8px 9px;color:inherit;font:inherit}.profile-grid .profile-check{display:flex;align-items:center;gap:8px;min-height:34px}.profile-notice{margin:0;color:#9be0b5;font-size:11px}.profile-tabs{display:flex;gap:6px;border-bottom:1px solid var(--border,#30394a)}.profile-tabs button{padding:8px 11px;border:0;border-bottom:2px solid transparent;background:transparent;color:var(--muted,#929baa);font:inherit;font-size:11px;cursor:pointer}.profile-tabs button.active{color:var(--text,#e8eaf0);border-color:var(--accent,#8b72ff)}.advanced-device{grid-column:1/-1;padding-top:3px;font-size:11px}.advanced-device summary{margin-bottom:9px}.advanced-device .profile-check{margin-bottom:8px}.advanced-device small{display:block;margin-top:5px;line-height:1.5;color:var(--muted,#929baa)}`]
 })
 export class ModelsPage implements OnInit {
   readonly sources = signal<ModelSource[]>([]);
@@ -140,6 +152,7 @@ export class ModelsPage implements OnInit {
   readonly profileBackends=signal<RuntimeBackend[]>([]); readonly profileInstallations=signal<RuntimeInstallation[]>([]);
   readonly profileBackend=signal(''); readonly profileRuntimeId=signal('');
   readonly profileBusy=signal(false); readonly profileError=signal(''); readonly profileNotice=signal('');
+  readonly profileTab=signal<ProfileTab>('placement'); readonly manualDevice=signal(false);
   readonly profileNumberFields: {key:'context_size'|'threads'|'batch_size'|'physical_batch_size'|'max_concurrent'|'threads_batch';label:string}[]=[
     {key:'context_size',label:'Context size'},{key:'threads',label:'Threads'},{key:'batch_size',label:'Batch size'},
     {key:'physical_batch_size',label:'Physical batch size'},{key:'max_concurrent',label:'Max concurrent'},{key:'threads_batch',label:'Batch threads'}];
@@ -175,6 +188,19 @@ export class ModelsPage implements OnInit {
   async unloadModel(): Promise<void> { await this.runRuntimeAction('Unloading model…', () => this.runtime.unload()); }
   async refreshRuntimeStatus(): Promise<void> { await this.runRuntimeAction('', () => this.runtime.status()); }
   profileSupports(key: string): boolean { return (this.profileCapabilities() as unknown as Record<string,unknown>|null)?.[key] === true; }
+  manualDeviceError():string {
+    if(!this.manualDevice())return '';
+    const id=this.profilePlacement().device?.trim()||'';
+    return /^[A-Za-z][A-Za-z0-9_.:-]*$/.test(id)?'':'Enter a runtime device identifier such as ROCm0 or Vulkan1.';
+  }
+  canUseProfile():boolean{return !this.manualDevice()||!this.manualDeviceError();}
+  toggleManualDevice(enabled:boolean):void {
+    this.manualDevice.set(enabled);
+    if(enabled&&!this.profilePlacement().device)this.setProfilePlacement('device','');
+    if(!enabled)this.setProfilePlacement('device','');
+  }
+  setDetectedDevice(id:string):void { this.manualDevice.set(false);this.setProfilePlacement('device',id); }
+  setManualDevice(id:string):void { this.setProfilePlacement('device',id.trim()); }
   profileBoolValue(key:typeof this.profileBoolFields[number]['key']):boolean {
     const value=this.profileLoad()[key];return value===undefined?(key==='mmap'||key==='continuous_batching'):value;
   }
@@ -194,6 +220,7 @@ export class ModelsPage implements OnInit {
     this.selectedProfileId.set(id);const profile=this.profiles().find(item=>item.id===id);
     this.profileName.set(profile?.name||'');this.profilePlacement.set(profile?structuredClone(profile.placement):{});this.profileLoad.set(profile?structuredClone(profile.load):{});
     this.profileBackend.set(profile?.backend_name||'');this.profileRuntimeId.set(profile?.runtime_id||'');
+    this.manualDevice.set(Boolean(profile?.placement?.device&&!this.profileDevices().some(device=>(device.runtime_id||device.id)===profile.placement.device)));
     this.profileNotice.set('');this.profileError.set('');
     this.refreshProfileCapabilities();
   }
@@ -204,6 +231,8 @@ export class ModelsPage implements OnInit {
       this.profileBackends.set(runtime.backends);this.profileInstallations.set(installations);
       if(!this.selectedProfileId()){this.profileBackend.set('');this.profileRuntimeId.set('');}
       this.refreshProfileCapabilities(runtime.backends,installations,runtime.devices);
+      const selected=this.profiles().find(item=>item.id===this.selectedProfileId());
+      this.manualDevice.set(Boolean(selected?.placement.device&&!this.profileDevices().some(device=>(device.runtime_id||device.id)===selected.placement.device)));
     }catch(error){this.profileError.set(errorMessage(error));}
   }
   refreshProfileCapabilities(backends=this.profileBackends(),installations=this.profileInstallations(),fallbackDevices=this.profileDevices()):void {
