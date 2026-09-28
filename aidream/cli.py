@@ -44,6 +44,41 @@ def build_parser() -> argparse.ArgumentParser:
     model_cmd.add_parser("sources", help="list registered model directories")
     model_cmd.add_parser("scan", help="scan registered directories for GGUF models")
     model_cmd.add_parser("list", help="list discovered local models")
+    remove_source = model_cmd.add_parser("remove", help="remove a model directory from the catalog")
+    remove_source.add_argument("source_id")
+
+    runtime = sub.add_parser("runtime", help="manage llama.cpp installations")
+    runtime_cmd = runtime.add_subparsers(dest="runtime_command", required=True)
+    runtime_cmd.add_parser("list", help="list registered llama.cpp installations")
+    runtime_add = runtime_cmd.add_parser("add", help="register and probe a llama.cpp executable")
+    runtime_add.add_argument("executable")
+    runtime_add.add_argument("--name")
+    runtime_add.add_argument("--kind", default="llama.cpp")
+    runtime_add.add_argument("--disabled", action="store_true", help="register without enabling")
+    runtime_remove = runtime_cmd.add_parser("remove", help="remove an installation record")
+    runtime_remove.add_argument("installation_id")
+    runtime_probe = runtime_cmd.add_parser("probe", help="refresh capabilities and devices")
+    runtime_probe.add_argument("installation_id")
+    runtime_devices = runtime_cmd.add_parser("devices", help="list detected runtime-native devices")
+    runtime_devices.add_argument("installation_id", nargs="?")
+
+    profiles = sub.add_parser("profiles", help="manage reusable model profiles")
+    profile_cmd = profiles.add_subparsers(dest="profiles_command", required=True)
+    profile_list = profile_cmd.add_parser("list", help="list profiles")
+    profile_list.add_argument("--model-id")
+    profile_show = profile_cmd.add_parser("show", help="show one profile")
+    profile_show.add_argument("profile_id")
+    profile_create = profile_cmd.add_parser("create", help="create a profile from JSON")
+    profile_create_input = profile_create.add_mutually_exclusive_group(required=True)
+    profile_create_input.add_argument("--json", help="profile object as JSON")
+    profile_create_input.add_argument("--file", help="read profile JSON from a file")
+    profile_update = profile_cmd.add_parser("update", help="update a profile from JSON fields")
+    profile_update.add_argument("profile_id")
+    profile_update_input = profile_update.add_mutually_exclusive_group(required=True)
+    profile_update_input.add_argument("--json", help="profile changes as JSON")
+    profile_update_input.add_argument("--file", help="read profile changes from a file")
+    profile_delete = profile_cmd.add_parser("delete", help="delete a profile")
+    profile_delete.add_argument("profile_id")
 
     sub.add_parser("backends", help="list available inference runtimes")
     serve = sub.add_parser("serve", help="serve the local JSON API on 127.0.0.1")
@@ -96,6 +131,17 @@ def _bool_setting(value):
     raise argparse.ArgumentTypeError("expected on/off, true/false, yes/no, or 1/0")
 
 
+def _json_argument(raw, file_path):
+    try:
+        payload = Path(file_path).expanduser().read_text(encoding="utf-8") if file_path else raw
+        result = json.loads(payload)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"Could not read valid JSON: {exc}") from exc
+    if not isinstance(result, dict):
+        raise ValueError("profile JSON must be an object")
+    return result
+
+
 def _runtime_settings(args):
     placement = {"gpu_layers": args.gpu_layers, "device": args.device,
                  "split_mode": args.split_mode, "tensor_split": args.tensor_split,
@@ -124,8 +170,46 @@ def main(argv: list[str] | None = None) -> int:
                 _print(catalog.list_sources())
             elif args.models_command == "scan":
                 _print(catalog.scan())
+            elif args.models_command == "remove":
+                catalog.remove_source(args.source_id)
+                _print({"removed": True, "source_id": args.source_id})
             else:
                 _print(catalog.list_models())
+        elif args.command == "runtime":
+            from aidream.runtime_installations import RuntimeInstallationRegistry
+            registry = RuntimeInstallationRegistry()
+            if args.runtime_command == "list":
+                _print(registry.list_installations())
+            elif args.runtime_command == "add":
+                _print(registry.register(args.executable, name=args.name, kind=args.kind,
+                                         enabled=not args.disabled))
+            elif args.runtime_command == "remove":
+                registry.remove(args.installation_id)
+                _print({"removed": True, "installation_id": args.installation_id})
+            elif args.runtime_command == "probe":
+                _print(registry.probe(args.installation_id))
+            else:
+                installations = registry.list_installations()
+                if args.installation_id is not None:
+                    installations = [item for item in installations if item.get("id") == args.installation_id]
+                    if not installations:
+                        raise ValueError(f"Runtime installation not found: {args.installation_id}")
+                _print([{"installation_id": item["id"], "runtime": item.get("name"),
+                         "devices": item.get("devices", [])} for item in installations])
+        elif args.command == "profiles":
+            from aidream.model_profiles import ModelProfileStore
+            profiles = ModelProfileStore()
+            if args.profiles_command == "list":
+                _print(profiles.list_profiles(args.model_id))
+            elif args.profiles_command == "show":
+                _print(profiles.get(args.profile_id))
+            elif args.profiles_command == "create":
+                _print(profiles.create(_json_argument(args.json, args.file)))
+            elif args.profiles_command == "update":
+                _print(profiles.update(args.profile_id, _json_argument(args.json, args.file)))
+            else:
+                profiles.delete(args.profile_id)
+                _print({"deleted": True, "profile_id": args.profile_id})
         elif args.command == "serve":
             from aidream.http_api import serve
             serve(args.port)
@@ -164,7 +248,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             return _run_chat(args, interactive=True)
         return 0
-    except (OSError, ValueError, RuntimeError) as exc:
+    except (OSError, ValueError, RuntimeError, KeyError) as exc:
         print(f"app: {exc}", file=sys.stderr)
         return 2
 
