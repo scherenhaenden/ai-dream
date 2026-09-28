@@ -168,6 +168,77 @@ class ModelCatalog:
     def list_sources(self) -> list[str]:
         return self._load_sources()
 
+    @staticmethod
+    def _source_id(path: str | os.PathLike[str]) -> str:
+        """Return an opaque, stable identifier for a canonical source path."""
+        canonical = str(Path(path).expanduser().resolve())
+        return hashlib.sha256(("ai-dream-model-source\0" + canonical).encode("utf-8")).hexdigest()[:32]
+
+    def _managed_model_dir(self) -> Path:
+        data_home = os.environ.get("XDG_DATA_HOME")
+        root = Path(data_home).expanduser() if data_home and Path(data_home).expanduser().is_absolute() else Path.home() / ".local" / "share"
+        return (root / "ai-dream" / "models").resolve()
+
+    def list_source_details(self) -> list[dict[str, Any]]:
+        """Describe registered model directories and the GGUF files they contain.
+
+        Source IDs are stable hashes of canonical paths. `managed` identifies
+        the application's own download directory; removing that source never
+        removes its files.
+        """
+        result: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        managed_root = self._managed_model_dir()
+        for raw_path in self._load_sources():
+            root = Path(raw_path).expanduser().resolve()
+            canonical = str(root)
+            if canonical in seen:
+                continue
+            seen.add(canonical)
+            try:
+                managed = root == managed_root or root.is_relative_to(managed_root)
+            except (OSError, ValueError):
+                managed = False
+            exists = root.exists() and root.is_dir()
+            readable = bool(exists and os.access(root, os.R_OK | os.X_OK))
+            model_count = total_bytes = 0
+            if readable:
+                try:
+                    for base, dirs, files in os.walk(root, followlinks=False):
+                        dirs.sort()
+                        for name in sorted(files):
+                            if not name.lower().endswith(".gguf"):
+                                continue
+                            path = Path(base) / name
+                            try:
+                                if path.is_file():
+                                    size = path.stat().st_size
+                                    model_count += 1
+                                    total_bytes += size
+                            except OSError:
+                                continue
+                except OSError:
+                    readable = False
+                    model_count = total_bytes = 0
+            result.append({"id": self._source_id(canonical), "path": canonical,
+                           "canonical_path": canonical, "exists": exists,
+                           "readable": readable, "managed": managed,
+                           "model_count": model_count, "total_bytes": total_bytes})
+        return result
+
+    def remove_source(self, source_id: str) -> None:
+        """Unregister a source by its opaque ID without touching model files."""
+        if not isinstance(source_id, str) or not re.fullmatch(r"[a-f0-9]{32}", source_id):
+            raise ValueError("invalid model source ID")
+        sources = self._load_sources()
+        remaining = [path for path in sources if self._source_id(path) != source_id]
+        if len(remaining) == len(sources):
+            raise KeyError(f"Model source not found: {source_id}")
+        self.config_dir.mkdir(parents=True, exist_ok=True)
+        temp = self.sources_file.with_suffix(".json.tmp")
+        temp.write_text(json.dumps(remaining, indent=2) + "\n", encoding="utf-8")
+        temp.replace(self.sources_file)
+
     def scan(self) -> list[ModelRecord]:
         found: dict[str, ModelRecord] = {}
         for source in self.list_sources():
