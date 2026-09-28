@@ -660,7 +660,12 @@ class LlamaCppBackend:
 class RuntimeRegistry:
     """Registry for supported local inference backends."""
     def __init__(self, backends: list[InferenceBackend] | None = None):
-        self._backends = backends if backends is not None else [LlamaCppBackend()]
+        if backends is None:
+            # Lazy import avoids a module cycle: the vLLM adapter reuses the
+            # OpenAI-compatible transport implemented by LlamaCppBackend.
+            from aidream.vllm_runtime import VLLMBackend
+            backends = [LlamaCppBackend(), VLLMBackend()]
+        self._backends = backends
     def list_backends(self) -> list[InferenceBackend]:
         return list(self._backends)
 
