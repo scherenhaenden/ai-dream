@@ -119,6 +119,27 @@ class ControlPlaneServiceTests(unittest.TestCase):
         self.assertTrue(result["data"]["deleted"])
         self.assertTrue(path.exists())
 
+    def test_disabling_active_runtime_unloads_it_before_registry_update(self):
+        identity = "a" * 32
+        class Registry:
+            def set_enabled(self, item_id, enabled):
+                self.assert_args = (item_id, enabled)
+                return {"id": item_id, "enabled": enabled}
+        backend = _Backend()
+        backend.runtime_id = identity
+        backend._loaded_model = "/fixture.gguf"
+        self.api.runtime_installations = Registry()
+        self.api._active_backend = backend
+        result = self.api.update_runtime_installation(identity, {"enabled": False})
+        self.assertEqual(backend._loaded_model, None)
+        self.assertEqual(self.api.runtime_installations.assert_args, (identity, False))
+        self.assertFalse(result["data"]["installation"]["enabled"])
+
+    def test_explicit_profile_for_another_model_is_rejected(self):
+        profile = self.profiles.create({"name": "other", "model_id": "m2"})
+        with self.assertRaisesRegex(ValueError, "different model"):
+            self.api._resolve_settings("m1", request_settings={"profile_id": profile["id"]})
+
     def test_explicit_load_applies_resolved_settings_to_backend(self):
         backend = _Backend()
         self.api.catalog = SimpleNamespace(list_models=lambda: [SimpleNamespace(id="m1", path="/fixture.gguf")])

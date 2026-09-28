@@ -229,6 +229,8 @@ class ReadOnlyAPI:
             profile = self.profile_store.get(profile_id) if profile_id else None
         except KeyError as exc:
             raise APIError(str(exc)) from exc
+        if profile and profile.get("model_id") not in (None, model_id):
+            raise APIError("Selected profile belongs to a different model")
         model_profiles = [item for item in self.profile_store.list_profiles(model_id)
                           if item.get("model_id") == model_id]
         model_profile = profile or (model_profiles[0] if model_profiles and settings.get("default_profile_behavior") == "model" else None)
@@ -400,6 +402,11 @@ class ReadOnlyAPI:
                 raise APIError("Model id was not found in the local catalog")
             effective = self._resolve_settings(model_id, chat_settings=session.get("settings", {}),
                                                request_settings=request_settings or {})
+            unsupported_generation = set(effective.get("generation", {})) - {
+                "temperature", "max_tokens", "system_prompt", "stop_strings", "top_p", "top_k",
+                "min_p", "repeat_penalty", "seed", "structured_output"}
+            if unsupported_generation:
+                raise APIError("Unsupported generation setting(s): " + ", ".join(sorted(unsupported_generation)))
             backends = self._all_backends()
             backend = next((item for item in backends
                             if (not effective.get("runtime_id") or getattr(item, "runtime_id", None) == effective["runtime_id"])
@@ -448,7 +455,7 @@ class ReadOnlyAPI:
                 self._active_binding = binding
             generation = effective.get("generation", {})
             allowed_generation = {key: generation[key] for key in
-                                  ("temperature", "max_tokens", "system_prompt", "stop_strings", "top_p", "top_k", "min_p", "repeat_penalty", "seed")
+                                  ("temperature", "max_tokens", "system_prompt", "stop_strings", "top_p", "top_k", "min_p", "repeat_penalty", "seed", "structured_output")
                                   if key in generation}
             if "stop_strings" in allowed_generation:
                 allowed_generation["stop"] = allowed_generation.pop("stop_strings")
@@ -685,7 +692,12 @@ class ReadOnlyAPI:
         try:
             if set(changes) != {"enabled"} or not isinstance(changes["enabled"], bool):
                 raise APIError("enabled boolean is required")
+            if (changes["enabled"] is False and self._active_backend is not None
+                    and getattr(self._active_backend, "runtime_id", None) == identity):
+                self.unload_model()
             item = self.runtime_installations.set_enabled(identity, changes["enabled"])
+            if not changes["enabled"]:
+                self._installation_backends.pop(identity, None)
             return {"data": {"installation": item}}
         except KeyError as exc:
             raise APINotFound(str(exc)) from exc
@@ -700,13 +712,16 @@ class ReadOnlyAPI:
             self.unload_model()
         try:
             self.runtime_installations.remove(identity)
+            self._installation_backends.pop(identity, None)
         except (KeyError, ValueError) as exc:
             raise APINotFound(str(exc)) from exc
         return {"data": {"deleted": True, "id": identity}}
 
     def probe_runtime_installation(self, identity):
         try:
-            return {"data": {"installation": self.runtime_installations.probe(identity)}}
+            item = self.runtime_installations.probe(identity)
+            self._installation_backends.pop(identity, None)
+            return {"data": {"installation": item}}
         except KeyError as exc:
             raise APINotFound(str(exc)) from exc
         except ValueError as exc:
