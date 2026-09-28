@@ -1,7 +1,9 @@
 from pathlib import Path
+import json
 import tempfile
 import unittest
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 from aidream.runtime import RuntimeRegistry
 from aidream.vllm_runtime import VLLMBackend
@@ -61,6 +63,70 @@ class VLLMBackendTest(unittest.TestCase):
             self.assertTrue(backend.can_load(model))
             command = backend.effective_command(model)
         self.assertEqual(command[2], str(model.resolve()))
+
+    def test_projector_gguf_is_rejected_like_llama_cpp(self):
+        backend = self._backend()
+        with tempfile.TemporaryDirectory() as td:
+            projector = Path(td) / "mmproj-model.gguf"
+            projector.write_bytes(b"mock")
+            self.assertFalse(backend.can_load(projector))
+            with self.assertRaisesRegex(ValueError, "vision projector"):
+                backend.validate_load(projector)
+
+            metadata_projector = Path(td) / "vision.gguf"
+            metadata_projector.write_bytes(b"mock")
+            model = SimpleNamespace(path=metadata_projector, metadata={"general.architecture": "clip"})
+            self.assertFalse(backend.can_load(model))
+            with self.assertRaisesRegex(ValueError, "vision projector"):
+                backend.validate_load(model)
+
+    def test_streaming_completion_includes_vllm_served_model(self):
+        backend = self._backend()
+        with tempfile.TemporaryDirectory() as td:
+            model = Path(td) / "model.gguf"
+            model.write_bytes(b"mock")
+            backend._loaded_model = model.resolve()
+            backend._base_url = "http://127.0.0.1:8123"
+            backend._process = SimpleNamespace(poll=lambda: None)
+            response = MagicMock()
+            response.__enter__.return_value = response
+            response.readline.side_effect = [
+                b'data: {"choices":[{"delta":{"content":"ok"}}]}\n',
+                b"\n", b"data: [DONE]\n", b"\n",
+            ]
+            with patch("aidream.runtime.urlopen", return_value=response) as urlopen:
+                self.assertEqual(backend.generate_stream("hello"), "ok")
+            request = urlopen.call_args.args[0]
+            payload = json.loads(request.data)
+            self.assertEqual(payload["model"], str(model.resolve()))
+
+    def test_tool_completion_includes_vllm_served_model(self):
+        backend = self._backend()
+        with tempfile.TemporaryDirectory() as td:
+            model = Path(td) / "model.gguf"
+            model.write_bytes(b"mock")
+            backend._loaded_model = model.resolve()
+            backend._base_url = "http://127.0.0.1:8123"
+            backend._process = SimpleNamespace(poll=lambda: None)
+            response = MagicMock()
+            response.__enter__.return_value = response
+            response.read.return_value = b'{"choices":[{"message":{"role":"assistant","content":"ok"}}]}'
+            with patch("aidream.runtime.urlopen", return_value=response) as urlopen:
+                answer = backend.chat_with_tools([], [])
+            self.assertEqual(answer["content"], "ok")
+            request = urlopen.call_args.args[0]
+            self.assertEqual(json.loads(request.data)["model"], str(model.resolve()))
+
+    def test_help_probe_passes_executable_as_literal_argv_without_shell(self):
+        executable = "/tmp/runtime;touch /tmp/unexpected"
+        with patch("aidream.vllm_runtime.subprocess.run") as run:
+            run.return_value.stdout = VLLM_HELP
+            run.return_value.stderr = ""
+            run.return_value.returncode = 0
+            VLLMBackend(executable)
+        argv, kwargs = run.call_args
+        self.assertEqual(argv[0], [executable, "serve", "--help"])
+        self.assertIs(kwargs["shell"], False)
 
     def test_asymmetric_llama_tensor_split_is_rejected(self):
         backend = self._backend()

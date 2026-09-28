@@ -38,6 +38,9 @@ class VLLMBackend(LlamaCppBackend):
         if not self.executable:
             return ""
         try:
+            # `executable` is the selected local runtime binary. Keep it as one
+            # argv element and disable shell parsing so paths/arguments cannot
+            # become shell commands.
             result = subprocess.run([self.executable, "serve", "--help"],
                                     capture_output=True, text=True, timeout=15,
                                     check=False, shell=False)
@@ -84,6 +87,11 @@ class VLLMBackend(LlamaCppBackend):
         if not self.capabilities().available:
             return False
         path = self._path(model)
+        metadata = getattr(model, "metadata", {})
+        architecture = metadata.get("general.architecture") if isinstance(metadata, Mapping) else None
+        # Projector GGUFs are catalogued for pairing, not for standalone chat.
+        if architecture == "clip" or (path and path.name.lower().startswith("mmproj-")):
+            return False
         if not path or not path.exists():
             return False
         if path.is_dir():
@@ -98,6 +106,10 @@ class VLLMBackend(LlamaCppBackend):
         path = self._path(model)
         if not path or not path.exists():
             raise ValueError("Select an existing GGUF file or Hugging Face model directory.")
+        metadata = getattr(model, "metadata", {})
+        architecture = metadata.get("general.architecture") if isinstance(metadata, Mapping) else None
+        if architecture == "clip" or path.name.lower().startswith("mmproj-"):
+            raise ValueError("This GGUF is a vision projector, not a standalone chat model. Select its compatible base model.")
         if path.is_dir() and not (path / "config.json").is_file():
             raise ValueError("A vLLM model directory must contain config.json.")
         if path.is_file() and path.suffix.lower() != ".gguf":
@@ -187,3 +199,8 @@ class VLLMBackend(LlamaCppBackend):
         return [self.executable, "serve", str(path.resolve()), "--host", "127.0.0.1",
                 "--port", str(selected_port), *self._placement_options(placement),
                 *self._load_options(options)]
+
+    def _completion_model(self) -> str | None:
+        # vLLM requires `model` on each OpenAI-compatible request. Without an
+        # explicit served name it defaults to the identifier passed to `serve`.
+        return str(self._loaded_model) if self._loaded_model is not None else None
