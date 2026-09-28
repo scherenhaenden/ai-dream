@@ -65,6 +65,11 @@ Only options advertised
 by the selected installation are actionable; unsupported supplied values are
 rejected.
 
+`mmap` capability reports whether the installed server exposes a memory-map
+control; the separate `mmap_disable` capability is true only when
+`--no-mmap` is advertised. The UI must not offer an off state unless that
+second capability is true.
+
 `ModelProfile` stores model identity, optional runtime/backend selection,
 placement, load options, and generation options as separate objects. Effective
 configuration precedence is:

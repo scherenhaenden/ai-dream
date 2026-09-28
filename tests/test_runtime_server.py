@@ -9,7 +9,7 @@ from aidream.runtime import GenerationCancelled, LlamaCppBackend
 FAKE_SERVER = r'''#!/usr/bin/env python3
 import http.server, json, sys, time
 if '--help' in sys.argv:
-    print('usage -m MODEL --host HOST --port PORT -ngl N --device NAME --tensor-split LIST --split-mode MODE --main-gpu N -c CTX -t THREADS -b BATCH -ub UB --parallel N -fa --kv-unified --no-kv-offload --mmap --no-mmap --mlock --fit on|off --reasoning on|off /v1/chat/completions')
+    print('usage -m MODEL --host HOST --port PORT -ngl N --device NAME --tensor-split LIST --split-mode MODE --main-gpu N -c CTX -t THREADS -b BATCH -ub UB --parallel N -tb THREADS --continuous-batching --no-cont-batching --numa MODE -ctk TYPE -ctv TYPE --list_devices -fa --kv-unified --no-kv-offload --mmap --no-mmap --mlock --fit on|off --reasoning on|off /v1/chat/completions')
     raise SystemExit(0)
 port = int(sys.argv[sys.argv.index('--port') + 1])
 with open(sys.argv[sys.argv.index('-m') + 1] + '.argv', 'w') as f: f.write(json.dumps(sys.argv))
@@ -57,7 +57,9 @@ class PersistentServerTest(unittest.TestCase):
                 'physical_batch_size': 128, 'max_concurrent': 4,
                 'flash_attention': True, 'unified_kv_cache': True,
                 'offload_kv_cache': False, 'mmap': False,
-                'keep_model_in_memory': True,
+                'keep_model_in_memory': True, 'threads_batch': 2,
+                'continuous_batching': True, 'numa': 'distribute',
+                'kv_cache_type_k': 'q8_0', 'kv_cache_type_v': 'q4_0',
             })
             pairs = set(zip(command, command[1:]))
             for pair in (('-ngl', '18'), ('--device', 'ROCm0,ROCm1'),
@@ -66,6 +68,14 @@ class PersistentServerTest(unittest.TestCase):
                          ('-b', '512'), ('-ub', '128')):
                 self.assertIn(pair, pairs)
             self.assertIn(('--parallel', '4'), pairs)
+            self.assertIn(('-tb', '2'), pairs)
+            self.assertIn(('--numa', 'distribute'), pairs)
+            self.assertIn(('-ctk', 'q8_0'), pairs)
+            self.assertIn(('-ctv', 'q4_0'), pairs)
+            self.assertIn('--continuous-batching', command)
+            self.assertTrue(backend.capabilities().device_listing)
+            self.assertTrue(backend.capabilities().mlock)
+            self.assertTrue(backend.capabilities().mmap_disable)
             self.assertIn(('-fa', 'on'), pairs)
             for flag in ('--kv-unified', '--no-kv-offload', '--no-mmap', '--mlock'):
                 self.assertIn(flag, command)
@@ -81,6 +91,31 @@ class PersistentServerTest(unittest.TestCase):
                 backend._placement_options({'split_mode': 'layer'})
             with self.assertRaisesRegex(ValueError, 'does not advertise flash_attention'):
                 backend._load_options({'flash_attention': True})
+            for setting in ('threads_batch', 'continuous_batching', 'numa',
+                            'kv_cache_type_k', 'kv_cache_type_v'):
+                with self.subTest(setting=setting), self.assertRaisesRegex(ValueError, f'does not advertise {setting}'):
+                    backend._load_options({setting: 2 if setting == 'threads_batch' else
+                                           'q8_0' if setting.startswith('kv_') else
+                                           'distribute' if setting == 'numa' else True})
+
+    def test_continuous_batching_can_be_disabled_only_when_runtime_advertises_it(self):
+        with tempfile.TemporaryDirectory() as td:
+            executable = Path(td) / 'fake-server'
+            executable.write_text('#!/bin/sh\nif [ "$1" = "--help" ]; then echo "--cont-batching --no-cont-batching"; fi\n')
+            executable.chmod(0o755)
+            backend = LlamaCppBackend(str(executable))
+            self.assertIn('--no-cont-batching', backend._load_options({'continuous_batching': False}))
+
+    def test_mmap_off_is_rejected_when_only_mmap_on_is_advertised(self):
+        with tempfile.TemporaryDirectory() as td:
+            executable = Path(td) / 'fake-server'
+            executable.write_text('#!/bin/sh\nif [ "$1" = "--help" ]; then echo "--mmap"; fi\n')
+            executable.chmod(0o755)
+            backend = LlamaCppBackend(str(executable))
+            self.assertTrue(backend.capabilities().mmap)
+            self.assertFalse(backend.capabilities().mmap_disable)
+            with self.assertRaisesRegex(ValueError, 'cannot disable mmap'):
+                backend._load_options({'mmap': False})
 
     def test_load_generates_with_history_and_unloads_process(self):
         with tempfile.TemporaryDirectory() as td:
