@@ -26,8 +26,13 @@ def save_result(result: Mapping[str, Any], path: str | Path | None = None) -> Pa
         raise ValueError(f"Cannot read benchmark results at {destination}: {exc}") from exc
     if not isinstance(existing, list):
         raise ValueError("benchmark results file must contain a JSON array")
+    if not isinstance(result, Mapping):
+        raise ValueError("benchmark result must be a JSON object")
     existing.append(dict(result))
-    payload = json.dumps(existing, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
+    try:
+        payload = json.dumps(existing, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"benchmark result is not JSON serializable: {exc}") from exc
     fd, temporary = tempfile.mkstemp(prefix=".benchmarks-", dir=destination.parent, text=True)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
@@ -89,9 +94,9 @@ def _server_metrics(backend) -> dict[str, float]:
 def benchmark_one(model: Any, prompt: str, backend: Any, *, placement=None,
                   options=None, generation_options=None) -> dict[str, Any]:
     started = time.perf_counter()
-    backend.load(model, placement or {}, options or {})
-    loaded_at = time.perf_counter()
     try:
+        backend.load(model, placement or {}, options or {})
+        loaded_at = time.perf_counter()
         prompt_tokens = _token_count(backend, prompt)
         before_metrics = _server_metrics(backend)
         generation_started = time.perf_counter()
@@ -121,7 +126,7 @@ def benchmark_one(model: Any, prompt: str, backend: Any, *, placement=None,
             "token_count_method": "llama-server /tokenize" if getattr(backend, "_base_url", None) else "text estimate",
             "server_metrics_available": server_prompt_rate is not None or server_generation_rate is not None,
             "backend": getattr(backend, "name", "unknown"),
-            "devices": (placement or {}).get("device"),
+            "devices": (placement or {}).get("devices", (placement or {}).get("device")),
             "split_mode": (placement or {}).get("split_mode"),
             "tensor_split": (placement or {}).get("tensor_split"),
             "load_settings": {"placement": dict(placement or {}), "options": dict(options or {})},
@@ -133,12 +138,53 @@ def benchmark_one(model: Any, prompt: str, backend: Any, *, placement=None,
 
 def run_matrix(model: Any, prompt: str, backend_factory, configs, *, options=None,
                generation_options=None, results_path=None) -> list[dict[str, Any]]:
+    """Run named placement/load configurations and persist each result.
+
+    A matrix item may be ``{"name": ..., "placement": {...}, "options": {...}}``
+    or a placement object directly. Per-row load options override shared options.
+    A fresh backend from ``backend_factory`` is used for every row.
+    """
+    if not isinstance(configs, (list, tuple)) or not configs:
+        raise ValueError("benchmark matrix must contain at least one configuration")
     results = []
-    for config in configs:
+    for index, config in enumerate(configs, start=1):
+        if not isinstance(config, Mapping):
+            raise ValueError(f"benchmark matrix configuration {index} must be an object")
         placement = config.get("placement", config)
+        if not isinstance(placement, Mapping):
+            raise ValueError(f"benchmark matrix configuration {index} placement must be an object")
+        row_options = dict(options or {})
+        extra_options = config.get("options", {})
+        if not isinstance(extra_options, Mapping):
+            raise ValueError(f"benchmark matrix configuration {index} options must be an object")
+        row_options.update(extra_options)
         result = benchmark_one(model, prompt, backend_factory(), placement=placement,
-                               options=options, generation_options=generation_options)
-        result["matrix_name"] = config.get("name", "configuration")
+                               options=row_options, generation_options=generation_options)
+        result["matrix_name"] = str(config.get("name", f"configuration {index}"))
         save_result(result, results_path)
         results.append(result)
     return results
+
+
+def comparison_table(results) -> str:
+    """Format benchmark rows for terminal output without requiring a UI layer."""
+    columns = (
+        ("Configuration", "matrix_name"),
+        ("Load s", "model_load_seconds"),
+        ("Prompt tok/s", "prompt_processing_tokens_per_second"),
+        ("Generation tok/s", "generation_tokens_per_second"),
+        ("Prompt tokens", "prompt_token_count"),
+        ("Generated tokens", "generated_token_count"),
+    )
+    rows = [[str(row.get(key, "")) for _, key in columns] for row in results]
+    for row in rows:
+        for index in (1, 2, 3):
+            try:
+                row[index] = f"{float(row[index]):.3f}" if index == 1 else f"{float(row[index]):.2f}"
+            except (TypeError, ValueError):
+                pass
+    widths = [max(len(title), *(len(row[i]) for row in rows)) for i, (title, _) in enumerate(columns)]
+    header = " | ".join(title.ljust(widths[i]) for i, (title, _) in enumerate(columns))
+    divider = "-+-".join("-" * width for width in widths)
+    body = [" | ".join(row[i].ljust(widths[i]) for i in range(len(columns))) for row in rows]
+    return "\n".join((header, divider, *body))
