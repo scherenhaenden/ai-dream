@@ -10,15 +10,16 @@ service validation remains authoritative. JSON success responses use
 
 - `GET /api/models` → `data.models: ModelRecord[]`.
 - `GET /api/runtime` → `data.backends`, `data.devices`, `data.status`.
-- `POST /api/runtime/load` → `{model_id, backend?, placement?, load?}`.
+- `POST /api/runtime/load` → `{model_id, runtime_id?, backend?, profile_id?, placement?, load?}`.
 - `POST /api/runtime/unload` → `{}`.
-- `POST /api/runtime/command` → `{model_id, backend?, placement?, load?}`.
+- `POST /api/runtime/command` → `{model_id, runtime_id?, backend?, profile_id?, placement?, load?}`; response includes shell-quoted command text and exact `argv`.
 - `GET /api/runtime/status` → `data.status`.
 - `GET /api/chats/<id>` returns the public transcript and intentionally omits
   private settings and attachment paths.
 
-The existing runtime request shape remains valid. `runtime_id` is an optional
-future selector; `backend` continues to select a compatible backend name.
+The existing runtime request shape remains valid. `runtime_id` selects a
+registered installation; `backend` continues to select a compatible backend
+name. Both selectors may be omitted to use the default compatible runtime.
 
 ## Additive contracts for the control plane
 
@@ -26,20 +27,26 @@ future selector; `backend` continues to select a compatible backend name.
 | --- | --- | --- |
 | `GET /api/model-sources` | — | `data.sources: ModelSource[]` |
 | `POST /api/model-sources` | `{path}` | `data.source: ModelSource` |
-| `DELETE /api/model-sources/<source-id>` | — | `data.removed: true` |
+| `DELETE /api/model-sources/<source-id>` | — | `data.deleted: true` |
 | `POST /api/models/rescan` | `{}` | `data.models: ModelRecord[]` |
 | `GET /api/runtime/installations` | — | `data.installations: RuntimeInstallation[]` |
 | `POST /api/runtime/installations` | `{name, executable}` | `data.installation` |
 | `POST /api/runtime/installations/<id>/probe` | `{}` | refreshed installation/capabilities/devices |
-| `DELETE /api/runtime/installations/<id>` | — | `data.removed: true` |
+| `PATCH /api/runtime/installations/<id>` | `{enabled}` | `data.installation` |
+| `DELETE /api/runtime/installations/<id>` | — | `data.deleted: true` |
 | `GET /api/model-profiles` | optional `?model_id=` | `data.profiles: ModelProfile[]` |
 | `POST /api/model-profiles` | profile without timestamps | `data.profile` |
 | `PATCH /api/model-profiles/<id>` | partial profile fields | `data.profile` |
-| `DELETE /api/model-profiles/<id>` | — | `data.removed: true` |
+| `DELETE /api/model-profiles/<id>` | — | `data.deleted: true` |
 | `GET /api/settings` | — | `data.settings: AppSettings` |
 | `PATCH /api/settings` | `runtime_defaults`, `default_profile_behavior`, `keep_last_model_loaded` | `data.settings: AppSettings` |
 | `GET /api/chats/<id>/settings` | — | `data.settings: ChatSettings` |
 | `PATCH /api/chats/<id>/settings` | partial settings | `data.settings: ChatSettings` |
+
+`POST /api/chat` keeps the required `chat_id`, `model_id`, and `prompt` fields
+and accepts optional `runtime_id`, `backend`, `profile_id`, `placement`, `load`,
+and `generation` overrides. Saved chat settings and the selected profile are
+resolved before loading; generation-only changes do not restart the server.
 
 All write routes use the same loopback Host and exact Origin checks as existing
 mutations. Source/profile/runtime removal deletes only the catalog/config

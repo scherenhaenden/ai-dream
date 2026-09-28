@@ -75,7 +75,10 @@ class LlamaCppBackend:
     candidates = ("llama-server", "server")
 
     def __init__(self, executable: str | None = None, timeout: float = 180.0,
-                 startup_timeout: float = 60.0, port: int | None = None):
+                 startup_timeout: float = 60.0, port: int | None = None, *,
+                 runtime_id: str | None = None, name: str | None = None):
+        self.runtime_id = runtime_id
+        self.name = name or type(self).name
         self.executable = executable or next((shutil.which(n) for n in self.candidates if shutil.which(n)), None)
         self.timeout = timeout
         self.startup_timeout = startup_timeout
@@ -439,7 +442,8 @@ class LlamaCppBackend:
         opts = {} if options is None else options
         if not isinstance(opts, Mapping):
             raise ValueError("generation options must be a mapping")
-        unknown = set(opts) - {"temperature", "max_tokens", "system_prompt", "stop", "images"}
+        unknown = set(opts) - {"temperature", "max_tokens", "system_prompt", "stop", "images",
+                               "top_p", "top_k", "min_p", "repeat_penalty", "seed"}
         if unknown:
             raise ValueError(f"Unsupported generation option(s): {', '.join(sorted(unknown))}")
         if not self.capabilities().chat_completions:
@@ -473,6 +477,19 @@ class LlamaCppBackend:
         payload = {"messages": payload_messages, "temperature": temperature, "stream": True}
         if "max_tokens" in opts:
             payload["max_tokens"] = _positive_int(opts["max_tokens"], "max_tokens")
+        for key in ("top_p", "min_p", "repeat_penalty"):
+            if key in opts:
+                value = opts[key]
+                if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+                    raise ValueError(f"{key} must be a non-negative number")
+                payload[key] = value
+        if "top_k" in opts:
+            payload["top_k"] = _positive_int(opts["top_k"], "top_k")
+        if "seed" in opts:
+            seed = opts["seed"]
+            if isinstance(seed, bool) or not isinstance(seed, int):
+                raise ValueError("seed must be an integer")
+            payload["seed"] = seed
         if "stop" in opts:
             stop = opts["stop"]
             if isinstance(stop, str):
