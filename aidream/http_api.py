@@ -235,7 +235,17 @@ class ReadOnlyAPI:
                           if item.get("model_id") == model_id]
         model_profile = profile or (model_profiles[0] if model_profiles and settings.get("default_profile_behavior") == "model" else None)
         chat_runtime = (chat_settings or {}).get("runtime", {})
-        chat_layer = {**chat_runtime, "generation": (chat_settings or {}).get("generation", {})}
+        chat_generation = dict((chat_settings or {}).get("generation", {}))
+        legacy_placement = chat_generation.pop("placement", {})
+        if legacy_placement:
+            chat_runtime = {**chat_runtime, "placement": {
+                **chat_runtime.get("placement", {}), **legacy_placement}}
+        if chat_generation.get("reasoning") is False:
+            chat_generation.pop("reasoning")
+        for key in tuple(chat_generation):
+            if chat_generation[key] is None:
+                chat_generation.pop(key)
+        chat_layer = {**chat_runtime, "generation": chat_generation}
         return resolve_effective_settings(
             {**defaults, "generation": {}}, model_profile, chat_layer, request_settings)
 
@@ -453,7 +463,8 @@ class ReadOnlyAPI:
                     raise
                 self._active_backend = backend
                 self._active_binding = binding
-            generation = effective.get("generation", {})
+            generation = {key: value for key, value in effective.get("generation", {}).items()
+                          if value is not None}
             allowed_generation = {key: generation[key] for key in
                                   ("temperature", "max_tokens", "system_prompt", "stop_strings", "top_p", "top_k", "min_p", "repeat_penalty", "seed", "structured_output")
                                   if key in generation}
