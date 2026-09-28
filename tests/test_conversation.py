@@ -109,6 +109,7 @@ class ChatStoreTests(unittest.TestCase):
         self.assertEqual(settings["runtime"], {"placement": {}, "load": {}})
         self.assertEqual(settings["generation"]["temperature"], 0.7)
         self.assertIsNone(settings["preset_id"])
+        self.assertIsNone(settings["profile_id"])
 
     def test_session_settings_partial_nested_update_round_trip(self):
         session = self.store.create()
@@ -128,6 +129,50 @@ class ChatStoreTests(unittest.TestCase):
         loaded = self.store.load(session["id"])
         self.assertEqual(loaded["settings"], updated)
 
+    def test_runtime_load_contract_options_and_profile_id_round_trip(self):
+        session = self.store.create()
+        settings = self.store.update_session_settings(session["id"], {
+            "profile_id": "b" * 32,
+            "runtime": {"load": {
+                "threads_batch": 16, "continuous_batching": True, "numa": "distribute",
+                "kv_cache_type_k": "q8_0", "kv_cache_type_v": "q4_0",
+                "keep_model_in_memory": True,
+            }},
+        })
+        self.assertEqual(settings["profile_id"], "b" * 32)
+        self.assertEqual(settings["runtime"]["load"]["threads_batch"], 16)
+        self.assertTrue(settings["runtime"]["load"]["continuous_batching"])
+        self.assertEqual(settings["runtime"]["load"]["numa"], "distribute")
+        self.assertEqual(settings["runtime"]["load"]["kv_cache_type_v"], "q4_0")
+        self.assertTrue(self.store.get_session_settings(session["id"])["runtime"]["load"]["keep_model_in_memory"])
+
+    def test_legacy_generation_runtime_values_migrate_to_runtime_load(self):
+        session = self.store.create()
+        path = Path(self.temp.name) / f"{session['id']}.json"
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["settings"] = {
+            "generation": {"temperature": 0.3, "context_size": 8192, "threads": 6, "batch_size": 512},
+            "runtime": {"load": {"threads": 8}},
+        }
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        settings = self.store.get_session_settings(session["id"])
+        self.assertEqual(settings["runtime"]["load"], {"threads": 8, "context_size": 8192, "batch_size": 512})
+        self.assertNotIn("context_size", settings["generation"])
+        self.assertNotIn("threads", settings["generation"])
+        self.assertNotIn("batch_size", settings["generation"])
+
+    def test_newly_written_generation_runtime_values_are_normalized_to_load(self):
+        session = self.store.create()
+        settings = self.store.update_session_settings(session["id"], {
+            "generation": {"context_size": 4096, "threads": 4, "batch_size": 128},
+        })
+        self.assertEqual(settings["runtime"]["load"], {"context_size": 4096, "threads": 4, "batch_size": 128})
+        self.assertNotIn("context_size", settings["generation"])
+        self.assertNotIn("threads", settings["generation"])
+        self.assertNotIn("batch_size", settings["generation"])
+        persisted = self.store.load(session["id"])["settings"]
+        self.assertEqual(persisted, settings)
+
     def test_replace_session_settings_can_clear_prior_placement_and_load_options(self):
         session = self.store.create()
         self.store.update_session_settings(session["id"], {
@@ -145,10 +190,14 @@ class ChatStoreTests(unittest.TestCase):
         invalid_updates = [
             {"unexpected": True}, {"backend_name": "x\x00y"},
             {"runtime": {"load": {"context_size": True}}},
+            {"runtime": {"load": {"threads_batch": 0}}},
+            {"runtime": {"load": {"numa": "\x00bad"}}},
+            {"runtime": {"load": {"mlock": True}}},
             {"runtime": {"placement": {"gpu_layers": 2049}}},
             {"generation": {"temperature": float("nan")}},
             {"generation": {"stop_strings": [""]}},
             {"preset_id": "not-an-id"},
+            {"profile_id": "not-an-id"},
         ]
         for invalid in invalid_updates:
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):

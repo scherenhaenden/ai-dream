@@ -57,6 +57,8 @@ class RuntimeCapabilities(TypedDict, total=False):
     unified_kv_cache: bool
     offload_kv_cache: bool
     mmap: bool
+    mmap_disable: bool
+    mmap_disable: bool
     keep_model_in_memory: bool
     fit: bool
     reasoning: bool
@@ -93,7 +95,6 @@ class RuntimeLoadOptions(TypedDict, total=False):
     threads_batch: int
     continuous_batching: bool
     numa: str
-    mlock: bool
     kv_cache_type_k: str
     kv_cache_type_v: str
     flash_attention: bool
@@ -139,6 +140,22 @@ class ChatSettings(TypedDict, total=False):
     generation: GenerationOptions
     preset_id: str | None
     profile_id: str | None
+
+
+class RuntimeDefaults(TypedDict, total=False):
+    runtime_id: str | None
+    backend_name: str | None
+    placement: RuntimePlacement
+    load: RuntimeLoadOptions
+
+
+class AppSettings(TypedDict, total=False):
+    runtime_defaults: RuntimeDefaults
+    managed_models_dir: str
+    config_dir: str
+    data_dir: str
+    default_profile_behavior: str
+    keep_last_model_loaded: bool
 
 
 class RuntimeLoadRequest(TypedDict, total=False):
