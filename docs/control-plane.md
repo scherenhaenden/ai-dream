@@ -36,8 +36,8 @@ future selector; `backend` continues to select a compatible backend name.
 | `POST /api/model-profiles` | profile without timestamps | `data.profile` |
 | `PATCH /api/model-profiles/<id>` | partial profile fields | `data.profile` |
 | `DELETE /api/model-profiles/<id>` | — | `data.removed: true` |
-| `GET /api/settings` | — | global defaults and managed paths |
-| `PATCH /api/settings` | partial global defaults | updated settings |
+| `GET /api/settings` | — | `data.settings: AppSettings` |
+| `PATCH /api/settings` | `runtime_defaults`, `default_profile_behavior`, `keep_last_model_loaded` | `data.settings: AppSettings` |
 | `GET /api/chats/<id>/settings` | — | `data.settings: ChatSettings` |
 | `PATCH /api/chats/<id>/settings` | partial settings | `data.settings: ChatSettings` |
 
@@ -48,12 +48,18 @@ creation accepts one explicit existing directory; there is no filesystem
 browsing endpoint. Runtime executables are validated as llama.cpp server
 installations before their advertised help/capabilities are trusted.
 
+`AppSettings` contains `runtime_defaults: {runtime_id?, backend_name?,
+placement, load}`, read-only `managed_models_dir`, `config_dir`, `data_dir`,
+`default_profile_behavior` (`model` or `global`), and
+`keep_last_model_loaded`. Directory values are informational and cannot be
+patched by the browser.
+
 ## Configuration shapes and precedence
 
 `RuntimePlacement` is `{gpu_layers?, device?, tensor_split?, split_mode?,
 main_gpu?}`. `RuntimeLoadOptions` is `{context_size?, threads?, batch_size?,
 physical_batch_size?, max_concurrent?, threads_batch?, continuous_batching?,
-numa?, mlock?, kv_cache_type_k?, kv_cache_type_v?, flash_attention?,
+numa?, kv_cache_type_k?, kv_cache_type_v?, flash_attention?,
 unified_kv_cache?, offload_kv_cache?, mmap?, keep_model_in_memory?, fit?`.
 Only options advertised
 by the selected installation are actionable; unsupported supplied values are
