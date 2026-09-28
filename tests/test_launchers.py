@@ -42,6 +42,8 @@ class LauncherTests(unittest.TestCase):
         self.assertIn('python3 -m aidream web "$@"', web)
         self.assertIn("startup failed", standalone)
         self.assertIn("startup failed", web)
+        self.assertNotIn("read -r", standalone)
+        self.assertNotIn("read -r", web)
         self.assertIn('readlink -f -- "$0"', standalone)
         self.assertIn('readlink -f -- "$0"', web)
 

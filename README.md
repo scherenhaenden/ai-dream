@@ -16,7 +16,7 @@ The root `AI Dream.desktop` launcher starts this Tk application. To open the Ang
 ./open-ai-dream-web
 ```
 
-The root `AI Dream Web.desktop` launcher starts the browser app. Both launchers keep a terminal open with startup errors visible.
+The root `AI Dream Web.desktop` launcher starts the browser app. Startup errors are printed in the terminal without blocking it; close the terminal to exit. Stop or restart a managed web server with `python3 -m aidream web --stop` or `python3 -m aidream web --restart`.
 
 Or use the CLI:
 

@@ -9,6 +9,5 @@ python3 -m aidream.ui
 status=$?
 if (( status != 0 )); then
   echo "AI Dream desktop startup failed (exit $status). Check the Python/Tk installation and the error above." >&2
-  if [[ -t 0 ]]; then read -r -p "Press Enter to close this window... " _; fi
 fi
 exit "$status"

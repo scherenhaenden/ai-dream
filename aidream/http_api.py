@@ -8,11 +8,13 @@ from __future__ import annotations
 from dataclasses import asdict, is_dataclass
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import errno
 import json
 import os
 import re
 import shlex
 import select
+import signal
 from pathlib import Path
 import mimetypes
 import socket
@@ -74,7 +76,13 @@ class _BoundedHTTPServer(ThreadingHTTPServer):
         self._slots = threading.BoundedSemaphore(MAX_CONCURRENT_REQUESTS)
         self._service_slots = threading.BoundedSemaphore(MAX_SERVICE_WORKERS)
         self._service_pool = ThreadPoolExecutor(max_workers=MAX_SERVICE_WORKERS, thread_name_prefix="ai-dream-api")
-        super().__init__(address, handler)
+        try:
+            super().__init__(address, handler)
+        except OSError as exc:
+            self._service_pool.shutdown(wait=False, cancel_futures=True)
+            if exc.errno == errno.EADDRINUSE:
+                raise OSError(exc.errno, f"{exc.strerror}; port {address[1]} is already in use. Run 'python3 -m aidream web --stop' for a managed AI Dream server, or choose another port with --port.", address) from exc
+            raise
         self.timeout = SOCKET_TIMEOUT_SECONDS
         self.request_queue_size = MAX_CONCURRENT_REQUESTS
 
@@ -1430,6 +1438,8 @@ def serve_web(port: int = DEFAULT_PORT) -> None:
         raise RuntimeError(f"Angular production build is missing: {web_root / 'index.html'}; run the web build first")
     server = create_server(port, static_root=web_root)
     url = f"http://{LOOPBACK_HOST}:{server.server_address[1]}"
+    pid_path = _web_pid_path(port)
+    _write_web_pid(pid_path)
     print(f"AI Dream Web listening at {url}")
     try:
         import webbrowser
@@ -1438,19 +1448,162 @@ def serve_web(port: int = DEFAULT_PORT) -> None:
     except (OSError, RuntimeError):
         print(f"Open this address in your browser: {url}")
     try:
-        server.serve_forever(poll_interval=0.25)
-    except KeyboardInterrupt:
-        pass
+        _serve_until_stopped(server)
     finally:
         server.server_close()
+        _remove_web_pid(pid_path)
 
 
 def serve(port: int = DEFAULT_PORT) -> None:
     server = create_server(port)
     try:
         print(f"AI Dream local API listening at http://{LOOPBACK_HOST}:{server.server_address[1]}")
-        server.serve_forever(poll_interval=0.25)
-    except KeyboardInterrupt:
-        pass
+        _serve_until_stopped(server)
     finally:
         server.server_close()
+
+
+def _web_pid_path(port: int) -> Path:
+    """Return a per-user runtime marker for servers started by this version."""
+    from aidream.conversation import default_chat_dir
+    return default_chat_dir().parent / f"web-{port}.pid"
+
+
+def _write_web_pid(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(f".{os.getpid()}.tmp")
+    temporary.write_text(f"{os.getpid()}\n", encoding="ascii")
+    os.chmod(temporary, 0o600)
+    os.replace(temporary, path)
+
+
+def _remove_web_pid(path: Path) -> None:
+    try:
+        if path.read_text(encoding="ascii").strip() == str(os.getpid()):
+            path.unlink()
+    except (OSError, UnicodeError):
+        pass
+
+
+def stop_web_server(port: int = DEFAULT_PORT, *, missing_ok: bool = False) -> None:
+    """Stop only a server whose private PID marker and command line agree."""
+    pid_path = _web_pid_path(port)
+    try:
+        raw_pid = pid_path.read_text(encoding="ascii").strip()
+        pid = int(raw_pid)
+    except FileNotFoundError:
+        legacy_pids = _legacy_ai_dream_web_pids(port)
+        if legacy_pids:
+            for legacy_pid in legacy_pids:
+                try:
+                    _signal_and_wait(legacy_pid, port)
+                except ProcessLookupError:
+                    continue
+            return
+        if not missing_ok:
+            raise RuntimeError(f"No managed AI Dream server is recorded on port {port}; if another app owns it, use --port.")
+        return
+    except (OSError, ValueError, UnicodeError) as exc:
+        raise RuntimeError(f"Cannot read the AI Dream server marker for port {port}: {exc}") from exc
+    try:
+        command = Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8", "replace")
+    except OSError:
+        _remove_stale_web_pid(pid_path, raw_pid)
+        if not missing_ok:
+            raise RuntimeError(f"The recorded AI Dream server on port {port} is no longer running.")
+        return
+    if not _is_ai_dream_web_command(command):
+        raise RuntimeError(f"Port {port} marker does not identify an AI Dream web process; refusing to stop it.")
+    try:
+        _signal_and_wait(pid, port)
+    except ProcessLookupError:
+        _remove_stale_web_pid(pid_path, raw_pid)
+        return
+    _remove_stale_web_pid(pid_path, raw_pid)
+
+
+def _signal_and_wait(pid: int, port: int) -> None:
+    os.kill(pid, signal.SIGTERM)
+    deadline = time.monotonic() + 8
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            print(f"Stopped AI Dream Web on port {port}.")
+            return
+        try:
+            if not Path(f"/proc/{pid}/cmdline").read_bytes().strip(b"\0"):
+                print(f"Stopped AI Dream Web on port {port}.")
+                return
+        except OSError:
+            print(f"Stopped AI Dream Web on port {port}.")
+            return
+        time.sleep(0.1)
+    raise RuntimeError(f"AI Dream Web on port {port} did not stop within 8 seconds.")
+
+
+def _legacy_ai_dream_web_pids(port: int) -> list[int]:
+    """Find pre-marker AI Dream web listeners without touching other processes."""
+    try:
+        lines = Path("/proc/net/tcp").read_text(encoding="ascii").splitlines()[1:]
+    except OSError:
+        return []
+    inodes = set()
+    for line in lines:
+        fields = line.split()
+        if len(fields) > 9 and fields[3] == "0A":
+            address, port_hex = fields[1].split(":")
+            if address == "0100007F" and int(port_hex, 16) == port:
+                inodes.add(fields[9])
+    if not inodes:
+        return []
+    found = []
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            if int(entry.joinpath("status").read_text().split("Uid:", 1)[1].split()[0]) != os.getuid():
+                continue
+            command = entry.joinpath("cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8", "replace")
+            if not _is_ai_dream_web_command(command):
+                continue
+            if any(link.is_symlink() and link.readlink().name[8:-1] in inodes
+                   for link in entry.joinpath("fd").iterdir()):
+                found.append(int(entry.name))
+        except (OSError, IndexError, ValueError):
+            continue
+    return found
+
+
+def _is_ai_dream_web_command(command: str) -> bool:
+    parts = command.split()
+    return ("-m aidream web" in command or
+            any(part.endswith("/aidream") or part == "aidream" for part in parts[:-1]) and
+            "web" in parts)
+
+
+def _remove_stale_web_pid(path: Path, raw_pid: str) -> None:
+    try:
+        if path.read_text(encoding="ascii").strip() == raw_pid:
+            path.unlink()
+    except (OSError, UnicodeError):
+        pass
+
+
+def _serve_until_stopped(server: ThreadingHTTPServer) -> None:
+    """Make SIGTERM (for desktop close/stop) shut down through normal cleanup."""
+    previous = {}
+
+    def request_shutdown(_signum, _frame):
+        threading.Thread(target=server.shutdown, name="ai-dream-shutdown", daemon=True).start()
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            previous[sig] = signal.signal(sig, request_shutdown)
+        except ValueError:
+            pass  # Embedded/threaded callers cannot install process handlers.
+    try:
+        server.serve_forever(poll_interval=0.25)
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)

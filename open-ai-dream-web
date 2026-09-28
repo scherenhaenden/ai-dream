@@ -9,6 +9,5 @@ python3 -m aidream web "$@"
 status=$?
 if (( status != 0 )); then
   echo "AI Dream Web startup failed (exit $status). Check that web/dist exists and review the error above." >&2
-  if [[ -t 0 ]]; then read -r -p "Press Enter to close this window... " _; fi
 fi
 exit "$status"
