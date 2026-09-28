@@ -37,6 +37,12 @@ export interface RuntimeCapabilities {
   batch_size: boolean;
   physical_batch_size: boolean;
   max_concurrent: boolean;
+  threads_batch: boolean;
+  continuous_batching: boolean;
+  numa: boolean;
+  mlock: boolean;
+  kv_cache_type_k: boolean;
+  kv_cache_type_v: boolean;
   flash_attention: boolean;
   unified_kv_cache: boolean;
   offload_kv_cache: boolean;
@@ -83,6 +89,12 @@ export interface RuntimeLoadOptions {
   batch_size?: number;
   physical_batch_size?: number;
   max_concurrent?: number;
+  threads_batch?: number;
+  continuous_batching?: boolean;
+  numa?: string;
+  mlock?: boolean;
+  kv_cache_type_k?: string;
+  kv_cache_type_v?: string;
   flash_attention?: boolean;
   unified_kv_cache?: boolean;
   offload_kv_cache?: boolean;
