@@ -100,6 +100,30 @@ else:
             self.assertEqual([call[0][1] for call in calls], ["--help", "--version"])
             self.assertTrue(all(call[1]["shell"] is False for call in calls))
 
+    def test_new_runtime_controls_are_detected_only_when_advertised(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            help_text = """usage: llama-server
+  -tb, --threads-batch N
+  --cont-batching
+  --numa TYPE
+  -ctk, --cache-type-k TYPE
+  -ctv, --cache-type-v TYPE
+  --mlock
+"""
+            binary = self.make_server(root, help_text=help_text)
+            registry = RuntimeInstallationRegistry(root / "registry.json")
+
+            item = registry.register(binary)
+
+            for capability in ("threads_batch", "continuous_batching", "numa",
+                               "kv_cache_type_k", "kv_cache_type_v", "mlock"):
+                with self.subTest(capability=capability):
+                    self.assertTrue(item["capabilities"][capability])
+            for capability in ("fit", "threads", "flash_attention", "device_listing"):
+                with self.subTest(capability=capability):
+                    self.assertFalse(item["capabilities"][capability])
+
     def test_device_probe_passes_executable_and_arguments_without_shell(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
