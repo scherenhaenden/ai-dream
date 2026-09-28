@@ -18,6 +18,7 @@ class AIDreamWindow:
         from aidream.runtime import RuntimeRegistry
 
         from aidream.conversation import ChatStore
+        from aidream.model_profiles import ModelProfileStore
         from aidream.voice import LocalVoice
 
         self.root = root
@@ -44,6 +45,8 @@ class AIDreamWindow:
         self.root.minsize(1080, 700)
         self.catalog = ModelCatalog()
         self.hardware = HardwareService()
+        self.profile_store = ModelProfileStore()
+        self._active_model_profile = None
         self.registry = RuntimeRegistry()
         self.models = []
         self._all_models = []
@@ -206,6 +209,9 @@ class AIDreamWindow:
         self._settings_widgets["main_gpu"] = self.main_gpu_entry
         ttk.Label(load_settings, text="These options belong to the selected model and apply on load/reload.",
                   foreground="#a7b1c2").grid(row=4, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        self.model_profile_status = ttk.Label(load_settings, text="Select a model to load its saved profile.",
+                                              foreground="#a7b1c2")
+        self.model_profile_status.grid(row=5, column=0, columnspan=3, sticky="w", pady=(3, 0))
 
         runtime_actions = ttk.Frame(right)
         runtime_actions.pack(fill=tk.X, pady=(6, 8))
@@ -214,6 +220,7 @@ class AIDreamWindow:
         ttk.Button(runtime_actions, text="Reload", command=self.reload_model).pack(side=tk.LEFT)
         ttk.Button(runtime_actions, text="Runtime status", command=self.show_runtime_status).pack(side=tk.LEFT, padx=4)
         ttk.Button(runtime_actions, text="Effective command", command=self.show_effective_command).pack(side=tk.LEFT)
+        ttk.Button(runtime_actions, text="Save model profile", command=self._save_selected_model_profile).pack(side=tk.RIGHT)
 
         generation_box = ttk.LabelFrame(generation, text="Conversation generation defaults", padding=10)
         generation_box.pack(fill=tk.X)
@@ -597,10 +604,158 @@ class AIDreamWindow:
             "preset_id": None,
         }
 
-    def _save_current_chat_settings(self):
+    def _selected_model(self):
+        selected = self.model_list.curselection()
+        return self.models[selected[0]] if selected and selected[0] < len(self.models) else None
+
+    @staticmethod
+    def _profile_model_id(model):
+        identity = getattr(model, "id", None)
+        if identity:
+            return str(identity)
+        # Legacy or test catalog records may not have an ID. A path-derived ID
+        # keeps their settings attached to the same file without storing a path
+        # as an identity or exposing it in profile indexes.
+        import hashlib
+        path = str(Path(model.path).expanduser().resolve())
+        return "path-" + hashlib.sha256(path.encode("utf-8")).hexdigest()[:48]
+
+    def _persist_model_profile(self, settings):
+        model = self._selected_model()
+        if model is None:
+            return None
+        backend = self.backend_by_name.get(self.backend_var.get())
+        model_id = self._profile_model_id(model)
+        runtime = settings.get("runtime", {})
+        generation_values = settings.get("generation", {})
+        generation_keys = {"system_prompt", "reasoning", "temperature", "max_tokens", "stop_strings",
+                           "top_p", "top_k", "min_p", "repeat_penalty", "seed", "structured_output"}
+        profile_data = {
+            "name": model.display_info().get("name", Path(model.path).name),
+            "model_id": model_id,
+            "backend_name": getattr(backend, "name", settings.get("backend_name")) if backend else settings.get("backend_name"),
+            "runtime_id": getattr(backend, "runtime_id", None) if backend else None,
+            "placement": dict(runtime.get("placement", {})),
+            "load": dict(runtime.get("load", {})),
+            "generation": {key: value for key, value in generation_values.items() if key in generation_keys},
+        }
+        exact_profiles = [item for item in self.profile_store.list_profiles(model_id)
+                          if item.get("model_id") == model_id]
+        if exact_profiles:
+            saved = self.profile_store.update(exact_profiles[0]["id"], profile_data)
+        else:
+            saved = self.profile_store.create(profile_data)
+        self._active_model_profile = saved
+        status = f"Saved load profile for {profile_data['name']}"
+        if hasattr(self, "model_profile_status"):
+            self.model_profile_status.configure(text=status)
+        return saved
+
+    def _save_selected_model_profile(self):
+        try:
+            model = self._selected_model()
+            if model is None:
+                # Keep the old per-conversation fallback when there is no
+                # selected catalog model to own a reusable profile.
+                self._save_current_chat_settings(save_profile=False)
+                self.model_profile_status.configure(text="No model selected; saved settings with this conversation.")
+                return None
+            return self._persist_model_profile(self._capture_chat_settings())
+        except (AttributeError, KeyError, OSError, ValueError, TypeError) as exc:
+            messagebox.showerror("Model profile could not be saved", str(exc), parent=self.root)
+            return None
+
+    def _apply_model_profile(self, model):
+        """Restore the persistent model profile, falling back to legacy chat data."""
+        model_id = self._profile_model_id(model)
+        try:
+            profiles = [item for item in self.profile_store.list_profiles(model_id)
+                        if item.get("model_id") == model_id]
+        except (AttributeError, OSError, ValueError):
+            profiles = []
+        if profiles:
+            profile = profiles[0]
+            self._active_model_profile = profile
+            runtime_id = profile.get("runtime_id")
+            backend_name = profile.get("backend_name")
+            backend = next((item for item in self.backends
+                            if (runtime_id and getattr(item, "runtime_id", None) == runtime_id)
+                            or (not runtime_id and item.name == backend_name)), None)
+            if backend is not None:
+                self.backend_var.set(backend.name)
+                self._update_capabilities()
+            placement = profile.get("placement", {})
+            self.gpu_layers_var.set(str(placement.get("gpu_layers", "")))
+            self.device_var.set(str(placement.get("device", "")))
+            self.tensor_split_var.set(str(placement.get("tensor_split", "")))
+            self.split_mode_var.set(str(placement.get("split_mode", "")))
+            self.main_gpu_var.set(str(placement.get("main_gpu", "")))
+            load = profile.get("load", {})
+            for key, variable in (("context_size", self.context_var), ("threads", self.threads_var),
+                                  ("batch_size", self.batch_var), ("physical_batch_size", self.physical_batch_var),
+                                  ("max_concurrent", self.max_concurrent_var)):
+                variable.set(str(load[key]) if key in load else "")
+            for key, variable in self._advanced_load_vars.items():
+                variable.set(bool(load.get(key, False)))
+            self._apply_generation_profile(profile.get("generation", {}))
+            self.model_profile_status.configure(text=f"Loaded saved profile: {profile.get('name', model.path)}")
+            return
+
+        self._active_model_profile = None
+        legacy = {}
+        try:
+            legacy = self.chat_store.get_session_settings(self.chat_session["id"])
+        except (AttributeError, KeyError, OSError, ValueError, TypeError):
+            pass
+        if legacy.get("model_path") == model.path:
+            runtime = legacy.get("runtime", {})
+            placement = runtime.get("placement", {})
+            load = runtime.get("load", {})
+            self.gpu_layers_var.set(str(placement.get("gpu_layers", "")))
+            self.device_var.set(str(placement.get("device", "")))
+            self.tensor_split_var.set(str(placement.get("tensor_split", "")))
+            self.split_mode_var.set(str(placement.get("split_mode", "")))
+            self.main_gpu_var.set(str(placement.get("main_gpu", "")))
+            for key, variable in (("context_size", self.context_var), ("threads", self.threads_var),
+                                  ("batch_size", self.batch_var), ("physical_batch_size", self.physical_batch_var),
+                                  ("max_concurrent", self.max_concurrent_var)):
+                variable.set(str(load[key]) if key in load else "")
+            for key, variable in self._advanced_load_vars.items():
+                variable.set(bool(load.get(key, False)))
+            self.model_profile_status.configure(text="Using this conversation's legacy model settings; save to create a model profile.")
+        else:
+            self._clear_model_load_settings()
+            self.model_profile_status.configure(text="No saved profile for this model yet.")
+
+    def _clear_model_load_settings(self):
+        for variable in (self.gpu_layers_var, self.device_var, self.tensor_split_var,
+                         self.split_mode_var, self.main_gpu_var, self.threads_var, self.batch_var,
+                         self.physical_batch_var, self.max_concurrent_var):
+            variable.set("")
+        self.context_var.set("4096")
+        for variable in self._advanced_load_vars.values():
+            variable.set(False)
+
+    def _apply_generation_profile(self, settings):
+        for variable_name, key in (("system_prompt_var", "system_prompt"), ("temperature_var", "temperature"),
+                                   ("max_tokens_var", "max_tokens")):
+            if key in settings:
+                getattr(self, variable_name).set("" if settings[key] is None else str(settings[key]))
+        if "reasoning" in settings:
+            self.reasoning_var.set(bool(settings["reasoning"]))
+        if "stop_strings" in settings:
+            state = self.stop_strings.cget("state")
+            self.stop_strings.configure(state=tk.NORMAL)
+            self.stop_strings.delete("1.0", tk.END)
+            self.stop_strings.insert("1.0", "\n".join(settings["stop_strings"]))
+            self.stop_strings.configure(state=state)
+
+    def _save_current_chat_settings(self, *, save_profile=True):
         try:
             settings = self._capture_chat_settings()
             self.chat_store.replace_session_settings(self.chat_session["id"], settings)
+            if save_profile and self._selected_model() is not None:
+                self._persist_model_profile(settings)
             return settings
         except (AttributeError, OSError, ValueError, TypeError) as exc:
             self.voice_status.configure(text=f"Chat settings were not saved: {exc}")
@@ -645,6 +800,9 @@ class AIDreamWindow:
         generation["threads"] = load.get("threads", generation.get("threads"))
         generation["batch_size"] = load.get("batch_size", generation.get("batch_size"))
         self._apply_preset_settings(generation)
+        model = self._selected_model()
+        if model is not None:
+            self._apply_model_profile(model)
 
     def open_preset_manager(self):
         from aidream.preset_ui import PresetManagerDialog
@@ -718,6 +876,26 @@ class AIDreamWindow:
                 f"Architecture: {info['architecture']} · Context: {context}\n"
                 f"License: {info['license']}\nSource: {info['source']}\n{info['path']}")
         self.model_details.configure(text=text)
+        self._apply_model_profile(self.models[selection[0]])
+
+    @staticmethod
+    def _runtime_native_device_ids(backend):
+        """Return only exact device IDs reported by this llama.cpp runtime."""
+        list_devices = getattr(backend, "list_devices", None)
+        if not callable(list_devices):
+            return []
+        try:
+            devices = list_devices()
+        except (OSError, RuntimeError, ValueError):
+            return []
+        native_ids = []
+        for device in devices or []:
+            if not isinstance(device, dict):
+                continue
+            identifier = device.get("runtime_id") or device.get("id")
+            if isinstance(identifier, str) and identifier and identifier not in native_ids:
+                native_ids.append(identifier)
+        return native_ids
 
     def _update_capabilities(self):
         backend = self.backend_by_name.get(self.backend_var.get())
@@ -754,16 +932,7 @@ class AIDreamWindow:
         if caps.reasoning:
             controls.append("reasoning")
         status = f"Executable: {caps.executable or 'not found'}; controls: {', '.join(controls) or 'CPU/default only'}"
-        native_devices = []
-        if caps.device_selection:
-            for gpu in getattr(self.hardware.detect(), "gpus", []):
-                for backend_name in (gpu.backends or []):
-                    normalized = str(backend_name).lower().replace("-", "")
-                    prefix = {"rocm": "ROCm", "vulkan": "Vulkan", "cuda": "CUDA"}.get(normalized)
-                    if prefix:
-                        native = f"{prefix}{gpu.index}"
-                        if native not in native_devices:
-                            native_devices.append(native)
+        native_devices = self._runtime_native_device_ids(backend) if caps.device_selection else []
         self.device_box.configure(values=("", *native_devices),
                                   state=(tk.NORMAL if caps.device_selection and self.manual_device_var.get() else
                                          "readonly" if caps.device_selection else tk.DISABLED))

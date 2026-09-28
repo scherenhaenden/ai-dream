@@ -38,6 +38,42 @@ class FakeModel:
     path = "/models/example.gguf"
     id = "example-model"
 
+    def display_info(self):
+        return {"name": "Example model"}
+
+
+class FakeVariable:
+    def __init__(self, value=""):
+        self.value = value
+
+    def get(self):
+        return self.value
+
+    def set(self, value):
+        self.value = value
+
+
+class FakeProfileStore:
+    def __init__(self, profiles=None):
+        self.profiles = profiles or []
+        self.created = []
+        self.updated = []
+
+    def list_profiles(self, model_id=None):
+        return [item for item in self.profiles if item.get("model_id") in (None, model_id)]
+
+    def create(self, profile):
+        item = {**profile, "id": "a" * 32}
+        self.created.append(item)
+        self.profiles.append(item)
+        return item
+
+    def update(self, profile_id, changes):
+        item = next(item for item in self.profiles if item["id"] == profile_id)
+        item.update(changes)
+        self.updated.append((profile_id, changes))
+        return item
+
 
 class FakeBackend:
     name = "fake llama.cpp"
@@ -134,6 +170,71 @@ class DesktopModelLoadingTests(unittest.TestCase):
 
         self.assertEqual(registered, ["/models"])
         self.assertEqual(refreshed, [True])
+
+    def test_model_runtime_settings_are_saved_to_model_profile_store(self):
+        window = self.make_window()
+        model = FakeModel()
+        window.model_list = type("Selection", (), {"curselection": lambda _self: (0,)})()
+        window.models = [model]
+        window.profile_store = FakeProfileStore()
+        window.backend_var = FakeVariable("llama.cpp")
+        window.backend_by_name = {"llama.cpp": type("Backend", (), {"name": "llama.cpp", "runtime_id": "runtime-1"})()}
+
+        saved = window._persist_model_profile({
+            "backend_name": "llama.cpp",
+            "runtime": {"placement": {"gpu_layers": 12}, "load": {"context_size": 8192}},
+            "generation": {"temperature": 0.2, "context_size": 1024},
+        })
+
+        self.assertEqual(saved["model_id"], "example-model")
+        self.assertEqual(saved["runtime_id"], "runtime-1")
+        self.assertEqual(saved["placement"], {"gpu_layers": 12})
+        self.assertEqual(saved["load"], {"context_size": 8192})
+        self.assertEqual(saved["generation"], {"temperature": 0.2})
+        self.assertEqual(len(window.profile_store.created), 1)
+
+    def test_selected_model_restores_its_saved_profile_and_runtime(self):
+        window = self.make_window()
+        model = FakeModel()
+        profile = {"id": "b" * 32, "model_id": model.id, "name": "Example profile",
+                   "runtime_id": "runtime-1", "backend_name": "Stale display name",
+                   "placement": {"gpu_layers": 20, "device": "ROCm0"},
+                   "load": {"context_size": 8192, "threads": 8, "flash_attention": True},
+                   "generation": {"temperature": 0.3}}
+        window.profile_store = FakeProfileStore([profile])
+        window.chat_store = type("ChatStore", (), {"get_session_settings": lambda _self, _id: {}})()
+        window.chat_session = {"id": "chat-id"}
+        window.backends = [type("Backend", (), {"name": "Runtime A", "runtime_id": "runtime-1"})(),
+                           type("Backend", (), {"name": "Runtime B", "runtime_id": "runtime-2"})()]
+        window.backend_by_name = {backend.name: backend for backend in window.backends}
+        window.backend_var = FakeVariable()
+        window._update_capabilities = lambda: None
+        window.model_profile_status = FakeStatus()
+        for name in ("gpu_layers_var", "device_var", "tensor_split_var", "split_mode_var", "main_gpu_var",
+                     "context_var", "threads_var", "batch_var", "physical_batch_var", "max_concurrent_var",
+                     "system_prompt_var", "temperature_var", "max_tokens_var"):
+            setattr(window, name, FakeVariable())
+        window._advanced_load_vars = {"flash_attention": FakeVariable(False), "fit": FakeVariable(False)}
+        window.reasoning_var = FakeVariable(False)
+
+        window._apply_model_profile(model)
+
+        self.assertEqual(window.backend_var.get(), "Runtime A")
+        self.assertEqual(window.context_var.get(), "8192")
+        self.assertEqual(window.gpu_layers_var.get(), "20")
+        self.assertEqual(window.device_var.get(), "ROCm0")
+        self.assertTrue(window._advanced_load_vars["flash_attention"].get())
+        self.assertEqual(window.temperature_var.get(), "0.3")
+        self.assertEqual(window._active_model_profile["id"], profile["id"])
+
+    def test_desktop_device_choices_use_only_native_runtime_ids(self):
+        backend = type("Backend", (), {"list_devices": lambda _self: [
+            {"id": "ROCm0", "name": "GPU A"}, {"runtime_id": "Vulkan1", "name": "GPU B"},
+            {"name": "Missing ID"}, {"id": "ROCm0", "name": "Duplicate"},
+        ]})()
+
+        self.assertEqual(AIDreamWindow._runtime_native_device_ids(backend), ["ROCm0", "Vulkan1"])
+        self.assertEqual(AIDreamWindow._runtime_native_device_ids(object()), [])
 
 
 if __name__ == "__main__":
