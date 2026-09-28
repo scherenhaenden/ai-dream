@@ -31,7 +31,7 @@ def _print(value: Any) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="app", description="Local AI model manager")
+    parser = argparse.ArgumentParser(prog="aidream", description="Local AI model manager")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("hardware", help="detect CPU, memory, and available accelerators")
 
@@ -90,7 +90,7 @@ def main(argv: list[str] | None = None) -> int:
             return _run_chat(args)
         return 0
     except (OSError, ValueError, RuntimeError) as exc:
-        print(f"app: {exc}", file=sys.stderr)
+        print(f"aidream: {exc}", file=sys.stderr)
         return 2
 
 
@@ -105,7 +105,7 @@ def _run_chat(args: argparse.Namespace) -> int:
     if model is None:
         path = Path(args.model).expanduser()
         if path.suffix.lower() != ".gguf" or not path.is_file():
-            raise ValueError(f"Model '{args.model}' was not found; run 'app models scan' or pass an existing GGUF path")
+            raise ValueError(f"Model '{args.model}' was not found; run 'aidream models scan' or pass an existing GGUF path")
         model = path
     registry = RuntimeRegistry()
     backends = registry.list_backends()
@@ -114,7 +114,7 @@ def _run_chat(args: argparse.Namespace) -> int:
     else:
         backend = next((b for b in backends if getattr(b, "name", "") == args.backend), None)
     if backend is None:
-        raise RuntimeError(f"Backend '{args.backend}' is unavailable. See 'app backends'.")
+        raise RuntimeError(f"Backend '{args.backend}' is unavailable. See 'aidream backends'.")
     placement = {}
     if args.gpu_layers is not None:
         placement["gpu_layers"] = args.gpu_layers
