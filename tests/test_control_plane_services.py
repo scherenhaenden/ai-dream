@@ -89,6 +89,36 @@ class ControlPlaneServiceTests(unittest.TestCase):
         self.api.settings_store.patch({"keep_last_model_loaded": True})
         self.assertTrue(self.api.get("/api/settings")[1]["data"]["settings"]["keep_last_model_loaded"])
 
+    def test_settings_view_detects_default_backend_without_persisting_it(self):
+        backend = _Backend()
+        self.api.runtimes = SimpleNamespace(list_backends=lambda: [backend])
+        response = self.api.get("/api/settings")[1]["data"]["settings"]
+        self.assertEqual(response["runtime_defaults"]["backend_name"], "fixture")
+        self.assertNotIn("backend_name", self.settings.get()["runtime_defaults"])
+
+    def test_detected_runtime_default_preserves_explicit_runtime_preferences(self):
+        detected = _Backend()
+        detected.name = "detected"
+        explicit = _Backend()
+        explicit.name = "chosen"
+        explicit.runtime_id = "a" * 32
+        self.api.runtimes = SimpleNamespace(list_backends=lambda: [detected, explicit])
+        self.settings.patch({"runtime_defaults": {"backend_name": "chosen", "runtime_id": "a" * 32}})
+        settings = self.api.get("/api/settings")[1]["data"]["settings"]
+        self.assertEqual(settings["runtime_defaults"]["backend_name"], "chosen")
+        self.assertEqual(settings["runtime_defaults"]["runtime_id"], "a" * 32)
+        self.assertEqual(self.settings.get()["runtime_defaults"]["backend_name"], "chosen")
+
+    def test_runtime_devices_are_runtime_native_and_default_is_exposed(self):
+        backend = _Backend()
+        backend.list_devices = lambda: [{"id": "ROCm0", "backend": "ROCm", "name": "Runtime GPU"}]
+        self.api.runtimes = SimpleNamespace(list_backends=lambda: [backend])
+        self.api.hardware = SimpleNamespace(detect=lambda: {"gpus": [{"index": 9, "name": "Hardware-only", "backends": ["rocm"]}]})
+        data = self.api.get("/api/runtime")[1]["data"]
+        self.assertEqual(data["default_runtime"]["backend_name"], "fixture")
+        self.assertEqual([device["id"] for device in data["devices"]], ["ROCm0"])
+        self.assertTrue(data["backends"][0]["is_default"])
+
     def test_model_source_registration_returns_opaque_id_and_remove_keeps_directory(self):
         source = Path(self.temp.name) / "source"
         source.mkdir()

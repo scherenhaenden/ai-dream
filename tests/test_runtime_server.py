@@ -4,6 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 from aidream.runtime import GenerationCancelled, LlamaCppBackend
 
 FAKE_SERVER = r'''#!/usr/bin/env python3
@@ -40,6 +41,30 @@ http.server.HTTPServer(('127.0.0.1', port), Handler).serve_forever()
 '''
 
 class PersistentServerTest(unittest.TestCase):
+    def test_detected_devices_use_help_advertised_runtime_native_ids(self):
+        calls = []
+        def run(argv, **kwargs):
+            calls.append((argv, kwargs))
+            if argv[-1] == "--help":
+                return SimpleNamespace(returncode=0, stdout="--device LIST --list-devices", stderr="")
+            return SimpleNamespace(returncode=0, stdout="Available devices:\n ROCm0: Fake AMD\n Vulkan1: Fake Vulkan", stderr="")
+        with patch("aidream.runtime.subprocess.run", side_effect=run):
+            backend = LlamaCppBackend("/usr/bin/llama-server")
+            devices = backend.list_devices()
+        self.assertEqual([item["id"] for item in devices], ["ROCm0", "Vulkan1"])
+        self.assertEqual([item[0][-1] for item in calls], ["--help", "--list-devices"])
+        self.assertIs(calls[1][1]["shell"], False)
+
+    def test_detected_devices_do_not_run_unadvertised_listing_option(self):
+        calls = []
+        def run(argv, **kwargs):
+            calls.append(argv)
+            return SimpleNamespace(returncode=0, stdout="--device LIST", stderr="")
+        with patch("aidream.runtime.subprocess.run", side_effect=run):
+            backend = LlamaCppBackend("/usr/bin/llama-server")
+            self.assertEqual(backend.list_devices(), [])
+        self.assertEqual([item[-1] for item in calls], ["--help"])
+
     def test_all_advertised_load_settings_generate_exact_arguments(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

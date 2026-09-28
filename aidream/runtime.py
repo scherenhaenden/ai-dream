@@ -133,6 +133,24 @@ class LlamaCppBackend:
             has("--no-mmap"),
         )
 
+    def list_devices(self) -> list[dict[str, str]]:
+        """Return runtime-native devices, only when this build advertises listing.
+
+        This is a read-only metadata probe: it never starts a model server.
+        """
+        capabilities = self.capabilities()
+        if not capabilities.available or not capabilities.device_listing or not self.executable:
+            return []
+        try:
+            result = subprocess.run([self.executable, "--list-devices"], capture_output=True,
+                                    text=True, timeout=10, check=False, shell=False)
+        except (OSError, subprocess.SubprocessError, TimeoutError):
+            return []
+        if result.returncode != 0:
+            return []
+        from aidream.runtime_installations import _parse_devices, _output
+        return [dict(device) for device in _parse_devices(_output(result))]
+
     @staticmethod
     def _path(model: Any) -> Path | None:
         candidate = getattr(model, "path", model)

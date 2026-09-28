@@ -23,6 +23,14 @@ name. Both selectors may be omitted to use the default compatible runtime.
 
 ## Additive contracts for the control plane
 
+When `runtime_defaults.backend_name` or `runtime_id` is unset, `GET /api/settings`
+returns a detected available runtime as the effective default without writing
+that choice to the settings store. Explicit saved values always take precedence.
+`GET /api/runtime` identifies the selected backend with `is_default` and returns
+device IDs only when they come from an enabled runtime's advertised
+`--list-devices` output. Hardware inventory names are not substituted for
+llama.cpp-native device IDs. No model process is started for detection.
+
 | Method and path | Request | Success payload |
 | --- | --- | --- |
 | `GET /api/model-sources` | — | `data.sources: ModelSource[]` |

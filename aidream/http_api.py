@@ -223,7 +223,7 @@ class ReadOnlyAPI:
     def _resolve_settings(self, model_id, *, chat_settings=None, request_settings=None):
         from aidream.model_profiles import resolve_effective_settings
         settings = self.settings_store.get()
-        defaults = settings.get("runtime_defaults", {})
+        defaults = self._effective_runtime_defaults(settings)
         profile_id = (request_settings or {}).get("profile_id") or (chat_settings or {}).get("profile_id")
         try:
             profile = self.profile_store.get(profile_id) if profile_id else None
@@ -248,6 +248,33 @@ class ReadOnlyAPI:
         chat_layer = {**chat_runtime, "generation": chat_generation}
         return resolve_effective_settings(
             {**defaults, "generation": {}}, model_profile, chat_layer, request_settings)
+
+    def _effective_runtime_defaults(self, settings=None):
+        """Return persisted defaults plus a detected runtime when selectors are unset.
+
+        Detection is deliberately a view over available runtimes; it never writes
+        preferences or replaces any selector explicitly saved by the user.
+        """
+        settings = settings or self.settings_store.get()
+        runtime_defaults = dict(settings.get("runtime_defaults", {}))
+        backends = [backend for backend in self._all_backends()
+                    if backend.capabilities().available]
+        requested_runtime = runtime_defaults.get("runtime_id")
+        requested_backend = runtime_defaults.get("backend_name")
+        selected = next((backend for backend in backends
+                         if (not requested_runtime or getattr(backend, "runtime_id", None) == requested_runtime)
+                         and (not requested_backend or backend.name == requested_backend)), None)
+        if selected is None and not requested_runtime and not requested_backend:
+            selected = next((backend for backend in backends
+                             if getattr(backend, "runtime_id", None)), None)
+            if selected is None and backends:
+                selected = backends[0]
+        if selected is not None:
+            if "backend_name" not in runtime_defaults:
+                runtime_defaults["backend_name"] = selected.name
+            if "runtime_id" not in runtime_defaults and getattr(selected, "runtime_id", None):
+                runtime_defaults["runtime_id"] = selected.runtime_id
+        return runtime_defaults
 
     @staticmethod
     def _public_summary(session):
@@ -611,28 +638,47 @@ class ReadOnlyAPI:
                 return exc.status, {"error": str(exc)}
         if path == "/api/runtime":
             backends = []
+            effective_defaults = self._effective_runtime_defaults()
             for backend in self._all_backends():
                 capabilities = backend.capabilities()
-                backends.append({"name": str(backend.name), "capabilities": _jsonable(capabilities),
-                                 "available": bool(capabilities.available)})
-            snapshot = self.hardware.detect()
-            gpus = snapshot.get("gpus", []) if isinstance(snapshot, dict) else getattr(snapshot, "gpus", [])
+                runtime_id = getattr(backend, "runtime_id", None)
+                backends.append({"name": str(backend.name), "runtime_id": runtime_id,
+                                 "capabilities": _jsonable(capabilities),
+                                 "available": bool(capabilities.available),
+                                 "is_default": (backend.name == effective_defaults.get("backend_name")
+                                                and (not effective_defaults.get("runtime_id")
+                                                     or runtime_id == effective_defaults["runtime_id"]))})
             devices = []
-            supports_device = any(getattr(b.capabilities(), "device_selection", False)
-                                  for b in self._all_backends())
-            for gpu in gpus:
-                index = getattr(gpu, "index", gpu.get("index", 0) if isinstance(gpu, dict) else 0)
-                gpu_name = getattr(gpu, "name", gpu.get("name", "GPU") if isinstance(gpu, dict) else "GPU")
-                gpu_backends = getattr(gpu, "backends", gpu.get("backends", []) if isinstance(gpu, dict) else []) or []
-                for backend_id, prefix in (("rocm", "ROCm"), ("vulkan", "Vulkan"), ("cuda", "CUDA")):
-                    if supports_device and backend_id in gpu_backends:
-                        devices.append({"id": f"{prefix}{index}", "name": gpu_name, "backend": prefix})
+            seen_devices = set()
             for installation in self.runtime_installations.list_installations():
                 if not installation.get("enabled") or not installation.get("available"):
                     continue
                 for device in installation.get("devices", []):
-                    devices.append({**device, "runtime_id": installation["id"]})
-            return 200, {"data": {"backends": backends, "devices": devices, "status": self.runtime_status()}}
+                    native_id = device.get("id")
+                    identity = (installation["id"], native_id)
+                    if native_id and identity not in seen_devices:
+                        devices.append({**device, "runtime_id": installation["id"]})
+                        seen_devices.add(identity)
+            registered_paths = {item.get("executable") for item in self.runtime_installations.list_installations()
+                                if item.get("enabled") and item.get("available")}
+            for backend in self._all_backends():
+                capabilities = backend.capabilities()
+                if (not capabilities.available or not capabilities.device_selection
+                        or getattr(backend, "executable", None) in registered_paths):
+                    continue
+                list_devices = getattr(backend, "list_devices", None)
+                if not callable(list_devices):
+                    continue
+                for device in list_devices():
+                    native_id = device.get("id")
+                    identity = (getattr(backend, "runtime_id", None), native_id)
+                    if native_id and identity not in seen_devices:
+                        devices.append(dict(device))
+                        seen_devices.add(identity)
+            return 200, {"data": {"backends": backends, "devices": devices,
+                                  "default_runtime": {key: effective_defaults.get(key)
+                                                      for key in ("runtime_id", "backend_name")},
+                                  "status": self.runtime_status()}}
         if path == "/api/runtime/installations":
             return 200, {"data": {"installations": self.runtime_installations.list_installations()}}
         if path == "/api/model-sources":
@@ -644,7 +690,9 @@ class ReadOnlyAPI:
             model_id = params.get("model_id", [None])[0]
             return 200, {"data": {"profiles": self.profile_store.list_profiles(model_id)}}
         if path == "/api/settings":
-            return 200, {"data": {"settings": self.settings_store.get()}}
+            settings = self.settings_store.get()
+            settings["runtime_defaults"] = self._effective_runtime_defaults(settings)
+            return 200, {"data": {"settings": settings}}
         if path == "/api/runtime/status":
             return 200, {"data": {"status": self.runtime_status()}}
         if path == "/api/runtime/command":
