@@ -441,6 +441,10 @@ class LlamaCppBackend:
         self.generate_stream(prompt, options, on_delta=chunks.append)
         return "".join(chunks)
 
+    def _completion_model(self) -> str | None:
+        """Return a served model identifier when the API requires one."""
+        return None
+
     def cancel_generation(self) -> None:
         """Interrupt an in-flight stream; a partial turn is discarded."""
         with self._response_lock:
@@ -493,6 +497,9 @@ class LlamaCppBackend:
             user_message = {"role": "user", "content": prompt}
         payload_messages.append(user_message)
         payload = {"messages": payload_messages, "temperature": temperature, "stream": True}
+        completion_model = self._completion_model()
+        if completion_model is not None:
+            payload["model"] = completion_model
         if "max_tokens" in opts:
             payload["max_tokens"] = _positive_int(opts["max_tokens"], "max_tokens")
         for key in ("top_p", "min_p", "repeat_penalty"):
@@ -593,6 +600,9 @@ class LlamaCppBackend:
         if not self._process or self._process.poll() is not None or not self._base_url:
             raise RuntimeError("No model is loaded")
         payload = {"messages": messages, "tools": tools, "tool_choice": "auto"}
+        completion_model = self._completion_model()
+        if completion_model is not None:
+            payload["model"] = completion_model
         request = Request(self._base_url + "/v1/chat/completions", data=json.dumps(payload).encode(),
                           headers={"Content-Type": "application/json"}, method="POST")
         try:
@@ -660,7 +670,12 @@ class LlamaCppBackend:
 class RuntimeRegistry:
     """Registry for supported local inference backends."""
     def __init__(self, backends: list[InferenceBackend] | None = None):
-        self._backends = backends if backends is not None else [LlamaCppBackend()]
+        if backends is None:
+            # Lazy import avoids a module cycle: the vLLM adapter reuses the
+            # OpenAI-compatible transport implemented by LlamaCppBackend.
+            from aidream.vllm_runtime import VLLMBackend
+            backends = [LlamaCppBackend(), VLLMBackend()]
+        self._backends = backends
     def list_backends(self) -> list[InferenceBackend]:
         return list(self._backends)
 
