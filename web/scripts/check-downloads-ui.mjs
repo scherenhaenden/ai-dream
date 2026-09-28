@@ -82,6 +82,7 @@ server.listen(8080, async () => {
 
     await page.goto('http://127.0.0.1:8080/downloads');
     await page.waitForTimeout(2000);
+    fs.mkdirSync('artifacts/ui-smoke/downloads', { recursive: true });
     await page.screenshot({ path: 'artifacts/ui-smoke/downloads/downloads-populated.png' });
     const content = await page.textContent('body');
     if (!content.includes('llama-2-7b-chat')) throw new Error('Populated downloads not shown');
