@@ -137,7 +137,8 @@ class AIDreamWindow:
         right = ttk.Frame(pane, padding=8)
         pane.add(right, weight=2)
         config_tabs = ttk.Notebook(right)
-        config_tabs.pack(fill=tk.X, expand=False)
+        config_tabs.pack(fill=tk.X, expand=False, anchor="nw")
+        self.config_tabs = config_tabs
         runtime_tab = ttk.Frame(config_tabs, padding=10)
         generation = ttk.Frame(config_tabs, padding=10)
         config_tabs.add(runtime_tab, text="Model & runtime")
@@ -215,12 +216,16 @@ class AIDreamWindow:
 
         runtime_actions = ttk.Frame(right)
         runtime_actions.pack(fill=tk.X, pady=(6, 8))
-        ttk.Button(runtime_actions, text="Load selected model", command=self.load_selected_model).pack(side=tk.LEFT)
-        ttk.Button(runtime_actions, text="Unload", command=self.unload_model).pack(side=tk.LEFT, padx=4)
-        ttk.Button(runtime_actions, text="Reload", command=self.reload_model).pack(side=tk.LEFT)
-        ttk.Button(runtime_actions, text="Runtime status", command=self.show_runtime_status).pack(side=tk.LEFT, padx=4)
-        ttk.Button(runtime_actions, text="Effective command", command=self.show_effective_command).pack(side=tk.LEFT)
-        ttk.Button(runtime_actions, text="Save model profile", command=self._save_selected_model_profile).pack(side=tk.RIGHT)
+        runtime_actions.columnconfigure(4, weight=1)
+        for column, (label, command) in enumerate((
+            ("Load selected model", self.load_selected_model), ("Unload", self.unload_model),
+            ("Reload", self.reload_model), ("Runtime status", self.show_runtime_status))):
+            ttk.Button(runtime_actions, text=label, command=command).grid(
+                row=0, column=column, sticky="w", padx=(0, 5), pady=2)
+        ttk.Button(runtime_actions, text="Effective command", command=self.show_effective_command).grid(
+            row=1, column=0, columnspan=2, sticky="w", padx=(0, 5), pady=2)
+        ttk.Button(runtime_actions, text="Save model profile", command=self._save_selected_model_profile).grid(
+            row=1, column=4, sticky="e", pady=2)
 
         generation_box = ttk.LabelFrame(generation, text="Conversation generation defaults", padding=10)
         generation_box.pack(fill=tk.X)
@@ -246,68 +251,74 @@ class AIDreamWindow:
 
         chat_tools = ttk.Frame(right)
         chat_tools.pack(fill=tk.X, pady=(4, 0))
-        ttk.Label(chat_tools, text="Conversation").pack(side=tk.LEFT)
+        chat_tools.columnconfigure(1, weight=1)
+        ttk.Label(chat_tools, text="Conversation").grid(row=0, column=0, sticky="w", padx=(0, 6), pady=2)
         self.session_var = tk.StringVar(value=_session_label(self.chat_session))
         self.session_box = ttk.Combobox(chat_tools, textvariable=self.session_var,
                                         values=[_session_label(item) for item in self.sessions],
-                                        state="readonly", width=28)
-        self.session_box.pack(side=tk.LEFT, padx=5)
+                                        state="readonly", width=20)
+        self.session_box.grid(row=0, column=1, sticky="ew", padx=(0, 6), pady=2)
         self.session_box.bind("<<ComboboxSelected>>", self.select_chat)
         self._generation_controls = [self.session_box, self.model_list, self.backend_box]
-        for label, command in (("New chat", self.new_chat), ("Rename", self.rename_chat),
-                               ("Delete", self.delete_chat), ("Export", self.export_chat),
-                               ("Presets", self.open_preset_manager)):
+        for column, (label, command) in enumerate((("New chat", self.new_chat), ("Rename", self.rename_chat),
+                                                   ("Delete", self.delete_chat)), start=2):
             button = ttk.Button(chat_tools, text=label, command=command)
-            button.pack(side=tk.LEFT, padx=(4, 0) if label != "New chat" else 0)
+            button.grid(row=0, column=column, sticky="ew", padx=(0, 4), pady=2)
+            self._generation_controls.append(button)
+        for column, (label, command) in enumerate((("Export", self.export_chat), ("Presets", self.open_preset_manager))):
+            button = ttk.Button(chat_tools, text=label, command=command)
+            button.grid(row=1, column=column, sticky="w", padx=(0, 4), pady=2)
             self._generation_controls.append(button)
         self.agent_mode_var = tk.BooleanVar(value=False)
         agent_check = ttk.Checkbutton(chat_tools, text="Read-only agent tools", variable=self.agent_mode_var)
-        agent_check.pack(side=tk.LEFT, padx=6)
+        agent_check.grid(row=1, column=2, columnspan=3, sticky="w", pady=2)
         self._generation_controls.append(agent_check)
-        self.voice_status = ttk.Label(chat_tools, text=self.voice.capabilities.setup_help())
-        self.voice_status.pack(side=tk.RIGHT)
+        self.voice_status = ttk.Label(chat_tools, text=self.voice.capabilities.setup_help(),
+                                       wraplength=560, foreground="#a7b1c2")
+        self.voice_status.grid(row=2, column=0, columnspan=5, sticky="ew", pady=(2, 4))
         voice_row = ttk.Frame(right)
         voice_row.pack(fill=tk.X)
-        ttk.Button(voice_row, text="Speak last answer", command=self.speak_last_answer).pack(side=tk.LEFT)
+        ttk.Button(voice_row, text="Speak last answer", command=self.speak_last_answer).grid(row=0, column=0, sticky="w", padx=(0, 4), pady=2)
         self.stop_speech_button = ttk.Button(voice_row, text="Stop speaking", command=self.stop_speaking,
                                              state=tk.DISABLED)
-        self.stop_speech_button.pack(side=tk.LEFT, padx=(0, 5))
+        self.stop_speech_button.grid(row=0, column=1, sticky="w", padx=(0, 4), pady=2)
         self.record_button = ttk.Button(voice_row, text="Record & transcribe", command=self.record_and_transcribe)
-        self.record_button.pack(side=tk.LEFT, padx=5)
+        self.record_button.grid(row=0, column=2, sticky="w", padx=(0, 4), pady=2)
         self.attach_images_button = ttk.Button(voice_row, text="Attach image(s)", command=self.attach_images)
-        self.attach_images_button.pack(side=tk.LEFT, padx=5)
+        self.attach_images_button.grid(row=1, column=0, sticky="w", padx=(0, 4), pady=2)
         self.attach_documents_button = ttk.Button(voice_row, text="Attach document(s)", command=self.attach_documents)
-        self.attach_documents_button.pack(side=tk.LEFT)
+        self.attach_documents_button.grid(row=1, column=1, sticky="w", padx=(0, 4), pady=2)
         self.clear_images_button = ttk.Button(voice_row, text="Clear images", command=self.clear_images, state=tk.DISABLED)
-        self.clear_images_button.pack(side=tk.LEFT, padx=(4, 0))
+        self.clear_images_button.grid(row=1, column=2, sticky="w", padx=(0, 4), pady=2)
         self.clear_documents_button = ttk.Button(voice_row, text="Clear documents", command=self.clear_documents,
                                                  state=tk.DISABLED)
-        self.clear_documents_button.pack(side=tk.LEFT, padx=(4, 0))
+        self.clear_documents_button.grid(row=1, column=3, sticky="w", padx=(0, 4), pady=2)
         self._generation_controls.extend([self.attach_images_button, self.attach_documents_button,
                                           self.clear_images_button, self.clear_documents_button])
-        self.images_status = ttk.Label(voice_row, text="")
-        self.images_status.pack(side=tk.LEFT, padx=6)
-        self.documents_status = ttk.Label(voice_row, text="")
-        self.documents_status.pack(side=tk.LEFT, padx=4)
+        self.images_status = ttk.Label(voice_row, text="", wraplength=300, foreground="#a7b1c2")
+        self.images_status.grid(row=2, column=0, columnspan=2, sticky="w", padx=(0, 8), pady=2)
+        self.documents_status = ttk.Label(voice_row, text="", wraplength=300, foreground="#a7b1c2")
+        self.documents_status.grid(row=2, column=2, columnspan=2, sticky="w", pady=2)
         voice_input_row = ttk.Frame(right)
         voice_input_row.pack(fill=tk.X)
-        ttk.Label(voice_input_row, text="Whisper model").pack(side=tk.LEFT)
+        voice_input_row.columnconfigure(1, weight=1)
+        ttk.Label(voice_input_row, text="Whisper model").grid(row=0, column=0, sticky="w", padx=(0, 6), pady=2)
         voice_configuration = self.voice.configuration()
         self.whisper_model_var = tk.StringVar(value="")
         self.whisper_model_box = ttk.Combobox(voice_input_row, textvariable=self.whisper_model_var,
                                               values=[str(path) for path in voice_configuration.whisper_models],
-                                              state="readonly", width=34)
+                                              state="readonly", width=24)
         if voice_configuration.whisper_models:
             self.whisper_model_var.set(str(voice_configuration.whisper_models[0]))
-        self.whisper_model_box.pack(side=tk.LEFT, padx=5)
-        ttk.Button(voice_input_row, text="Browse…", command=self.choose_whisper_model).pack(side=tk.LEFT)
-        ttk.Label(voice_input_row, text="Record seconds").pack(side=tk.LEFT, padx=(10, 3))
+        self.whisper_model_box.grid(row=0, column=1, sticky="ew", padx=(0, 5), pady=2)
+        ttk.Button(voice_input_row, text="Browse…", command=self.choose_whisper_model).grid(row=0, column=2, sticky="w", pady=2)
+        ttk.Label(voice_input_row, text="Record seconds").grid(row=1, column=0, sticky="w", padx=(0, 6), pady=2)
         self.record_seconds_var = tk.StringVar(value="5")
         ttk.Spinbox(voice_input_row, from_=1, to=120, textvariable=self.record_seconds_var,
-                    width=4).pack(side=tk.LEFT)
+                    width=5).grid(row=1, column=1, sticky="w", pady=2)
         self.transcribe_audio_button = ttk.Button(voice_input_row, text="Transcribe audio file…",
                                                   command=self.transcribe_audio_file)
-        self.transcribe_audio_button.pack(side=tk.LEFT, padx=6)
+        self.transcribe_audio_button.grid(row=1, column=2, sticky="w", padx=(6, 0), pady=2)
         ptt_row = ttk.Frame(right)
         ptt_row.pack(fill=tk.X, pady=(2, 0))
         self.push_to_talk_button = ttk.Button(ptt_row, text="Hold to talk")
@@ -316,17 +327,24 @@ class AIDreamWindow:
         self.push_to_talk_button.bind("<ButtonRelease-1>", self._push_to_talk_up, add="+")
         self.push_to_talk_button.bind("<KeyPress-space>", self._push_to_talk_down, add="+")
         self.push_to_talk_button.bind("<KeyRelease-space>", self._push_to_talk_up, add="+")
-        ttk.Label(ptt_row, text="Press and hold; release to insert transcription. Local only.").pack(side=tk.LEFT, padx=8)
+        self.ptt_help = ttk.Label(ptt_row, text="Press and hold; release to insert transcription. Local only.",
+                                  wraplength=560, foreground="#a7b1c2")
+        self.ptt_help.pack(side=tk.LEFT, padx=8, fill=tk.X, expand=True, anchor="w")
         self._ptt_worker = None
         self._ptt_model = None
         self._ptt_path = None
-        self.chat = tk.Text(right, state=tk.DISABLED, wrap=tk.WORD, background="#202633",
+        chat_frame = ttk.Frame(right)
+        chat_frame.pack(fill=tk.BOTH, expand=True, pady=4)
+        self.chat = tk.Text(chat_frame, height=8, state=tk.DISABLED, wrap=tk.WORD, background="#202633",
                             foreground="#e7ebf2", insertbackground="#e7ebf2", relief=tk.FLAT)
-        self.chat.pack(fill=tk.BOTH, expand=True, pady=4)
+        self.chat.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        chat_scroll = ttk.Scrollbar(chat_frame, orient=tk.VERTICAL, command=self.chat.yview)
+        chat_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.chat.configure(yscrollcommand=chat_scroll.set)
         self._restore_chat()
         prompt_row = ttk.Frame(right)
         prompt_row.pack(fill=tk.X)
-        self.prompt = tk.Text(prompt_row, height=4, wrap=tk.WORD, background="#202633",
+        self.prompt = tk.Text(prompt_row, height=3, wrap=tk.WORD, background="#202633",
                               foreground="#e7ebf2", insertbackground="#e7ebf2", relief=tk.FLAT)
         self.prompt.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.prompt.bind("<Control-Return>", self._send_shortcut)
@@ -334,6 +352,18 @@ class AIDreamWindow:
         self.send_button.pack(side=tk.LEFT, padx=(6, 0), fill=tk.Y)
         self.stop_button = ttk.Button(prompt_row, text="Stop", command=self.stop_generation, state=tk.DISABLED)
         self.stop_button.pack(side=tk.LEFT, padx=(4, 0), fill=tk.Y)
+        right.bind("<Configure>", self._resize_right_panel, add="+")
+
+    def _resize_right_panel(self, event):
+        """Keep wrapped helper/status text inside the resizable chat column."""
+        wrap = max(240, event.width - 72)
+        for widget in (getattr(self, "capability_label", None), getattr(self, "voice_status", None),
+                       getattr(self, "model_profile_status", None), getattr(self, "ptt_help", None)):
+            if widget is not None:
+                widget.configure(wraplength=wrap)
+        for widget in (getattr(self, "images_status", None), getattr(self, "documents_status", None)):
+            if widget is not None:
+                widget.configure(wraplength=max(160, (event.width - 80) // 2))
 
     def _show_text(self, widget: tk.Text, text: str):
         widget.configure(state=tk.NORMAL)
