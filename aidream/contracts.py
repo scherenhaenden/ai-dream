@@ -57,6 +57,8 @@ class RuntimeCapabilities(TypedDict, total=False):
     unified_kv_cache: bool
     offload_kv_cache: bool
     mmap: bool
+    mmap_disable: bool
+    mmap_disable: bool
     keep_model_in_memory: bool
     fit: bool
     reasoning: bool

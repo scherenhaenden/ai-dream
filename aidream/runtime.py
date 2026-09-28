@@ -50,6 +50,14 @@ class BackendCapabilities:
     offload_kv_cache: bool = False
     mmap: bool = False
     keep_model_in_memory: bool = False
+    threads_batch: bool = False
+    continuous_batching: bool = False
+    numa: bool = False
+    kv_cache_type_k: bool = False
+    kv_cache_type_v: bool = False
+    device_listing: bool = False
+    mlock: bool = False
+    mmap_disable: bool = False
 
 
 class InferenceBackend(Protocol):
@@ -115,6 +123,11 @@ class LlamaCppBackend:
             has("-np", "--parallel"), has("-fa", "--flash-attn"),
             has("--kv-unified"), has("--no-kv-offload"),
             has("--mmap", "--no-mmap"), has("--mlock"),
+            has("-tb", "--threads-batch"), has("--cont-batching", "--continuous-batching", "--no-cont-batching"), has("--numa"),
+            has("-ctk", "--cache-type-k"), has("-ctv", "--cache-type-v"),
+            has("--list-devices", "--list_devices"),
+            has("--mlock"),
+            has("--no-mmap"),
         )
 
     @staticmethod
@@ -260,7 +273,8 @@ class LlamaCppBackend:
                  ("threads", caps.threads, ("-t", "--threads")),
                  ("batch_size", caps.batch_size, ("-b", "--batch-size")),
                  ("physical_batch_size", caps.physical_batch_size, ("-ub", "--ubatch-size")),
-                 ("max_concurrent", caps.max_concurrent, ("-np", "--parallel")))
+                 ("max_concurrent", caps.max_concurrent, ("-np", "--parallel")),
+                 ("threads_batch", caps.threads_batch, ("-tb", "--threads-batch")))
         for key, supported, flags in specs:
             if key not in options:
                 continue
@@ -283,6 +297,21 @@ class LlamaCppBackend:
             if not isinstance(reasoning, bool):
                 raise ValueError("reasoning must be a boolean")
             result.extend(("--reasoning", "on" if reasoning else "off"))
+        for key, supported, flags in (
+            ("kv_cache_type_k", caps.kv_cache_type_k, ("-ctk", "--cache-type-k")),
+            ("kv_cache_type_v", caps.kv_cache_type_v, ("-ctv", "--cache-type-v")),
+            ("numa", caps.numa, ("--numa",)),
+        ):
+            if key not in options:
+                continue
+            if not supported:
+                raise ValueError(f"This llama.cpp server does not advertise {key}")
+            value = options[key]
+            if not isinstance(value, str) or not value or any(ch.isspace() for ch in value) or "\x00" in value:
+                raise ValueError(f"{key} must be a single non-empty value")
+            flag = next((candidate for candidate in flags if re.search(
+                r"(?<![\w-])" + re.escape(candidate) + r"(?![\w-])", self._help)), flags[-1])
+            result.extend((flag, value))
         bool_flags = {
             "flash_attention": (caps.flash_attention, ("-fa", "--flash-attn"), "value"),
             "unified_kv_cache": (caps.unified_kv_cache, ("--kv-unified",), "true"),
@@ -306,11 +335,28 @@ class LlamaCppBackend:
             elif behavior == "true" and value:
                 result.append(chosen)
             elif behavior == "mmap" and not value:
-                if re.search(r"(?<![\w-])--no-mmap(?![\w-])", self._help):
+                if caps.mmap_disable:
                     result.append("--no-mmap")
                 else:
                     raise ValueError("This llama.cpp server cannot disable mmap")
-        unknown = set(options) - {key for key, _, _ in specs} - {"fit", "reasoning", *bool_flags}
+        if "continuous_batching" in options:
+            if not caps.continuous_batching:
+                raise ValueError("This llama.cpp server does not advertise continuous_batching")
+            if not isinstance(options["continuous_batching"], bool):
+                raise ValueError("continuous_batching must be a boolean")
+            if options["continuous_batching"]:
+                flag = next((candidate for candidate in ("--cont-batching", "--continuous-batching")
+                             if re.search(r"(?<![\w-])" + re.escape(candidate) + r"(?![\w-])", self._help)), None)
+                if flag is None:
+                    raise ValueError("This llama.cpp server cannot enable continuous batching")
+                result.append(flag)
+            elif re.search(r"(?<![\w-])--no-cont-batching(?![\w-])", self._help):
+                result.append("--no-cont-batching")
+            else:
+                raise ValueError("This llama.cpp server cannot disable continuous batching")
+        unknown = (set(options) - {key for key, _, _ in specs}
+                   - {"fit", "reasoning", *bool_flags, "continuous_batching", "numa",
+                      "kv_cache_type_k", "kv_cache_type_v"})
         if unknown:
             raise ValueError(f"Unsupported load option(s): {', '.join(sorted(unknown))}")
         return result
