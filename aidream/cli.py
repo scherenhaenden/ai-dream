@@ -42,7 +42,7 @@ def build_parser() -> argparse.ArgumentParser:
     add = model_cmd.add_parser("add", help="register a model directory without moving files")
     add.add_argument("path")
     model_cmd.add_parser("sources", help="list registered model directories")
-    model_cmd.add_parser("scan", help="scan registered directories for GGUF models")
+    model_cmd.add_parser("scan", aliases=["rescan"], help="rescan registered directories for GGUF models")
     model_cmd.add_parser("list", help="list discovered local models")
     remove_source = model_cmd.add_parser("remove", help="remove a model directory from the catalog")
     remove_source.add_argument("source_id")
@@ -168,7 +168,7 @@ def main(argv: list[str] | None = None) -> int:
                 _print(catalog.add_source(args.path))
             elif args.models_command == "sources":
                 _print(catalog.list_sources())
-            elif args.models_command == "scan":
+            elif args.models_command in {"scan", "rescan"}:
                 _print(catalog.scan())
             elif args.models_command == "remove":
                 catalog.remove_source(args.source_id)
@@ -325,17 +325,27 @@ def _runtime_action(action):
 def _runtime_load(args):
     from aidream.models import ModelCatalog
     placement, options = _runtime_settings(args)
-    records = ModelCatalog().list_models()
-    model = next((item for item in records if item.id == args.model or item.path == args.model), None)
+    catalog = ModelCatalog()
+    records = catalog.list_models()
+    model = next((item for item in records if item.id == args.model), None)
     if model is None:
         candidate = Path(args.model).expanduser()
-        if candidate.suffix.lower() != ".gguf" or not candidate.is_file():
-            raise ValueError(f"Model '{args.model}' was not found in the catalog or as a GGUF file")
-        # The API accepts catalog identifiers. Register the containing directory and resolve again.
-        ModelCatalog().add_source(candidate.parent)
-        model = next((item for item in ModelCatalog().list_models() if item.path == str(candidate)), None)
+        try:
+            canonical_candidate = str(candidate.resolve(strict=True))
+        except OSError:
+            canonical_candidate = ""
+        model = next((item for item in records if item.path == canonical_candidate), None)
+        if model is None:
+            if candidate.suffix.lower() != ".gguf" or not candidate.is_file():
+                raise ValueError(
+                    f"Model '{args.model}' was not found; run 'aidream models add FOLDER' and 'aidream models list', "
+                    "or pass an existing GGUF path"
+                )
+            # Add the containing directory so subsequent `models list` and `load MODEL_ID` work.
+            catalog.add_source(candidate.parent)
+            model = next((item for item in catalog.list_models() if item.path == canonical_candidate), None)
     if model is None:
-        raise ValueError("Could not resolve model in the local catalog")
+        raise ValueError("Could not resolve model in the local catalog; run 'aidream models rescan'")
     result = _api_request("POST", "/api/runtime/load", {
         "model_id": model.id, "backend": None if args.backend == "auto" else args.backend,
         "placement": placement, "load": options,
