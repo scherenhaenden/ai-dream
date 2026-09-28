@@ -1,18 +1,25 @@
-import { test, expect, chromium } from '@playwright/test';
+import { expect, chromium } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const SCREENSHOT_DIR = path.resolve(__dirname, '../../artifacts/ui-smoke/chat-agent');
 
 (async () => {
-  const browser = await chromium.launch();
-  const context = await browser.newContext({ viewport: { width: 1320, height: 900 } });
-
+  let browser;
   let hasErrors = false;
+  const unmatchedApiRequests = [];
+  let healthChecks = 0;
 
   try {
+    fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
+    const executablePath = process.env.CHROME_BIN || [
+      '/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser'
+    ].find(candidate => fs.existsSync(candidate));
+    browser = await chromium.launch({ headless: true, ...(executablePath ? { executablePath } : {}) });
+    const context = await browser.newContext({ viewport: { width: 1320, height: 900 } });
     const page = await context.newPage();
 
     // Add console logging
@@ -32,7 +39,13 @@ const __dirname = path.dirname(__filename);
     await page.route('**/*', async (route, request) => {
       const url = new URL(request.url());
       if (url.pathname.startsWith('/api/')) {
-        return; // Handle APIs in specific routes below
+        unmatchedApiRequests.push(url.pathname);
+        await route.fulfill({
+          status: 501,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: `No smoke fixture for ${url.pathname}` })
+        });
+        return;
       }
 
       if (url.pathname.endsWith('.js') || url.pathname.endsWith('.css')) {
@@ -62,12 +75,14 @@ const __dirname = path.dirname(__filename);
       await route.fulfill({ status: 200, contentType: 'text/html', body: modifiedIndex });
     });
 
-    // Mock API for /api/check
-    await page.route('**/api/check', route => {
-      route.fulfill({
+    // ApiService.check() calls /api/health; keep this fixture explicit so
+    // both pages exercise their connected workspace state.
+    await page.route('**/api/health', async route => {
+      healthChecks += 1;
+      await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({})
+        body: JSON.stringify({ data: { status: 'ok', version: 'smoke' } })
       });
     });
 
@@ -85,9 +100,10 @@ const __dirname = path.dirname(__filename);
     });
 
     // Mock API for /api/chats
-    await page.route('**/api/chats*', route => {
-      if (route.request().url().endsWith('mock-chat-1')) {
-        route.fulfill({
+    await page.route(/\/api\/chats(?:\/[^/?#]+)?(?:[?#].*)?$/, async route => {
+      const chatPath = new URL(route.request().url()).pathname;
+      if (chatPath.endsWith('/mock-chat-1')) {
+        await route.fulfill({
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify({
@@ -104,7 +120,7 @@ const __dirname = path.dirname(__filename);
           })
         });
       } else {
-        route.fulfill({
+        await route.fulfill({
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify({
@@ -128,8 +144,10 @@ const __dirname = path.dirname(__filename);
 
     const chatNewButton = await page.locator('.chat-new-button').boundingBox();
     if (!chatNewButton) throw new Error("Chat new button not found or invisible.");
+    await expect(page.locator('.chat-new-button')).toBeEnabled();
+    await expect(page.getByText('Local API unavailable')).toHaveCount(0);
 
-    await page.screenshot({ path: 'artifacts/ui-smoke/chat-agent/chat.png' });
+    await page.screenshot({ path: path.join(SCREENSHOT_DIR, 'chat.png') });
 
     // 2. Check Agent Page
     console.log("Checking Agent Page...");
@@ -143,9 +161,13 @@ const __dirname = path.dirname(__filename);
 
     const agentNewButton = await page.locator('.chat-new-button').boundingBox();
     if (!agentNewButton) throw new Error("Agent new button not found or invisible.");
+    await expect(page.locator('.chat-new-button')).toBeEnabled();
+    await expect(page.getByText('Local API unavailable')).toHaveCount(0);
 
-    await page.screenshot({ path: 'artifacts/ui-smoke/chat-agent/agent.png' });
+    await page.screenshot({ path: path.join(SCREENSHOT_DIR, 'agent.png') });
 
+    if (healthChecks < 2) throw new Error(`Expected /api/health to be checked on both pages; received ${healthChecks} checks.`);
+    if (unmatchedApiRequests.length) throw new Error(`Unmocked API requests: ${unmatchedApiRequests.join(', ')}`);
     if (hasErrors) {
         throw new Error("Browser or console errors were detected during execution.");
     }
@@ -155,6 +177,6 @@ const __dirname = path.dirname(__filename);
     console.error("Smoke test failed:", error);
     process.exitCode = 1;
   } finally {
-    await browser.close();
+    await browser?.close();
   }
 })();
