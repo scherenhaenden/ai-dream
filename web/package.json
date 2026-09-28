@@ -6,7 +6,8 @@
     "start": "vite --host 127.0.0.1",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "test:runtime-layout": "node scripts/check-runtime-layout.mjs"
+    "test:runtime-layout": "node scripts/check-runtime-layout.mjs",
+    "test:models-config": "node scripts/check-models-config.mjs"
   },
   "dependencies": {
     "@angular/common": "^20.3.0",
