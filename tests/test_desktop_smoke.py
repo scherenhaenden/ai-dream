@@ -87,34 +87,52 @@ class StubModelProfileStore:
     def save(self, *args):
         pass
 
-sys.modules['aidream.hardware'] = MagicMock()
-sys.modules['aidream.hardware'].HardwareService = StubHardware
-sys.modules['aidream.models'] = MagicMock()
-sys.modules['aidream.models'].ModelCatalog = StubCatalog
-sys.modules['aidream.runtime'] = MagicMock()
-sys.modules['aidream.runtime'].RuntimeRegistry = StubRegistry
-sys.modules['aidream.conversation'] = MagicMock()
-sys.modules['aidream.conversation'].ChatStore = StubChatStore
-sys.modules['aidream.model_profiles'] = MagicMock()
-sys.modules['aidream.model_profiles'].ModelProfileStore = StubModelProfileStore
-sys.modules['aidream.voice'] = MagicMock()
-sys.modules['aidream.voice'].LocalVoice = StubVoice
+def test_desktop_ui_loads(monkeypatch, mocker):
+    hw_mock = MagicMock()
+    hw_mock.HardwareService = StubHardware
+    monkeypatch.setitem(sys.modules, 'aidream.hardware', hw_mock)
 
-from aidream.ui import AIDreamWindow
+    models_mock = MagicMock()
+    models_mock.ModelCatalog = StubCatalog
+    monkeypatch.setitem(sys.modules, 'aidream.models', models_mock)
 
-def test_desktop_ui_loads(mocker):
+    runtime_mock = MagicMock()
+    runtime_mock.RuntimeRegistry = StubRegistry
+    monkeypatch.setitem(sys.modules, 'aidream.runtime', runtime_mock)
+
+    conv_mock = MagicMock()
+    conv_mock.ChatStore = StubChatStore
+    monkeypatch.setitem(sys.modules, 'aidream.conversation', conv_mock)
+
+    prof_mock = MagicMock()
+    prof_mock.ModelProfileStore = StubModelProfileStore
+    monkeypatch.setitem(sys.modules, 'aidream.model_profiles', prof_mock)
+
+    voice_mock = MagicMock()
+    voice_mock.LocalVoice = StubVoice
+    monkeypatch.setitem(sys.modules, 'aidream.voice', voice_mock)
+
+    from aidream.ui import AIDreamWindow
+
     mocker.patch('aidream.ui.AIDreamWindow._poll_voice_results')
     mocker.patch('aidream.ui.AIDreamWindow._poll_generation_results')
 
     root = tk.Tk()
+    # Force tk window to full size to capture exactly 1320x900
+    root.geometry("1320x900+0+0"); root.update(); root.minsize(1320, 900)
     app = AIDreamWindow(root)
     root.update()
+    root.update_idletasks()
 
     time.sleep(1)
 
     os.makedirs('artifacts/ui-smoke', exist_ok=True)
+
+    # We must enforce screenshot success and check dimensions
     import subprocess
-    subprocess.run(["import", "-window", "root", "artifacts/ui-smoke/desktop.png"])
+    result = subprocess.run(["import", "-window", str(root.winfo_id()), "artifacts/ui-smoke/desktop.png"], check=True)
+    assert result.returncode == 0
+    assert os.path.exists("artifacts/ui-smoke/desktop.png")
 
     try:
         app.close()

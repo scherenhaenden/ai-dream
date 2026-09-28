@@ -283,7 +283,7 @@ class AIDreamWindow:
         self.session_box.bind("<<ComboboxSelected>>", self.select_chat)
 
         for label, command in (("New", self.new_chat), ("Rename", self.rename_chat),
-                               ("Delete", self.delete_chat), ("Export", self.export_chat)):
+                               ("Delete", self.delete_chat), ("Export", self.export_chat), ("Presets", self.open_preset_manager)):
             btn = ttk.Button(chat_tools, text=label, command=command)
             btn.pack(side=tk.LEFT, padx=(0, 4))
             self._generation_controls.append(btn)
