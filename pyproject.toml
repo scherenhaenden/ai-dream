@@ -10,6 +10,7 @@ requires-python = ">=3.10"
 dependencies = []
 
 [project.scripts]
+aidream = "aidream.cli:main"
 app = "aidream.cli:main"
 app-gui = "aidream.ui:main"
 
