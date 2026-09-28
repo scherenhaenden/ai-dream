@@ -8,10 +8,13 @@ from __future__ import annotations
 from dataclasses import asdict, is_dataclass
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import errno
 import json
 import os
 import re
+import shlex
 import select
+import signal
 from pathlib import Path
 import mimetypes
 import socket
@@ -73,7 +76,13 @@ class _BoundedHTTPServer(ThreadingHTTPServer):
         self._slots = threading.BoundedSemaphore(MAX_CONCURRENT_REQUESTS)
         self._service_slots = threading.BoundedSemaphore(MAX_SERVICE_WORKERS)
         self._service_pool = ThreadPoolExecutor(max_workers=MAX_SERVICE_WORKERS, thread_name_prefix="ai-dream-api")
-        super().__init__(address, handler)
+        try:
+            super().__init__(address, handler)
+        except OSError as exc:
+            self._service_pool.shutdown(wait=False, cancel_futures=True)
+            if exc.errno == errno.EADDRINUSE:
+                raise OSError(exc.errno, f"{exc.strerror}; port {address[1]} is already in use. Run 'python3 -m aidream web --stop' for a managed AI Dream server, or choose another port with --port.", address) from exc
+            raise
         self.timeout = SOCKET_TIMEOUT_SECONDS
         self.request_queue_size = MAX_CONCURRENT_REQUESTS
 
@@ -118,11 +127,12 @@ class APILimit(APIError):
 class ChatRun:
     """Owns one serialized runtime generation and releases its backend/lock."""
 
-    def __init__(self, api, backend, session_id: str, prompt: str):
+    def __init__(self, api, backend, session_id: str, prompt: str, generation=None):
         self.api = api
         self.backend = backend
         self.session_id = session_id
         self.prompt = prompt
+        self.generation = generation or {}
         self._closed = False
 
     def generate(self, on_delta, cancel_event: threading.Event):
@@ -130,7 +140,7 @@ class ChatRun:
             from aidream.runtime import GenerationCancelled
             raise GenerationCancelled("generation was cancelled")
         response = self.backend.generate_stream(
-            self.prompt, on_delta=on_delta, cancel_event=cancel_event)
+            self.prompt, self.generation, on_delta=on_delta, cancel_event=cancel_event)
         self.api.chat_store.append(self.session_id, "user", self.prompt)
         session = self.api.chat_store.append(self.session_id, "assistant", response)
         return {"chat_id": self.session_id, "assistant": response,
@@ -145,7 +155,8 @@ class ChatRun:
 class ReadOnlyAPI:
     """HTTP adapter backed by the existing local catalog, chat and runtime services."""
 
-    def __init__(self, *, hardware=None, catalog=None, runtimes=None, chat_store=None, hub=None, download_dir=None):
+    def __init__(self, *, hardware=None, catalog=None, runtimes=None, chat_store=None, hub=None, download_dir=None,
+                 runtime_installations=None, profile_store=None, settings_store=None):
         if hardware is None:
             from aidream.hardware import HardwareService
             hardware = HardwareService()
@@ -162,6 +173,12 @@ class ReadOnlyAPI:
         self.catalog = catalog
         self.runtimes = runtimes
         self.chat_store = chat_store
+        from aidream.runtime_installations import RuntimeInstallationRegistry
+        from aidream.model_profiles import ModelProfileStore
+        from aidream.app_settings import AppSettingsStore
+        self.runtime_installations = runtime_installations or RuntimeInstallationRegistry()
+        self.profile_store = profile_store or ModelProfileStore()
+        self.settings_store = settings_store or AppSettingsStore()
         if hub is None:
             from aidream.huggingface import HuggingFaceDownloader
             hub = HuggingFaceDownloader()
@@ -176,6 +193,88 @@ class ReadOnlyAPI:
         self._active_backend = None
         self._active_binding = None
         self._closed = False
+        self._installation_backends = {}
+
+    def _all_backends(self):
+        """Include explicitly registered llama.cpp installations in backend selection."""
+        existing = self.runtimes.list_backends()
+        known = {getattr(item, "runtime_id", None) for item in existing}
+        known_paths = {str(Path(getattr(item, "executable", "")).resolve()) for item in existing
+                       if getattr(item, "executable", None)}
+        from aidream.runtime import LlamaCppBackend
+        for item in self.runtime_installations.list_installations():
+            if item.get("enabled") and item.get("available") and item["id"] not in known and item["executable"] in known_paths:
+                match = next((backend for backend in existing
+                              if str(Path(getattr(backend, "executable", "")).resolve()) == item["executable"]), None)
+                if match is not None:
+                    match.runtime_id = item["id"]
+                    match.name = item["name"]
+                    known.add(item["id"])
+            if item.get("enabled") and item.get("available") and item.get("id") not in known:
+                backend = self._installation_backends.get(item["id"])
+                if backend is None or backend.executable != item["executable"]:
+                    backend = LlamaCppBackend(item["executable"], runtime_id=item["id"], name=item["name"])
+                    self._installation_backends[item["id"]] = backend
+                existing.append(backend)
+                known_paths.add(item["executable"])
+                known.add(item["id"])
+        return existing
+
+    def _resolve_settings(self, model_id, *, chat_settings=None, request_settings=None):
+        from aidream.model_profiles import resolve_effective_settings
+        settings = self.settings_store.get()
+        defaults = self._effective_runtime_defaults(settings)
+        profile_id = (request_settings or {}).get("profile_id") or (chat_settings or {}).get("profile_id")
+        try:
+            profile = self.profile_store.get(profile_id) if profile_id else None
+        except KeyError as exc:
+            raise APIError(str(exc)) from exc
+        if profile and profile.get("model_id") not in (None, model_id):
+            raise APIError("Selected profile belongs to a different model")
+        model_profiles = [item for item in self.profile_store.list_profiles(model_id)
+                          if item.get("model_id") == model_id]
+        model_profile = profile or (model_profiles[0] if model_profiles and settings.get("default_profile_behavior") == "model" else None)
+        chat_runtime = (chat_settings or {}).get("runtime", {})
+        chat_generation = dict((chat_settings or {}).get("generation", {}))
+        legacy_placement = chat_generation.pop("placement", {})
+        if legacy_placement:
+            chat_runtime = {**chat_runtime, "placement": {
+                **chat_runtime.get("placement", {}), **legacy_placement}}
+        if chat_generation.get("reasoning") is False:
+            chat_generation.pop("reasoning")
+        for key in tuple(chat_generation):
+            if chat_generation[key] is None:
+                chat_generation.pop(key)
+        chat_layer = {**chat_runtime, "generation": chat_generation}
+        return resolve_effective_settings(
+            {**defaults, "generation": {}}, model_profile, chat_layer, request_settings)
+
+    def _effective_runtime_defaults(self, settings=None):
+        """Return persisted defaults plus a detected runtime when selectors are unset.
+
+        Detection is deliberately a view over available runtimes; it never writes
+        preferences or replaces any selector explicitly saved by the user.
+        """
+        settings = settings or self.settings_store.get()
+        runtime_defaults = dict(settings.get("runtime_defaults", {}))
+        backends = [backend for backend in self._all_backends()
+                    if backend.capabilities().available]
+        requested_runtime = runtime_defaults.get("runtime_id")
+        requested_backend = runtime_defaults.get("backend_name")
+        selected = next((backend for backend in backends
+                         if (not requested_runtime or getattr(backend, "runtime_id", None) == requested_runtime)
+                         and (not requested_backend or backend.name == requested_backend)), None)
+        if selected is None and not requested_runtime and not requested_backend:
+            selected = next((backend for backend in backends
+                             if getattr(backend, "runtime_id", None)), None)
+            if selected is None and backends:
+                selected = backends[0]
+        if selected is not None:
+            if "backend_name" not in runtime_defaults:
+                runtime_defaults["backend_name"] = selected.name
+            if "runtime_id" not in runtime_defaults and getattr(selected, "runtime_id", None):
+                runtime_defaults["runtime_id"] = selected.runtime_id
+        return runtime_defaults
 
     @staticmethod
     def _public_summary(session):
@@ -319,7 +418,7 @@ class ReadOnlyAPI:
         finally:
             self._chat_lock.release()
 
-    def prepare_chat(self, chat_id: str, model_id: str, prompt: str) -> ChatRun:
+    def prepare_chat(self, chat_id: str, model_id: str, prompt: str, request_settings=None) -> ChatRun:
         if self._closed:
             raise APIError("Local chat service is shutting down")
         if not isinstance(chat_id, str) or not CHAT_ID_RE.fullmatch(chat_id):
@@ -338,13 +437,24 @@ class ReadOnlyAPI:
             model = next((item for item in models if getattr(item, "id", None) == model_id), None)
             if model is None:
                 raise APIError("Model id was not found in the local catalog")
-            backends = self.runtimes.list_backends()
+            effective = self._resolve_settings(model_id, chat_settings=session.get("settings", {}),
+                                               request_settings=request_settings or {})
+            unsupported_generation = set(effective.get("generation", {})) - {
+                "temperature", "max_tokens", "system_prompt", "stop_strings", "top_p", "top_k",
+                "min_p", "repeat_penalty", "seed", "structured_output"}
+            if unsupported_generation:
+                raise APIError("Unsupported generation setting(s): " + ", ".join(sorted(unsupported_generation)))
+            backends = self._all_backends()
             backend = next((item for item in backends
-                            if item.capabilities().available and item.can_load(model)
+                            if (not effective.get("runtime_id") or getattr(item, "runtime_id", None) == effective["runtime_id"])
+                            and (not effective.get("backend_name") or item.name == effective["backend_name"])
+                            and item.capabilities().available and item.can_load(model)
                             and callable(getattr(item, "generate_stream", None))), None)
             if backend is None:
                 raise APIError("No available local streaming runtime can load this model")
-            binding = (id(backend), model_id, chat_id)
+            from aidream.model_profiles import load_fingerprint
+            fingerprint = load_fingerprint(effective)
+            binding = (id(backend), model_id, chat_id, fingerprint)
             active_healthy = self._active_binding == binding
             process = getattr(backend, "_process", None)
             if hasattr(backend, "_process"):
@@ -372,7 +482,7 @@ class ReadOnlyAPI:
                     history.append(history_item)
                     total += cost
                 history.reverse()
-                backend.load(model)
+                backend.load(model, effective.get("placement"), effective.get("load"))
                 try:
                     backend.restore_history(history)
                 except Exception:
@@ -380,7 +490,14 @@ class ReadOnlyAPI:
                     raise
                 self._active_backend = backend
                 self._active_binding = binding
-            return ChatRun(self, backend, chat_id, prompt.strip())
+            generation = {key: value for key, value in effective.get("generation", {}).items()
+                          if value is not None}
+            allowed_generation = {key: generation[key] for key in
+                                  ("temperature", "max_tokens", "system_prompt", "stop_strings", "top_p", "top_k", "min_p", "repeat_penalty", "seed", "structured_output")
+                                  if key in generation}
+            if "stop_strings" in allowed_generation:
+                allowed_generation["stop"] = allowed_generation.pop("stop_strings")
+            return ChatRun(self, backend, chat_id, prompt.strip(), allowed_generation)
         except APIError:
             self._chat_lock.release()
             raise
@@ -400,13 +517,101 @@ class ReadOnlyAPI:
         if backend is not None:
             backend.unload()
 
+    def runtime_status(self):
+        backend = self._active_backend
+        details = backend.status() if backend is not None and callable(getattr(backend, "status", None)) else {}
+        model = getattr(backend, "_loaded_model", None) if backend is not None else None
+        return {"loaded": bool(details.get("loaded", model is not None)),
+                "backend": getattr(backend, "name", None),
+                "runtime_id": getattr(backend, "runtime_id", None),
+                "model": details.get("model_path", str(model) if model is not None else None),
+                "command": list(details.get("command", ())),
+                "placement": details.get("placement", []),
+                "uptime_seconds": details.get("uptime_seconds")}
+
+    def load_model(self, body):
+        if not isinstance(body, dict) or set(body) - {"model_id", "backend", "runtime_id", "profile_id", "placement", "load", "generation"} or "model_id" not in body:
+            raise APIError("model_id is required; accepted fields are runtime_id, backend, profile_id, placement, load and generation")
+        if not self._chat_lock.acquire(blocking=False):
+            raise APIConflict("A model turn or runtime action is active")
+        try:
+            model_id = body["model_id"]
+            if not isinstance(model_id, str):
+                raise APIError("model_id must be a string")
+            if body.get("backend") is not None and not isinstance(body["backend"], str):
+                raise APIError("backend must be a string")
+            model = next((m for m in self.catalog.list_models() if getattr(m, "id", None) == model_id), None)
+            if model is None:
+                raise APIError("Model id was not found in the local catalog")
+            effective = self._resolve_settings(model_id, request_settings=body)
+            candidates = self._all_backends()
+            backend_name = body.get("backend")
+            backend = next((b for b in candidates if (not backend_name or b.name == backend_name)
+                            and (not effective.get("runtime_id") or getattr(b, "runtime_id", None) == effective["runtime_id"])
+                            and (not effective.get("backend_name") or b.name == effective["backend_name"])
+                            and b.capabilities().available and b.can_load(model)), None)
+            if backend is None:
+                raise APIError("No available backend can load this model")
+            self._unload_active()
+            backend.load(model, effective.get("placement", {}), effective.get("load", {}))
+            self._active_backend = backend
+            from aidream.model_profiles import load_fingerprint
+            self._active_binding = (id(backend), model_id, None, load_fingerprint(effective))
+            return {"data": {"status": self.runtime_status()}}
+        except (ValueError, RuntimeError, OSError) as exc:
+            raise APIError(str(exc)) from exc
+        finally:
+            self._chat_lock.release()
+
+    def unload_model(self):
+        if not self._chat_lock.acquire(blocking=False):
+            raise APIConflict("A model turn or runtime action is active")
+        try:
+            self._unload_active()
+            return {"data": {"status": self.runtime_status()}}
+        finally:
+            self._chat_lock.release()
+
+    def effective_command(self, body):
+        if not isinstance(body, dict) or set(body) - {"model_id", "backend", "runtime_id", "profile_id", "placement", "load"} or "model_id" not in body:
+            raise APIError("model_id is required; accepted fields are runtime_id, backend, profile_id, placement and load")
+        model = next((item for item in self.catalog.list_models() if getattr(item, "id", None) == body["model_id"]), None)
+        if model is None:
+            raise APINotFound("Model id was not found in the local catalog")
+        effective = self._resolve_settings(body["model_id"], request_settings=body)
+        backend = next((item for item in self._all_backends()
+                        if (not effective.get("runtime_id") or getattr(item, "runtime_id", None) == effective["runtime_id"])
+                        and (not effective.get("backend_name") or item.name == effective["backend_name"])
+                        and item.capabilities().available and item.can_load(model)), None)
+        if backend is None:
+            raise APIError("No available runtime can load this model with the selected runtime")
+        argv = backend.effective_command(model, effective.get("placement"), effective.get("load"))
+        return {"data": {"command": shlex.join(argv), "argv": argv,
+                          "runtime_id": getattr(backend, "runtime_id", None),
+                          "settings": effective}}
+
+    def generate_active(self, prompt):
+        if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > MAX_PROMPT_CHARS:
+            raise APIError(f"prompt must contain 1 to {MAX_PROMPT_CHARS} characters")
+        if not self._chat_lock.acquire(blocking=False):
+            raise APIConflict("A model turn or runtime action is active")
+        try:
+            backend = self._active_backend
+            if backend is None or getattr(backend, "_loaded_model", None) is None:
+                raise APIError("No model is loaded")
+            return {"data": {"response": backend.generate(prompt.strip())}}
+        except (ValueError, RuntimeError, OSError) as exc:
+            raise APIError(str(exc)) from exc
+        finally:
+            self._chat_lock.release()
+
     def close(self):
         """Unload the retained local model when the HTTP service shuts down."""
         with self._chat_lock:
             self._unload_active()
             self._closed = True
 
-    def get(self, path: str) -> tuple[int, dict[str, Any]]:
+    def get(self, path: str, query: str = "") -> tuple[int, dict[str, Any]]:
         if path == "/api/health":
             return 200, {"data": {"status": "ok", "service": "ai-dream"}}
         if path == "/api/hardware":
@@ -418,6 +623,13 @@ class ReadOnlyAPI:
             return 200, {"data": {"models": [_jsonable(model) for model in records]}}
         if path == "/api/chats":
             return 200, self.list_chats()
+        match = re.fullmatch(r"/api/chats/([a-f0-9]{32})/settings", path)
+        if match:
+            try:
+                session = self._safe_load_chat(match.group(1))
+                return 200, {"data": {"settings": session.get("settings", {})}}
+            except APIError as exc:
+                return exc.status, {"error": str(exc)}
         match = re.fullmatch(r"/api/chats/([a-f0-9]{32})", path)
         if match:
             try:
@@ -426,11 +638,67 @@ class ReadOnlyAPI:
                 return exc.status, {"error": str(exc)}
         if path == "/api/runtime":
             backends = []
-            for backend in self.runtimes.list_backends():
+            effective_defaults = self._effective_runtime_defaults()
+            for backend in self._all_backends():
                 capabilities = backend.capabilities()
-                backends.append({"name": str(backend.name), "capabilities": _jsonable(capabilities),
-                                 "available": bool(capabilities.available)})
-            return 200, {"data": {"backends": backends}}
+                runtime_id = getattr(backend, "runtime_id", None)
+                backends.append({"name": str(backend.name), "runtime_id": runtime_id,
+                                 "capabilities": _jsonable(capabilities),
+                                 "available": bool(capabilities.available),
+                                 "is_default": (backend.name == effective_defaults.get("backend_name")
+                                                and (not effective_defaults.get("runtime_id")
+                                                     or runtime_id == effective_defaults["runtime_id"]))})
+            devices = []
+            seen_devices = set()
+            for installation in self.runtime_installations.list_installations():
+                if not installation.get("enabled") or not installation.get("available"):
+                    continue
+                for device in installation.get("devices", []):
+                    native_id = device.get("id")
+                    identity = (installation["id"], native_id)
+                    if native_id and identity not in seen_devices:
+                        devices.append({**device, "runtime_id": installation["id"]})
+                        seen_devices.add(identity)
+            registered_paths = {item.get("executable") for item in self.runtime_installations.list_installations()
+                                if item.get("enabled") and item.get("available")}
+            for backend in self._all_backends():
+                capabilities = backend.capabilities()
+                if (not capabilities.available or not capabilities.device_selection
+                        or getattr(backend, "executable", None) in registered_paths):
+                    continue
+                list_devices = getattr(backend, "list_devices", None)
+                if not callable(list_devices):
+                    continue
+                for device in list_devices():
+                    native_id = device.get("id")
+                    identity = (getattr(backend, "runtime_id", None), native_id)
+                    if native_id and identity not in seen_devices:
+                        devices.append(dict(device))
+                        seen_devices.add(identity)
+            return 200, {"data": {"backends": backends, "devices": devices,
+                                  "default_runtime": {key: effective_defaults.get(key)
+                                                      for key in ("runtime_id", "backend_name")},
+                                  "status": self.runtime_status()}}
+        if path == "/api/runtime/installations":
+            return 200, {"data": {"installations": self.runtime_installations.list_installations()}}
+        if path == "/api/model-sources":
+            return 200, {"data": {"sources": self.catalog.list_source_details()}}
+        if path == "/api/model-profiles":
+            params = parse_qs(query, keep_blank_values=True)
+            if set(params) - {"model_id"} or any(len(values) != 1 for values in params.values()):
+                raise APIError("Only one model_id query value is accepted")
+            model_id = params.get("model_id", [None])[0]
+            return 200, {"data": {"profiles": self.profile_store.list_profiles(model_id)}}
+        if path == "/api/settings":
+            settings = self.settings_store.get()
+            settings["runtime_defaults"] = self._effective_runtime_defaults(settings)
+            return 200, {"data": {"settings": settings}}
+        if path == "/api/runtime/status":
+            return 200, {"data": {"status": self.runtime_status()}}
+        if path == "/api/runtime/command":
+            backend = self._active_backend
+            state = backend.status() if backend is not None and callable(getattr(backend, "status", None)) else {}
+            return 200, {"data": {"command": list(state.get("command", ()))}}
         if path == "/api/downloads":
             with self._download_lock:
                 return 200, {"data": {"downloads": [self._public_download(item) for item in self._downloads.values()]}}
@@ -438,7 +706,85 @@ class ReadOnlyAPI:
         if match:
             item = self._download_snapshot(match.group(1))
             return 200, {"data": {"download": item}}
+        match = re.fullmatch(r"/api/runtime/installations/([a-f0-9]{32})", path)
+        if match:
+            item = next((item for item in self.runtime_installations.list_installations()
+                         if item["id"] == match.group(1)), None)
+            if item is None:
+                raise APINotFound("Runtime installation not found")
+            return 200, {"data": {"installation": item}}
+        match = re.fullmatch(r"/api/model-profiles/([a-f0-9]{32})", path)
+        if match:
+            try:
+                return 200, {"data": {"profile": self.profile_store.get(match.group(1))}}
+            except KeyError as exc:
+                raise APINotFound(str(exc)) from exc
         return 404, {"error": "Not found"}
+
+    def create_model_source(self, path):
+        try:
+            self.catalog.add_source(path)
+            identity = self.catalog._source_id(path)
+            return {"data": {"source": next(item for item in self.catalog.list_source_details() if item["id"] == identity)}}
+        except (ValueError, OSError) as exc:
+            raise APIError(str(exc)) from exc
+
+    def remove_model_source(self, source_id):
+        try:
+            self.catalog.remove_source(source_id)
+        except KeyError as exc:
+            raise APINotFound(str(exc)) from exc
+        except (ValueError, OSError) as exc:
+            raise APIError(str(exc)) from exc
+        return {"data": {"deleted": True, "id": source_id}}
+
+    def create_runtime_installation(self, body):
+        if not isinstance(body, dict) or set(body) - {"name", "executable"} or not isinstance(body.get("executable"), str):
+            raise APIError("executable is required; accepted field: name")
+        try:
+            item = self.runtime_installations.register(body["executable"], name=body.get("name"))
+        except (ValueError, OSError) as exc:
+            raise APIError(str(exc)) from exc
+        return {"data": {"installation": item}}
+
+    def update_runtime_installation(self, identity, changes):
+        try:
+            if set(changes) != {"enabled"} or not isinstance(changes["enabled"], bool):
+                raise APIError("enabled boolean is required")
+            if (changes["enabled"] is False and self._active_backend is not None
+                    and getattr(self._active_backend, "runtime_id", None) == identity):
+                self.unload_model()
+            item = self.runtime_installations.set_enabled(identity, changes["enabled"])
+            if not changes["enabled"]:
+                self._installation_backends.pop(identity, None)
+            return {"data": {"installation": item}}
+        except KeyError as exc:
+            raise APINotFound(str(exc)) from exc
+        except ValueError as exc:
+            raise APIError(str(exc)) from exc
+
+    def delete_runtime_installation(self, identity):
+        item = next((item for item in self.runtime_installations.list_installations() if item["id"] == identity), None)
+        if item is None:
+            raise APINotFound("Runtime installation not found")
+        if self._active_backend is not None and getattr(self._active_backend, "runtime_id", None) == identity:
+            self.unload_model()
+        try:
+            self.runtime_installations.remove(identity)
+            self._installation_backends.pop(identity, None)
+        except (KeyError, ValueError) as exc:
+            raise APINotFound(str(exc)) from exc
+        return {"data": {"deleted": True, "id": identity}}
+
+    def probe_runtime_installation(self, identity):
+        try:
+            item = self.runtime_installations.probe(identity)
+            self._installation_backends.pop(identity, None)
+            return {"data": {"installation": item}}
+        except KeyError as exc:
+            raise APINotFound(str(exc)) from exc
+        except ValueError as exc:
+            raise APIError(str(exc)) from exc
 
     @staticmethod
     def _public_download(job):
@@ -671,7 +1017,8 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
                 return
             if parsed.path == "/api" or parsed.path.startswith("/api/"):
                 if (parsed.path != self.path.split("?", 1)[0]
-                        or (parsed.query and parsed.path != "/api/hub/search" and "/api/hub/repos/" not in parsed.path)):
+                        or (parsed.query and parsed.path not in {"/api/hub/search", "/api/model-profiles"}
+                            and "/api/hub/repos/" not in parsed.path)):
                     self._send_json(400, {"error": "Query strings are not supported for this API path"})
                     return
                 if parsed.path == "/api/hub/search":
@@ -681,10 +1028,10 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
                 elif re.fullmatch(r"/api/downloads/[a-f0-9]{32}/events", parsed.path):
                     self._serve_download_events(parsed.path.split("/")[3])
                 else:
-                    if parsed.query:
+                    if parsed.query and parsed.path != "/api/model-profiles":
                         self._send_json(400, {"error": "Query strings are not supported for this API path"})
                         return
-                    self._serve_api(parsed.path)
+                    self._serve_api(parsed.path, parsed.query)
                 return
             if server_static_root is not None:
                 self._serve_static(parsed.path)
@@ -694,15 +1041,18 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
                 return
             self._serve_api(parsed.path)
 
-        def _serve_api(self, path):
+        def _serve_api(self, path, query=""):
             if not self.server._service_slots.acquire(blocking=False):
                 self._send_json(503, {"error": "Local API is busy"})
                 return
-            future = self.server._service_pool.submit(self.server.services.get, path)
+            getter = self.server.services.get
+            future = self.server._service_pool.submit(getter, path, query) if query else self.server._service_pool.submit(getter, path)
             future.add_done_callback(lambda _future: self.server._service_slots.release())
             try:
                 status, payload = future.result(timeout=SERVICE_TIMEOUT_SECONDS)
                 self._send_json(status, payload)
+            except APIError as exc:
+                self._send_json(exc.status, {"error": str(exc)})
             except FutureTimeout:
                 self._send_json(504, {"error": "Local service request timed out"})
             except (OSError, RuntimeError, ValueError, TypeError):
@@ -917,6 +1267,70 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
             if self.path == "/api/agent":
                 self._post_agent()
                 return
+            if self.path == "/api/runtime/load":
+                try:
+                    result = self.server.services.load_model(self._read_json_body())
+                    self._send_json(200, result)
+                except (APIError, ValueError) as exc:
+                    self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
+                return
+            if self.path == "/api/runtime/unload":
+                try:
+                    if self._read_json_body():
+                        raise APIError("unload accepts an empty object")
+                    self._send_json(200, self.server.services.unload_model())
+                except (APIError, ValueError) as exc:
+                    self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
+                return
+            if self.path == "/api/runtime/chat":
+                try:
+                    body = self._read_json_body()
+                    if set(body) != {"prompt"}:
+                        raise APIError("prompt is required")
+                    self._send_json(200, self.server.services.generate_active(body["prompt"]))
+                except (APIError, ValueError) as exc:
+                    self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
+                return
+            if self.path == "/api/runtime/command":
+                try:
+                    body = self._read_json_body()
+                    self._send_json(200, self.server.services.effective_command(body))
+                except (APIError, ValueError, RuntimeError, OSError, AttributeError) as exc:
+                    self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
+                return
+            if self.path in {"/api/model-sources", "/api/models/rescan", "/api/runtime/installations", "/api/model-profiles", "/api/settings"}:
+                try:
+                    body = self._read_json_body()
+                    services = self.server.services
+                    if self.path == "/api/model-sources":
+                        if set(body) != {"path"} or not isinstance(body["path"], str):
+                            raise APIError("path is required")
+                        result, status = services.create_model_source(body["path"]), 201
+                    elif self.path == "/api/models/rescan":
+                        if body:
+                            raise APIError("models rescan accepts an empty object")
+                        result, status = {"data": {"models": [_jsonable(item) for item in services.catalog.scan()]}}, 200
+                    elif self.path == "/api/runtime/installations":
+                        result, status = services.create_runtime_installation(body), 201
+                    elif self.path == "/api/model-profiles":
+                        result, status = {"data": {"profile": services.profile_store.create(body)}}, 201
+                    else:
+                        result, status = {"data": {"settings": services.settings_store.patch(body)}}, 200
+                    self._send_json(status, result)
+                except (APIError, ValueError) as exc:
+                    self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
+                except OSError:
+                    self._send_json(503, {"error": "Could not persist local control-plane data"})
+                return
+            probe_match = re.fullmatch(r"/api/runtime/installations/([a-f0-9]{32})/probe", self.path)
+            if probe_match:
+                try:
+                    if self._read_json_body():
+                        raise APIError("probe accepts an empty object")
+                    self._send_json(200, self.server.services.probe_runtime_installation(probe_match.group(1)))
+                except (APIError, ValueError) as exc:
+                    self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
+                return
             cancel_match = re.fullmatch(r"/api/downloads/([a-f0-9]{32})/cancel", self.path)
             if cancel_match:
                 try:
@@ -966,6 +1380,32 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
             if not self._write_origin_ok():
                 self._send_json(403, {"error": "A permitted Origin is required"})
                 return
+            if self.path == "/api/settings":
+                try:
+                    result = {"data": {"settings": self.server.services.settings_store.patch(self._read_json_body())}}
+                    self._send_json(200, result)
+                except (APIError, ValueError) as exc:
+                    self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
+                return
+            match = re.fullmatch(r"/api/runtime/installations/([a-f0-9]{32})", self.path)
+            profile_match = re.fullmatch(r"/api/model-profiles/([a-f0-9]{32})", self.path)
+            chat_settings_match = re.fullmatch(r"/api/chats/([a-f0-9]{32})/settings", self.path)
+            if match or profile_match or chat_settings_match:
+                try:
+                    body = self._read_json_body()
+                    if match:
+                        result = self.server.services.update_runtime_installation(match.group(1), body)
+                    elif profile_match:
+                        result = {"data": {"profile": self.server.services.profile_store.update(profile_match.group(1), body)}}
+                    else:
+                        value = self.server.services.chat_store.update_session_settings(chat_settings_match.group(1), body)
+                        result = {"data": {"settings": value["settings"]}}
+                    self._send_json(200, result)
+                except KeyError as exc:
+                    self._send_json(404, {"error": str(exc)})
+                except (APIError, ValueError) as exc:
+                    self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
+                return
             match = re.fullmatch(r"/api/chats/([^/?#]+)", self.path)
             if not match:
                 self._reject_write()
@@ -1006,6 +1446,21 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
                 except OSError:
                     self._send_json(503, {"error": "Could not delete the local chat"})
                 return
+            for expression, operation in (
+                (r"/api/model-sources/([a-f0-9]{32})", self.server.services.remove_model_source),
+                (r"/api/runtime/installations/([a-f0-9]{32})", self.server.services.delete_runtime_installation),
+                (r"/api/model-profiles/([a-f0-9]{32})", self.server.services.profile_store.delete),
+            ):
+                match = re.fullmatch(expression, self.path)
+                if match:
+                    try:
+                        result = operation(match.group(1))
+                        self._send_json(200, result if isinstance(result, dict) else {"data": {"deleted": True}})
+                    except KeyError as exc:
+                        self._send_json(404, {"error": str(exc)})
+                    except (APIError, ValueError) as exc:
+                        self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
+                    return
             self._reject_write()
 
         def do_TRACE(self):
@@ -1054,8 +1509,9 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
             except APIError as exc:
                 self._send_json(exc.status, {"error": str(exc)})
                 return
-            if set(body) != {"chat_id", "model_id", "prompt"}:
-                self._send_json(400, {"error": "chat_id, model_id and prompt are required"})
+            optional = {"runtime_id", "backend", "profile_id", "placement", "load", "generation"}
+            if not {"chat_id", "model_id", "prompt"} <= set(body) or set(body) - ({"chat_id", "model_id", "prompt"} | optional):
+                self._send_json(400, {"error": "chat_id, model_id and prompt are required; only runtime settings are optional"})
                 return
             if (not isinstance(body.get("chat_id"), str) or not isinstance(body.get("model_id"), str)
                     or not isinstance(body.get("prompt"), str)):
@@ -1117,7 +1573,8 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
             run = None
             emitted_chars = 0
             try:
-                run = self.server.services.prepare_chat(body["chat_id"], body["model_id"], body["prompt"])
+                request_settings = {key: body[key] for key in optional if key in body}
+                run = self.server.services.prepare_chat(body["chat_id"], body["model_id"], body["prompt"], request_settings)
                 run_ref["run"] = run
                 if cancel.is_set():
                     cancel_generation = getattr(run.backend, "cancel_generation", None)
@@ -1266,7 +1723,7 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
             if not self._write_origin_ok():
                 self._send_json(403, {"error": "A permitted Origin is required"})
                 return
-            if self.path not in {"/api/chat", "/api/agent", "/api/chats", "/api/downloads"} and not re.fullmatch(r"/api/downloads/[a-f0-9]{32}/cancel", self.path) and not re.fullmatch(r"/api/chats/[a-f0-9]{32}", self.path):
+            if self.path not in {"/api/chat", "/api/agent", "/api/chats", "/api/downloads", "/api/model-sources", "/api/models/rescan", "/api/runtime/installations", "/api/model-profiles", "/api/settings"} and not re.fullmatch(r"/api/runtime/installations/[a-f0-9]{32}(/probe)?", self.path) and not re.fullmatch(r"/api/model-profiles/[a-f0-9]{32}", self.path) and not re.fullmatch(r"/api/chats/[a-f0-9]{32}(/settings)?", self.path) and not re.fullmatch(r"/api/downloads/[a-f0-9]{32}/cancel", self.path):
                 self._send_json(404, {"error": "Not found"})
                 return
             self.send_response(204)
@@ -1299,6 +1756,8 @@ def serve_web(port: int = DEFAULT_PORT) -> None:
         raise RuntimeError(f"Angular production build is missing: {web_root / 'index.html'}; run the web build first")
     server = create_server(port, static_root=web_root)
     url = f"http://{LOOPBACK_HOST}:{server.server_address[1]}"
+    pid_path = _web_pid_path(port)
+    _write_web_pid(pid_path)
     print(f"AI Dream Web listening at {url}")
     try:
         import webbrowser
@@ -1307,19 +1766,162 @@ def serve_web(port: int = DEFAULT_PORT) -> None:
     except (OSError, RuntimeError):
         print(f"Open this address in your browser: {url}")
     try:
-        server.serve_forever(poll_interval=0.25)
-    except KeyboardInterrupt:
-        pass
+        _serve_until_stopped(server)
     finally:
         server.server_close()
+        _remove_web_pid(pid_path)
 
 
 def serve(port: int = DEFAULT_PORT) -> None:
     server = create_server(port)
     try:
         print(f"AI Dream local API listening at http://{LOOPBACK_HOST}:{server.server_address[1]}")
-        server.serve_forever(poll_interval=0.25)
-    except KeyboardInterrupt:
-        pass
+        _serve_until_stopped(server)
     finally:
         server.server_close()
+
+
+def _web_pid_path(port: int) -> Path:
+    """Return a per-user runtime marker for servers started by this version."""
+    from aidream.conversation import default_chat_dir
+    return default_chat_dir().parent / f"web-{port}.pid"
+
+
+def _write_web_pid(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(f".{os.getpid()}.tmp")
+    temporary.write_text(f"{os.getpid()}\n", encoding="ascii")
+    os.chmod(temporary, 0o600)
+    os.replace(temporary, path)
+
+
+def _remove_web_pid(path: Path) -> None:
+    try:
+        if path.read_text(encoding="ascii").strip() == str(os.getpid()):
+            path.unlink()
+    except (OSError, UnicodeError):
+        pass
+
+
+def stop_web_server(port: int = DEFAULT_PORT, *, missing_ok: bool = False) -> None:
+    """Stop only a server whose private PID marker and command line agree."""
+    pid_path = _web_pid_path(port)
+    try:
+        raw_pid = pid_path.read_text(encoding="ascii").strip()
+        pid = int(raw_pid)
+    except FileNotFoundError:
+        legacy_pids = _legacy_ai_dream_web_pids(port)
+        if legacy_pids:
+            for legacy_pid in legacy_pids:
+                try:
+                    _signal_and_wait(legacy_pid, port)
+                except ProcessLookupError:
+                    continue
+            return
+        if not missing_ok:
+            raise RuntimeError(f"No managed AI Dream server is recorded on port {port}; if another app owns it, use --port.")
+        return
+    except (OSError, ValueError, UnicodeError) as exc:
+        raise RuntimeError(f"Cannot read the AI Dream server marker for port {port}: {exc}") from exc
+    try:
+        command = Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8", "replace")
+    except OSError:
+        _remove_stale_web_pid(pid_path, raw_pid)
+        if not missing_ok:
+            raise RuntimeError(f"The recorded AI Dream server on port {port} is no longer running.")
+        return
+    if not _is_ai_dream_web_command(command):
+        raise RuntimeError(f"Port {port} marker does not identify an AI Dream web process; refusing to stop it.")
+    try:
+        _signal_and_wait(pid, port)
+    except ProcessLookupError:
+        _remove_stale_web_pid(pid_path, raw_pid)
+        return
+    _remove_stale_web_pid(pid_path, raw_pid)
+
+
+def _signal_and_wait(pid: int, port: int) -> None:
+    os.kill(pid, signal.SIGTERM)
+    deadline = time.monotonic() + 8
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            print(f"Stopped AI Dream Web on port {port}.")
+            return
+        try:
+            if not Path(f"/proc/{pid}/cmdline").read_bytes().strip(b"\0"):
+                print(f"Stopped AI Dream Web on port {port}.")
+                return
+        except OSError:
+            print(f"Stopped AI Dream Web on port {port}.")
+            return
+        time.sleep(0.1)
+    raise RuntimeError(f"AI Dream Web on port {port} did not stop within 8 seconds.")
+
+
+def _legacy_ai_dream_web_pids(port: int) -> list[int]:
+    """Find pre-marker AI Dream web listeners without touching other processes."""
+    try:
+        lines = Path("/proc/net/tcp").read_text(encoding="ascii").splitlines()[1:]
+    except OSError:
+        return []
+    inodes = set()
+    for line in lines:
+        fields = line.split()
+        if len(fields) > 9 and fields[3] == "0A":
+            address, port_hex = fields[1].split(":")
+            if address == "0100007F" and int(port_hex, 16) == port:
+                inodes.add(fields[9])
+    if not inodes:
+        return []
+    found = []
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            if int(entry.joinpath("status").read_text().split("Uid:", 1)[1].split()[0]) != os.getuid():
+                continue
+            command = entry.joinpath("cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8", "replace")
+            if not _is_ai_dream_web_command(command):
+                continue
+            if any(link.is_symlink() and link.readlink().name[8:-1] in inodes
+                   for link in entry.joinpath("fd").iterdir()):
+                found.append(int(entry.name))
+        except (OSError, IndexError, ValueError):
+            continue
+    return found
+
+
+def _is_ai_dream_web_command(command: str) -> bool:
+    parts = command.split()
+    return ("-m aidream web" in command or
+            any(part.endswith("/aidream") or part == "aidream" for part in parts[:-1]) and
+            "web" in parts)
+
+
+def _remove_stale_web_pid(path: Path, raw_pid: str) -> None:
+    try:
+        if path.read_text(encoding="ascii").strip() == raw_pid:
+            path.unlink()
+    except (OSError, UnicodeError):
+        pass
+
+
+def _serve_until_stopped(server: ThreadingHTTPServer) -> None:
+    """Make SIGTERM (for desktop close/stop) shut down through normal cleanup."""
+    previous = {}
+
+    def request_shutdown(_signum, _frame):
+        threading.Thread(target=server.shutdown, name="ai-dream-shutdown", daemon=True).start()
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            previous[sig] = signal.signal(sig, request_shutdown)
+        except ValueError:
+            pass  # Embedded/threaded callers cannot install process handlers.
+    try:
+        server.serve_forever(poll_interval=0.25)
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)

@@ -21,7 +21,13 @@ npm --prefix web run build
 
 The launcher runs `python3 -m aidream web`, serves both Angular and the JSON
 API on `http://127.0.0.1:8765`, and asks the system browser to open that URL.
-Use `./open-ai-dream-web --port 8780` if that port is occupied. `AI Dream.desktop`
+The desktop launcher adds `--restart` by default, which stops a previous
+AI Dream server on that port only after checking its recorded PID and command.
+Use `python3 -m aidream web --stop` to stop the managed server, or
+`python3 -m aidream web --restart` to stop and start it again. The server handles
+Ctrl+C and SIGTERM with a graceful shutdown. Use `./open-ai-dream-web --port 8780`
+if an unrelated application owns port 8765; the launcher will never stop it.
+`AI Dream Web.desktop`
 in the repository root launches the same browser interface with one click. It
 contains absolute paths to this checkout; update its `Exec`, `TryExec`, and
 `Path` entries if the checkout is moved. A dated preview, when present, has its
@@ -35,7 +41,7 @@ Tk window:
 ```sh
 python3 -m aidream hardware
 python3 -m aidream models add /absolute/path/to/models
-python3 -m aidream models scan
+python3 -m aidream models rescan
 python3 -m aidream models list
 python3 -m aidream backends
 python3 -m aidream run /absolute/path/to/model.gguf
@@ -56,11 +62,15 @@ virtual environment).
    distribution's package manager if it is missing. The backend contains a
    Debian/Ubuntu installation service, but no current CLI, Tk or HTTP action
    invokes it; launching AI Dream never installs system packages.
-2. Add an existing model directory and scan it, or download a public GGUF from
-   the Hugging Face Hub screen. Scanning indexes paths and does not move files.
-3. Choose a chat-capable GGUF and load/send a prompt. A projector GGUF is
-   catalogued but cannot run as a standalone chat model. Runtime device names
-   come from llama.cpp rather than the hardware-list numbering.
+2. In the Tk window, click **Add folder**, choose the directory containing your
+   `.gguf` files, then click **Scan**. Scanning indexes paths and does not move
+   files. The model list refreshes after adding a folder.
+3. Select a chat-capable GGUF, choose the runtime settings, and click **Load
+   model**. Loading does not send a prompt. **Runtime status** confirms whether
+   it is loaded; **Unload model** stops it and **Reload model** applies the
+   currently selected model and load settings. A projector GGUF is catalogued
+   but cannot run as a standalone chat model. Runtime device names come from
+   llama.cpp rather than the hardware-list numbering.
 4. If a load option is not supported by the detected executable, its UI
    control is disabled or the backend rejects the request. An explicit tensor
    split disables llama.cpp auto-fit by default because the installed build

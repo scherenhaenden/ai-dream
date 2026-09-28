@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import socket
 import subprocess
@@ -40,6 +41,23 @@ class BackendCapabilities:
     chat_completions: bool = False
     fit: bool = False
     reasoning: bool = False
+    split_mode: bool = False
+    main_gpu: bool = False
+    physical_batch_size: bool = False
+    max_concurrent: bool = False
+    flash_attention: bool = False
+    unified_kv_cache: bool = False
+    offload_kv_cache: bool = False
+    mmap: bool = False
+    keep_model_in_memory: bool = False
+    threads_batch: bool = False
+    continuous_batching: bool = False
+    numa: bool = False
+    kv_cache_type_k: bool = False
+    kv_cache_type_v: bool = False
+    device_listing: bool = False
+    mlock: bool = False
+    mmap_disable: bool = False
 
 
 class InferenceBackend(Protocol):
@@ -57,7 +75,10 @@ class LlamaCppBackend:
     candidates = ("llama-server", "server")
 
     def __init__(self, executable: str | None = None, timeout: float = 180.0,
-                 startup_timeout: float = 60.0, port: int | None = None):
+                 startup_timeout: float = 60.0, port: int | None = None, *,
+                 runtime_id: str | None = None, name: str | None = None):
+        self.runtime_id = runtime_id
+        self.name = name or type(self).name
         self.executable = executable or next((shutil.which(n) for n in self.candidates if shutil.which(n)), None)
         self.timeout = timeout
         self.startup_timeout = startup_timeout
@@ -67,6 +88,8 @@ class LlamaCppBackend:
         self._base_url: str | None = None
         self._loaded_model: Path | None = None
         self._placement: list[str] = []
+        self._effective_command: list[str] = []
+        self._loaded_at: float | None = None
         self._messages: list[dict[str, Any]] = []
         self._active_response = None
         self._active_socket = None
@@ -85,9 +108,10 @@ class LlamaCppBackend:
             return BackendCapabilities(False, None, details="No llama.cpp server found on PATH (looked for llama-server, server).")
         if not self._help:
             return BackendCapabilities(False, self.executable, details="Server executable found, but --help failed; interface could not be verified.")
-        gpu = "-ngl" in self._help or "--n-gpu-layers" in self._help
-        device = "--device" in self._help
-        split = "--tensor-split" in self._help or "--tensor_split" in self._help
+        has = lambda *flags: any(re.search(r"(?<![\w-])" + re.escape(flag) + r"(?![\w-])", self._help) for flag in flags)
+        gpu = has("-ngl", "--n-gpu-layers")
+        device = has("--device")
+        split = has("--tensor-split", "--tensor_split")
         return BackendCapabilities(
             True, self.executable, gpu, device, split,
             "A persistent server process holds the model until unload. Runtime controls reflect flags advertised by this executable.",
@@ -96,9 +120,36 @@ class LlamaCppBackend:
             "-b" in self._help or "--batch-size" in self._help,
             ("/v1/chat/completions" in self._help or "chat completions" in self._help.lower()
              or Path(self.executable).name in self.candidates),
-            "--fit" in self._help,
-            "--reasoning" in self._help,
+            has("--fit"),
+            has("--reasoning"),
+            has("--split-mode"), has("--main-gpu"), has("-ub", "--ubatch-size"),
+            has("-np", "--parallel"), has("-fa", "--flash-attn"),
+            has("--kv-unified"), has("--no-kv-offload"),
+            has("--mmap", "--no-mmap"), has("--mlock"),
+            has("-tb", "--threads-batch"), has("--cont-batching", "--continuous-batching", "--no-cont-batching"), has("--numa"),
+            has("-ctk", "--cache-type-k"), has("-ctv", "--cache-type-v"),
+            has("--list-devices", "--list_devices"),
+            has("--mlock"),
+            has("--no-mmap"),
         )
+
+    def list_devices(self) -> list[dict[str, str]]:
+        """Return runtime-native devices, only when this build advertises listing.
+
+        This is a read-only metadata probe: it never starts a model server.
+        """
+        capabilities = self.capabilities()
+        if not capabilities.available or not capabilities.device_listing or not self.executable:
+            return []
+        try:
+            result = subprocess.run([self.executable, "--list-devices"], capture_output=True,
+                                    text=True, timeout=10, check=False, shell=False)
+        except (OSError, subprocess.SubprocessError, TimeoutError):
+            return []
+        if result.returncode != 0:
+            return []
+        from aidream.runtime_installations import _parse_devices, _output
+        return [dict(device) for device in _parse_devices(_output(result))]
 
     @staticmethod
     def _path(model: Any) -> Path | None:
@@ -206,13 +257,23 @@ class LlamaCppBackend:
             ("gpu_layers", caps.gpu_layers, "-ngl"),
             ("device", caps.device_selection, "--device"),
             ("tensor_split", caps.tensor_split, "--tensor-split"),
+            ("split_mode", caps.split_mode, "--split-mode"),
+            ("main_gpu", caps.main_gpu, "--main-gpu"),
         ):
             if key in placement:
                 if not supported:
                     raise ValueError(f"This llama.cpp server does not advertise {key} placement")
-                value = int(placement[key]) if key == "gpu_layers" else str(placement[key])
+                if key == "main_gpu":
+                    raw = placement[key]
+                    if isinstance(raw, bool) or not str(raw).isdigit():
+                        raise ValueError("main_gpu must be a non-negative integer")
+                    value = int(raw)
+                else:
+                    value = int(placement[key]) if key == "gpu_layers" else str(placement[key])
+                if key == "split_mode" and (not value or any(ch.isspace() for ch in value) or "\x00" in value):
+                    raise ValueError("split_mode must be a single non-empty mode name")
                 opts.extend([flag, str(value)])
-        unknown = set(placement) - {"gpu_layers", "device", "tensor_split"}
+        unknown = set(placement) - {"gpu_layers", "device", "tensor_split", "split_mode", "main_gpu"}
         if unknown:
             raise ValueError(f"Unsupported placement setting(s): {', '.join(sorted(unknown))}")
         return opts
@@ -231,14 +292,17 @@ class LlamaCppBackend:
         caps, result = self.capabilities(), []
         specs = (("context_size", caps.context_size, ("-c", "--ctx-size")),
                  ("threads", caps.threads, ("-t", "--threads")),
-                 ("batch_size", caps.batch_size, ("-b", "--batch-size")))
+                 ("batch_size", caps.batch_size, ("-b", "--batch-size")),
+                 ("physical_batch_size", caps.physical_batch_size, ("-ub", "--ubatch-size")),
+                 ("max_concurrent", caps.max_concurrent, ("-np", "--parallel")),
+                 ("threads_batch", caps.threads_batch, ("-tb", "--threads-batch")))
         for key, supported, flags in specs:
             if key not in options:
                 continue
             if not supported:
                 raise ValueError(f"This llama.cpp server does not advertise {key}")
             value = _positive_int(options[key], key)
-            flag = next((f for f in flags if f in self._help), flags[0])
+            flag = next((f for f in flags if re.search(r"(?<![\w-])" + re.escape(f) + r"(?![\w-])", self._help)), flags[0])
             result.extend((flag, str(value)))
         if "fit" in options:
             if not caps.fit:
@@ -254,31 +318,104 @@ class LlamaCppBackend:
             if not isinstance(reasoning, bool):
                 raise ValueError("reasoning must be a boolean")
             result.extend(("--reasoning", "on" if reasoning else "off"))
-        unknown = set(options) - {key for key, _, _ in specs} - {"fit", "reasoning"}
+        for key, supported, flags in (
+            ("kv_cache_type_k", caps.kv_cache_type_k, ("-ctk", "--cache-type-k")),
+            ("kv_cache_type_v", caps.kv_cache_type_v, ("-ctv", "--cache-type-v")),
+            ("numa", caps.numa, ("--numa",)),
+        ):
+            if key not in options:
+                continue
+            if not supported:
+                raise ValueError(f"This llama.cpp server does not advertise {key}")
+            value = options[key]
+            if not isinstance(value, str) or not value or any(ch.isspace() for ch in value) or "\x00" in value:
+                raise ValueError(f"{key} must be a single non-empty value")
+            flag = next((candidate for candidate in flags if re.search(
+                r"(?<![\w-])" + re.escape(candidate) + r"(?![\w-])", self._help)), flags[-1])
+            result.extend((flag, value))
+        bool_flags = {
+            "flash_attention": (caps.flash_attention, ("-fa", "--flash-attn"), "value"),
+            "unified_kv_cache": (caps.unified_kv_cache, ("--kv-unified",), "true"),
+            "offload_kv_cache": (caps.offload_kv_cache, ("--no-kv-offload",), "false"),
+            "mmap": (caps.mmap, ("--mmap", "--no-mmap"), "mmap"),
+            "keep_model_in_memory": (caps.keep_model_in_memory, ("--mlock",), "true"),
+        }
+        for key, (supported, flags, behavior) in bool_flags.items():
+            if key not in options:
+                continue
+            if not supported:
+                raise ValueError(f"This llama.cpp server does not advertise {key}")
+            value = options[key]
+            if not isinstance(value, bool):
+                raise ValueError(f"{key} must be a boolean")
+            chosen = next((flag for flag in flags if re.search(r"(?<![\w-])" + re.escape(flag) + r"(?![\w-])", self._help)), flags[0])
+            if behavior == "value":
+                result.extend((chosen, "on" if value else "off"))
+            elif behavior == "false" and not value:
+                result.append(chosen)
+            elif behavior == "true" and value:
+                result.append(chosen)
+            elif behavior == "mmap" and not value:
+                if caps.mmap_disable:
+                    result.append("--no-mmap")
+                else:
+                    raise ValueError("This llama.cpp server cannot disable mmap")
+        if "continuous_batching" in options:
+            if not caps.continuous_batching:
+                raise ValueError("This llama.cpp server does not advertise continuous_batching")
+            if not isinstance(options["continuous_batching"], bool):
+                raise ValueError("continuous_batching must be a boolean")
+            if options["continuous_batching"]:
+                flag = next((candidate for candidate in ("--cont-batching", "--continuous-batching")
+                             if re.search(r"(?<![\w-])" + re.escape(candidate) + r"(?![\w-])", self._help)), None)
+                if flag is None:
+                    raise ValueError("This llama.cpp server cannot enable continuous batching")
+                result.append(flag)
+            elif re.search(r"(?<![\w-])--no-cont-batching(?![\w-])", self._help):
+                result.append("--no-cont-batching")
+            else:
+                raise ValueError("This llama.cpp server cannot disable continuous batching")
+        unknown = (set(options) - {key for key, _, _ in specs}
+                   - {"fit", "reasoning", *bool_flags, "continuous_batching", "numa",
+                      "kv_cache_type_k", "kv_cache_type_v"})
         if unknown:
             raise ValueError(f"Unsupported load option(s): {', '.join(sorted(unknown))}")
         return result
+
+    def effective_command(self, model: Any, placement: Any = None,
+                          options: Mapping[str, Any] | None = None, *, port: int | None = None) -> list[str]:
+        """Return the exact argv for a load, including AI Dream's automatic fit default."""
+        self.validate_load(model, placement, options)
+        runtime_options = self._load_options(options)
+        if (isinstance(placement, Mapping) and placement.get("tensor_split") is not None
+                and not (options and "fit" in options) and self.capabilities().fit):
+            runtime_options.extend(("--fit", "off"))
+        selected_port = port if port is not None else (self.port or self._free_port())
+        path = self._path(model)
+        return [self.executable, "-m", str(path.resolve()), "--host", "127.0.0.1", "--port",
+                str(selected_port), *self._placement_options(placement), *runtime_options]
+
+    def status(self) -> dict[str, Any]:
+        """Describe the current persistent server state for UI/API status views."""
+        running = bool(self._process and self._process.poll() is None and self._loaded_model)
+        return {"loaded": running, "model_path": str(self._loaded_model) if running else None,
+                "placement": list(self._placement) if running else [],
+                "command": list(self._effective_command) if running else [],
+                "uptime_seconds": max(0.0, time.monotonic() - self._loaded_at) if running and self._loaded_at else None}
 
     def load(self, model: Any, placement: Any = None, options: Mapping[str, Any] | None = None) -> None:
         self.validate_load(model, placement, options)
         path = self._path(model)
         self.unload()
-        runtime_options = self._load_options(options)
-        placement_options = self._placement_options(placement)
-        # llama.cpp auto-fit may abort on certain multi-GPU explicit tensor splits.
-        # The supported server CLI can safely run with fit disabled in that case.
-        if (isinstance(placement, Mapping) and placement.get("tensor_split") is not None
-                and not (options and "fit" in options) and self.capabilities().fit):
-            runtime_options.extend(("--fit", "off"))
-        port = self.port or self._free_port()
+        command = self.effective_command(model, placement, options)
         self._log = tempfile.TemporaryFile(mode="w+t", encoding="utf-8")
-        command = [self.executable, "-m", str(path.resolve()), "--host", "127.0.0.1", "--port", str(port), *placement_options, *runtime_options]
         try:
             self._process = subprocess.Popen(command, stdout=self._log, stderr=subprocess.STDOUT, text=True)
         except OSError:
             self._close_log()
             raise
-        self._base_url = f"http://127.0.0.1:{port}"
+        command_port = command[command.index("--port") + 1]
+        self._base_url = f"http://127.0.0.1:{command_port}"
         deadline = time.monotonic() + self.startup_timeout
         while time.monotonic() < deadline:
             if self._process.poll() is not None:
@@ -289,7 +426,9 @@ class LlamaCppBackend:
                 with urlopen(self._base_url + "/health", timeout=0.5) as response:
                     if 200 <= response.status < 300:
                         self._loaded_model = path.resolve()
-                        self._placement = placement_options + runtime_options
+                        self._placement = command[command.index("--port") + 2:]
+                        self._effective_command = list(command)
+                        self._loaded_at = time.monotonic()
                         self._messages = []
                         return
             except (OSError, URLError):
@@ -321,7 +460,8 @@ class LlamaCppBackend:
         opts = {} if options is None else options
         if not isinstance(opts, Mapping):
             raise ValueError("generation options must be a mapping")
-        unknown = set(opts) - {"temperature", "max_tokens", "system_prompt", "stop", "images"}
+        unknown = set(opts) - {"temperature", "max_tokens", "system_prompt", "stop", "images",
+                               "top_p", "top_k", "min_p", "repeat_penalty", "seed"}
         if unknown:
             raise ValueError(f"Unsupported generation option(s): {', '.join(sorted(unknown))}")
         if not self.capabilities().chat_completions:
@@ -355,6 +495,28 @@ class LlamaCppBackend:
         payload = {"messages": payload_messages, "temperature": temperature, "stream": True}
         if "max_tokens" in opts:
             payload["max_tokens"] = _positive_int(opts["max_tokens"], "max_tokens")
+        for key in ("top_p", "min_p", "repeat_penalty"):
+            if key in opts:
+                value = opts[key]
+                if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+                    raise ValueError(f"{key} must be a non-negative number")
+                payload[key] = value
+        if "top_k" in opts:
+            payload["top_k"] = _positive_int(opts["top_k"], "top_k")
+        if "seed" in opts:
+            seed = opts["seed"]
+            if isinstance(seed, bool) or not isinstance(seed, int):
+                raise ValueError("seed must be an integer")
+            payload["seed"] = seed
+        if "structured_output" in opts:
+            response_format = opts["structured_output"]
+            if not isinstance(response_format, Mapping):
+                raise ValueError("structured_output must be an object")
+            try:
+                json.dumps(response_format, allow_nan=False)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("structured_output must contain JSON values") from exc
+            payload["response_format"] = dict(response_format)
         if "stop" in opts:
             stop = opts["stop"]
             if isinstance(stop, str):
@@ -482,6 +644,8 @@ class LlamaCppBackend:
         self._base_url = None
         self._loaded_model = None
         self._placement = []
+        self._effective_command = []
+        self._loaded_at = None
         self._messages = []
         if process and process.poll() is None:
             process.terminate()

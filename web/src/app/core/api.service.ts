@@ -42,7 +42,8 @@ export class ApiService {
   delete<T>(path: string) { return this.http.delete<T>(`${this.baseUrl()}${path}`); }
   request<T>(path: string, body?: unknown): Promise<T> {
     const request = body === undefined ? this.http.get<T>(`${this.baseUrl()}${path}`) : this.http.post<T>(`${this.baseUrl()}${path}`, body);
-    return firstValueFrom(request.pipe(timeout(30000)));
+    const waitMs = path === '/api/runtime/load' ? 240000 : 30000;
+    return firstValueFrom(request.pipe(timeout(waitMs)));
   }
 }
 

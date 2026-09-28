@@ -198,7 +198,7 @@ def _validate_settings(settings: Any) -> dict[str, Any]:
 def _validate_placement(value: Any) -> dict[str, Any]:
     if not isinstance(value, Mapping):
         raise ValueError("placement must be an object")
-    extra = set(value) - {"gpu_layers", "device", "tensor_split"}
+    extra = set(value) - {"gpu_layers", "device", "tensor_split", "split_mode", "main_gpu"}
     if extra:
         raise ValueError(f"unsupported placement setting(s): {', '.join(sorted(map(str, extra)))}")
     result: dict[str, Any] = {}
@@ -220,6 +220,16 @@ def _validate_placement(value: Any) -> dict[str, Any]:
         if not all(math.isfinite(number) and number > 0 for number in numbers):
             raise ValueError("tensor_split values must be positive and finite")
         result["tensor_split"] = split
+    if "split_mode" in value:
+        mode = value["split_mode"]
+        if not isinstance(mode, str) or not mode.strip() or len(mode) > 32:
+            raise ValueError("split_mode must be a short string")
+        result["split_mode"] = mode.strip()
+    if "main_gpu" in value:
+        gpu = value["main_gpu"]
+        if isinstance(gpu, bool) or not isinstance(gpu, int) or not 0 <= gpu <= 255:
+            raise ValueError("main_gpu must be an integer from 0 to 255")
+        result["main_gpu"] = gpu
     return result
 
 

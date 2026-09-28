@@ -16,12 +16,14 @@ import uuid
 _SESSION_ID = re.compile(r"[a-f0-9]{32}\Z")
 _ROLES = {"user", "assistant", "system"}
 _PRESET_ID = re.compile(r"[a-f0-9]{32}\Z")
-_SESSION_SETTING_KEYS = {"backend_name", "model_id", "model_path", "runtime", "generation", "preset_id"}
-_PLACEMENT_KEYS = {"gpu_layers", "device", "tensor_split"}
+_SESSION_SETTING_KEYS = {"backend_name", "model_id", "model_path", "runtime", "generation", "preset_id", "profile_id"}
+_PLACEMENT_KEYS = {"gpu_layers", "device", "tensor_split", "split_mode", "main_gpu"}
 _LOAD_KEYS = {"context_size", "threads", "batch_size", "physical_batch_size", "max_concurrent",
-              "unified_kv_cache", "flash_attention", "offload_kv_cache", "keep_model_in_memory", "mmap"}
+              "threads_batch", "continuous_batching", "numa", "kv_cache_type_k", "kv_cache_type_v",
+              "unified_kv_cache", "flash_attention", "offload_kv_cache", "keep_model_in_memory", "mmap", "fit"}
 _GENERATION_KEYS = {"system_prompt", "reasoning", "temperature", "max_tokens", "stop_strings",
-                    "context_size", "threads", "batch_size", "placement", "structured_output"}
+                    "placement", "structured_output"}
+_LEGACY_GENERATION_RUNTIME_KEYS = {"context_size", "threads", "batch_size"}
 _ATTACHMENT_KINDS = {"image", "document"}
 _MAX_ATTACHMENTS = 8
 _MAX_ATTACHMENT_PATH = 4096
@@ -32,10 +34,9 @@ def _default_session_settings() -> dict[str, Any]:
     return {"backend_name": "", "model_id": "", "model_path": "",
             "runtime": {"placement": {}, "load": {}},
             "generation": {"system_prompt": "", "reasoning": False, "temperature": 0.7,
-                           "max_tokens": None, "stop_strings": [], "context_size": None,
-                           "threads": None, "batch_size": None, "placement": {},
+                           "max_tokens": None, "stop_strings": [], "placement": {},
                            "structured_output": None},
-            "preset_id": None}
+            "preset_id": None, "profile_id": None}
 
 
 def default_chat_dir() -> Path:
@@ -92,7 +93,7 @@ class ChatStore:
         """Return validated settings, including defaults for legacy sessions.
 
         Schema names for UI integration: backend_name, model_id, model_path,
-        runtime.placement, runtime.load, generation, and preset_id.
+        runtime.placement, runtime.load, generation, preset_id, and profile_id.
         """
         return self.load(session_id)["settings"]
 
@@ -338,21 +339,37 @@ def _validate_session_settings(value: Any) -> dict[str, Any]:
         raise ValueError("runtime.load contains unsupported options")
     normalized_load: dict[str, Any] = {}
     for key, maximum in (("context_size", 2_000_000), ("threads", 1024), ("batch_size", 65_536),
-                         ("physical_batch_size", 65_536), ("max_concurrent", 1024)):
+                         ("physical_batch_size", 65_536), ("max_concurrent", 1024),
+                         ("threads_batch", 65_536)):
         if key in load:
             normalized_load[key] = _bounded_int(load[key], key, 1, maximum)
-    for key in _LOAD_KEYS - {"context_size", "threads", "batch_size", "physical_batch_size", "max_concurrent"}:
+    for key in ("continuous_batching", "unified_kv_cache", "flash_attention", "offload_kv_cache",
+                "keep_model_in_memory", "mmap", "fit"):
         if key in load:
             if not isinstance(load[key], bool):
                 raise ValueError(f"runtime.load.{key} must be boolean")
             normalized_load[key] = load[key]
+    for key in ("numa", "kv_cache_type_k", "kv_cache_type_v"):
+        if key in load:
+            text = load[key]
+            if not isinstance(text, str) or not text.strip() or len(text) > 128 or "\x00" in text:
+                raise ValueError(f"runtime.load.{key} must be bounded non-empty text")
+            normalized_load[key] = text.strip()
     result["runtime"] = {"placement": normalized_placement, "load": normalized_load}
 
     generation = result["generation"]
-    if not isinstance(generation, dict) or set(generation) - _GENERATION_KEYS:
+    if not isinstance(generation, dict) or set(generation) - (_GENERATION_KEYS | _LEGACY_GENERATION_RUNTIME_KEYS):
         raise ValueError("generation contains unsupported options")
     generation_result = _default_session_settings()["generation"]
     generation_result.update(generation)
+    # Older chat files and desktop builds stored load-affecting settings under
+    # generation. Migrate them to runtime.load when no newer load value exists.
+    for key in _LEGACY_GENERATION_RUNTIME_KEYS:
+        legacy_value = generation_result.pop(key, None)
+        if legacy_value is not None and key not in normalized_load:
+            maximum = {"context_size": 2_000_000, "threads": 1024, "batch_size": 65_536}[key]
+            normalized_load[key] = _bounded_int(legacy_value, f"generation.{key}", 1, maximum)
+    result["runtime"] = {"placement": normalized_placement, "load": normalized_load}
     prompt = generation_result["system_prompt"]
     if not isinstance(prompt, str) or len(prompt) > 16_384 or "\x00" in prompt:
         raise ValueError("generation.system_prompt must be text of at most 16384 characters")
@@ -363,8 +380,7 @@ def _validate_session_settings(value: Any) -> dict[str, Any]:
             or not math.isfinite(temperature) or not 0 <= temperature <= 2):
         raise ValueError("generation.temperature must be a finite number from 0 to 2")
     generation_result["temperature"] = float(temperature)
-    for key, maximum in (("max_tokens", 1_000_000), ("context_size", 2_000_000),
-                         ("threads", 1024), ("batch_size", 65_536)):
+    for key, maximum in (("max_tokens", 1_000_000),):
         if generation_result[key] is not None:
             generation_result[key] = _bounded_int(generation_result[key], f"generation.{key}", 1, maximum)
     stops = generation_result["stop_strings"]
@@ -392,6 +408,9 @@ def _validate_session_settings(value: Any) -> dict[str, Any]:
     preset_id = result["preset_id"]
     if preset_id is not None and (not isinstance(preset_id, str) or not _PRESET_ID.fullmatch(preset_id)):
         raise ValueError("preset_id must be a 32-character preset ID or None")
+    profile_id = result["profile_id"]
+    if profile_id is not None and (not isinstance(profile_id, str) or not _PRESET_ID.fullmatch(profile_id)):
+        raise ValueError("profile_id must be a 32-character profile ID or None")
     return result
 
 
@@ -417,6 +436,10 @@ def _validate_placement(value: Any, name: str) -> dict[str, Any]:
         if any(not math.isfinite(number) or number <= 0 for number in numbers):
             raise ValueError(f"{name}.tensor_split values must be positive and finite")
         result["tensor_split"] = split
+    if "split_mode" in value:
+        result["split_mode"] = _short_text(value["split_mode"], f"{name}.split_mode", 32)
+    if "main_gpu" in value:
+        result["main_gpu"] = _bounded_int(value["main_gpu"], f"{name}.main_gpu", 0, 255)
     return result
 
 
