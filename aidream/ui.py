@@ -672,7 +672,7 @@ class AIDreamWindow:
                             native_devices.append(native)
         self.device_box.configure(values=("", *native_devices),
                                   state=(tk.NORMAL if caps.device_selection and self.manual_device_var.get() else
-                                         tk.READONLY if caps.device_selection else tk.DISABLED))
+                                         "readonly" if caps.device_selection else tk.DISABLED))
         self.manual_device_check.configure(state=tk.NORMAL if caps.device_selection else tk.DISABLED)
         self.gpu_layers_entry.configure(state=tk.NORMAL if caps.gpu_layers else tk.DISABLED)
         self.tensor_split_entry.configure(state=tk.NORMAL if caps.tensor_split else tk.DISABLED)
@@ -1603,7 +1603,7 @@ class AIDreamWindow:
                     self.send_button.configure(state=tk.NORMAL)
                     self.stop_button.configure(state=tk.DISABLED)
                     for widget in self._generation_controls:
-                        widget.configure(state=(tk.READONLY if widget in (self.session_box, self.backend_box)
+                        widget.configure(state=("readonly" if widget in (self.session_box, self.backend_box)
                                                 else tk.NORMAL))
                     self.clear_images_button.configure(state=tk.NORMAL if self._pending_images else tk.DISABLED)
         except queue.Empty:
