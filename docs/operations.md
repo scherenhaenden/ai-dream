@@ -62,11 +62,15 @@ virtual environment).
    distribution's package manager if it is missing. The backend contains a
    Debian/Ubuntu installation service, but no current CLI, Tk or HTTP action
    invokes it; launching AI Dream never installs system packages.
-2. Add an existing model directory and scan it, or download a public GGUF from
-   the Hugging Face Hub screen. Scanning indexes paths and does not move files.
-3. Choose a chat-capable GGUF and load/send a prompt. A projector GGUF is
-   catalogued but cannot run as a standalone chat model. Runtime device names
-   come from llama.cpp rather than the hardware-list numbering.
+2. In the Tk window, click **Add folder**, choose the directory containing your
+   `.gguf` files, then click **Scan**. Scanning indexes paths and does not move
+   files. The model list refreshes after adding a folder.
+3. Select a chat-capable GGUF, choose the runtime settings, and click **Load
+   model**. Loading does not send a prompt. **Runtime status** confirms whether
+   it is loaded; **Unload model** stops it and **Reload model** applies the
+   currently selected model and load settings. A projector GGUF is catalogued
+   but cannot run as a standalone chat model. Runtime device names come from
+   llama.cpp rather than the hardware-list numbering.
 4. If a load option is not supported by the detected executable, its UI
    control is disabled or the backend rejects the request. An explicit tensor
    split disables llama.cpp auto-fit by default because the installed build
