@@ -7,6 +7,7 @@ from tkinter import filedialog, messagebox, ttk
 import threading
 import queue
 import tempfile
+import shlex
 from pathlib import Path
 
 
@@ -17,9 +18,11 @@ class AIDreamWindow:
         from aidream.runtime import RuntimeRegistry
 
         from aidream.conversation import ChatStore
+        from aidream.model_profiles import ModelProfileStore
         from aidream.voice import LocalVoice
 
         self.root = root
+        self._configure_theme()
         self.chat_store = ChatStore()
         self.voice = LocalVoice()
         self._speech_worker = None
@@ -32,14 +35,18 @@ class AIDreamWindow:
         self._generation_controls = []
         self._pending_images = []
         self._pending_documents = []
+        self._closing = False
         sessions = self.chat_store.list_sessions()
         self.sessions = sessions
         self.chat_session = sessions[0] if sessions else self.chat_store.create()
         self.last_answer = ""
         self.root.title("AI Dream")
-        self.root.geometry("900x650")
+        self.root.geometry("1320x900")
+        self.root.minsize(1080, 700)
         self.catalog = ModelCatalog()
         self.hardware = HardwareService()
+        self.profile_store = ModelProfileStore()
+        self._active_model_profile = None
         self.registry = RuntimeRegistry()
         self.models = []
         self._all_models = []
@@ -47,6 +54,7 @@ class AIDreamWindow:
         self.backend_by_name = {b.name: b for b in self.backends}
         self.loaded_backend = None
         self.loaded_key = None
+        self._runtime_action_busy = False
         self._settings_widgets = {}
         self._build()
         self.root.after(100, self._poll_voice_results)
@@ -54,6 +62,32 @@ class AIDreamWindow:
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         self.refresh()
         self._apply_session_settings(self.chat_session)
+
+    def _configure_theme(self):
+        """Use a consistent dark palette on supported Tk themes."""
+        style = ttk.Style(self.root)
+        try:
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
+        bg, panel, fg, muted, accent = "#171b24", "#202633", "#e7ebf2", "#a7b1c2", "#4d78bd"
+        self.root.configure(background=bg)
+        style.configure(".", background=bg, foreground=fg, fieldbackground=panel,
+                        insertcolor=fg, bordercolor="#394354", lightcolor="#394354",
+                        darkcolor=bg, troughcolor=panel, focuscolor=accent)
+        style.configure("TFrame", background=bg)
+        style.configure("TLabelframe", background=bg, bordercolor="#394354")
+        style.configure("TLabelframe.Label", background=bg, foreground=fg)
+        style.configure("TLabel", background=bg, foreground=fg)
+        style.configure("TButton", background=panel, foreground=fg, padding=(8, 5))
+        style.map("TButton", background=[("active", "#2c3749"), ("disabled", bg)])
+        style.configure("TEntry", fieldbackground=panel, foreground=fg, insertcolor=fg)
+        style.configure("TCombobox", fieldbackground=panel, foreground=fg, arrowcolor=fg)
+        style.map("TCombobox", fieldbackground=[("readonly", panel)], foreground=[("readonly", fg)])
+        style.configure("TCheckbutton", background=bg, foreground=fg)
+        style.configure("TNotebook", background=bg, borderwidth=0)
+        style.configure("TNotebook.Tab", background=panel, foreground=muted, padding=(12, 7))
+        style.map("TNotebook.Tab", background=[("selected", accent)], foreground=[("selected", "white")])
 
     def _build(self):
         root = self.root
@@ -63,16 +97,20 @@ class AIDreamWindow:
         left = ttk.Frame(pane, padding=8)
         pane.add(left, weight=1)
         ttk.Label(left, text="Hardware").pack(anchor="w")
-        self.hardware_text = tk.Text(left, height=8, width=38, state=tk.DISABLED, wrap=tk.WORD)
+        self.hardware_text = tk.Text(left, height=6, width=38, state=tk.DISABLED, wrap=tk.WORD,
+                                     background="#202633", foreground="#e7ebf2",
+                                     insertbackground="#e7ebf2", relief=tk.FLAT)
         self.hardware_text.pack(fill=tk.X, pady=(2, 8))
         ttk.Label(left, text="Model directories").pack(anchor="w")
-        self.sources = tk.Listbox(left, height=5, exportselection=False)
+        self.sources = tk.Listbox(left, height=5, exportselection=False, background="#202633",
+                                  foreground="#e7ebf2", selectbackground="#4d78bd",
+                                  selectforeground="white", relief=tk.FLAT)
         self.sources.pack(fill=tk.X, pady=2)
         row = ttk.Frame(left)
         row.pack(fill=tk.X)
         ttk.Button(row, text="Add folder", command=self.add_folder).pack(side=tk.LEFT)
         ttk.Button(row, text="Scan", command=self.scan).pack(side=tk.LEFT, padx=4)
-        ttk.Button(row, text="Download from Hugging Face", command=self.open_hf_downloader).pack(side=tk.LEFT)
+        ttk.Button(left, text="Download from Hugging Face", command=self.open_hf_downloader).pack(anchor="w", pady=(2, 4))
         ttk.Label(left, text="GGUF models").pack(anchor="w", pady=(8, 0))
         model_filter = ttk.Frame(left)
         model_filter.pack(fill=tk.X)
@@ -87,7 +125,9 @@ class AIDreamWindow:
                                            state="readonly", width=15)
         self.model_sort_box.pack(side=tk.RIGHT)
         self.model_sort_box.bind("<<ComboboxSelected>>", lambda _event: self._populate_model_list())
-        self.model_list = tk.Listbox(left, height=14, exportselection=False)
+        self.model_list = tk.Listbox(left, height=14, exportselection=False, background="#202633",
+                                     foreground="#e7ebf2", selectbackground="#4d78bd",
+                                     selectforeground="white", relief=tk.FLAT)
         self.model_list.pack(fill=tk.BOTH, expand=True, pady=2)
         self.model_list.bind("<<ListboxSelect>>", self.show_model_details)
         self.model_details = ttk.Label(left, text="Select a model to inspect its metadata.",
@@ -96,124 +136,189 @@ class AIDreamWindow:
 
         right = ttk.Frame(pane, padding=8)
         pane.add(right, weight=2)
-        settings = ttk.Frame(right)
-        settings.pack(fill=tk.X)
-        ttk.Label(settings, text="Runtime").pack(side=tk.LEFT)
+        config_tabs = ttk.Notebook(right)
+        config_tabs.pack(fill=tk.X, expand=False, anchor="nw")
+        self.config_tabs = config_tabs
+        runtime_tab = ttk.Frame(config_tabs, padding=10)
+        generation = ttk.Frame(config_tabs, padding=10)
+        config_tabs.add(runtime_tab, text="Model & runtime")
+        config_tabs.add(generation, text="Generation")
+
+        placement = ttk.LabelFrame(runtime_tab, text="Runtime and placement", padding=10)
+        placement.pack(fill=tk.X, pady=(0, 8))
+        for col in range(4):
+            placement.columnconfigure(col, weight=1)
+        ttk.Label(placement, text="Backend").grid(row=0, column=0, sticky="w", padx=(0, 6), pady=4)
         names = [b.name for b in self.backends]
         self.backend_var = tk.StringVar(value=names[0] if names else "")
-        self.backend_box = ttk.Combobox(settings, textvariable=self.backend_var, values=names, state="readonly", width=20)
-        self.backend_box.pack(side=tk.LEFT, padx=6)
-        ttk.Label(settings, text="Runtime device name").pack(side=tk.LEFT)
+        self.backend_box = ttk.Combobox(placement, textvariable=self.backend_var, values=names, state="readonly")
+        self.backend_box.grid(row=0, column=1, sticky="ew", padx=(0, 16), pady=4)
+        ttk.Label(placement, text="Runtime device").grid(row=0, column=2, sticky="w", padx=(0, 6), pady=4)
         self.device_var = tk.StringVar(value="")
-        self.device_box = ttk.Entry(settings, textvariable=self.device_var, width=18)
-        self.device_box.pack(side=tk.LEFT, padx=6)
-        placement = ttk.LabelFrame(right, text="Advanced placement (runtime-supported)", padding=4)
-        placement.pack(fill=tk.X, pady=(4, 0))
-        ttk.Label(placement, text="GPU layers").pack(side=tk.LEFT)
-        self.gpu_layers_var = tk.StringVar()
-        self.gpu_layers_entry = ttk.Entry(placement, textvariable=self.gpu_layers_var, width=8)
-        self.gpu_layers_entry.pack(side=tk.LEFT, padx=(4, 12))
-        ttk.Label(placement, text="Tensor split").pack(side=tk.LEFT)
-        self.tensor_split_var = tk.StringVar()
-        self.tensor_split_entry = ttk.Entry(placement, textvariable=self.tensor_split_var, width=18)
-        self.tensor_split_entry.pack(side=tk.LEFT, padx=4)
+        self.device_box = ttk.Combobox(placement, textvariable=self.device_var, values=("",), state="readonly")
+        self.device_box.grid(row=0, column=3, sticky="ew", pady=4)
         self.backend_box.bind("<<ComboboxSelected>>", lambda _e: self._update_capabilities())
-        self.capability_label = ttk.Label(right, text="")
-        self.capability_label.pack(anchor="w", pady=4)
+        ttk.Label(placement, text="GPU layers").grid(row=1, column=0, sticky="w", pady=4)
+        self.gpu_layers_var = tk.StringVar()
+        self.gpu_layers_entry = ttk.Entry(placement, textvariable=self.gpu_layers_var)
+        self.gpu_layers_entry.grid(row=1, column=1, sticky="ew", padx=(0, 16), pady=4)
+        ttk.Label(placement, text="Tensor split").grid(row=1, column=2, sticky="w", pady=4)
+        self.tensor_split_var = tk.StringVar()
+        self.tensor_split_entry = ttk.Entry(placement, textvariable=self.tensor_split_var)
+        self.tensor_split_entry.grid(row=1, column=3, sticky="ew", pady=4)
+        ttk.Label(placement, text="Split mode").grid(row=2, column=0, sticky="w", pady=4)
+        self.split_mode_var = tk.StringVar(value="layer")
+        self.split_mode_box = ttk.Entry(placement, textvariable=self.split_mode_var)
+        self.split_mode_box.grid(row=2, column=1, sticky="ew", padx=(0, 16), pady=4)
+        ttk.Label(placement, text="Main GPU").grid(row=2, column=2, sticky="w", pady=4)
+        self.main_gpu_var = tk.StringVar()
+        self.main_gpu_entry = ttk.Entry(placement, textvariable=self.main_gpu_var)
+        self.main_gpu_entry.grid(row=2, column=3, sticky="ew", pady=4)
+        self.manual_device_var = tk.BooleanVar(value=False)
+        self.manual_device_check = ttk.Checkbutton(placement, text="Manual device override",
+                                                    variable=self.manual_device_var,
+                                                    command=self._update_capabilities)
+        self.manual_device_check.grid(row=3, column=0, columnspan=2, sticky="w", pady=(5, 0))
+        self.capability_label = ttk.Label(runtime_tab, text="", wraplength=700, foreground="#a7b1c2")
+        self.capability_label.pack(anchor="w", pady=(0, 8))
 
-        load_settings = ttk.LabelFrame(right, text="Model load settings", padding=4)
-        load_settings.pack(fill=tk.X, pady=(0, 4))
+        load_settings = ttk.LabelFrame(runtime_tab, text="Selected model load profile", padding=10)
+        load_settings.pack(fill=tk.X)
+        for col in range(3):
+            load_settings.columnconfigure(col, weight=1)
         self.context_var = tk.StringVar(value="4096")
         self.threads_var = tk.StringVar()
         self.batch_var = tk.StringVar()
-        self._setting_entry(load_settings, "Context", self.context_var, "context_size", 9)
-        self._setting_entry(load_settings, "CPU threads", self.threads_var, "threads", 7)
-        self._setting_entry(load_settings, "Batch size", self.batch_var, "batch_size", 7)
-        self.reasoning_var = tk.BooleanVar(value=False)
-        self.reasoning_check = ttk.Checkbutton(load_settings, text="Enable thinking", variable=self.reasoning_var)
-        self.reasoning_check.pack(side=tk.LEFT, padx=(4, 10))
-        ttk.Label(load_settings, text="Load settings apply on next send; changing them reloads the model.").pack(anchor="w")
+        self.physical_batch_var = tk.StringVar()
+        self.max_concurrent_var = tk.StringVar()
+        for row, (label, variable, key) in enumerate((
+            ("Context size", self.context_var, "context_size"), ("CPU threads", self.threads_var, "threads"),
+            ("Batch size", self.batch_var, "batch_size"), ("Physical batch size", self.physical_batch_var, "physical_batch_size"),
+            ("Max concurrent", self.max_concurrent_var, "max_concurrent"))):
+            self._setting_grid_entry(load_settings, label, variable, key, row // 3, row % 3)
+        self._advanced_load_vars = {}
+        for index, (key, label) in enumerate((("flash_attention", "Flash attention"),
+                           ("unified_kv_cache", "Unified KV cache"),
+                           ("offload_kv_cache", "Offload KV cache"), ("mmap", "Memory map"),
+                           ("keep_model_in_memory", "Keep model in memory"), ("fit", "Fit memory"))):
+            variable = tk.BooleanVar(value=False)
+            self._advanced_load_vars[key] = variable
+            check = ttk.Checkbutton(load_settings, text=label, variable=variable)
+            check.grid(row=2 + index // 3, column=index % 3, sticky="w", pady=4)
+            self._settings_widgets[key] = check
+        self._settings_widgets["split_mode"] = self.split_mode_box
+        self._settings_widgets["main_gpu"] = self.main_gpu_entry
+        ttk.Label(load_settings, text="These options belong to the selected model and apply on load/reload.",
+                  foreground="#a7b1c2").grid(row=4, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        self.model_profile_status = ttk.Label(load_settings, text="Select a model to load its saved profile.",
+                                              foreground="#a7b1c2")
+        self.model_profile_status.grid(row=5, column=0, columnspan=3, sticky="w", pady=(3, 0))
 
-        generation = ttk.LabelFrame(right, text="Generation settings", padding=4)
-        generation.pack(fill=tk.X, pady=(0, 4))
+        runtime_actions = ttk.Frame(right)
+        runtime_actions.pack(fill=tk.X, pady=(6, 8))
+        runtime_actions.columnconfigure(4, weight=1)
+        for column, (label, command) in enumerate((
+            ("Load selected model", self.load_selected_model), ("Unload", self.unload_model),
+            ("Reload", self.reload_model), ("Runtime status", self.show_runtime_status))):
+            ttk.Button(runtime_actions, text=label, command=command).grid(
+                row=0, column=column, sticky="w", padx=(0, 5), pady=2)
+        ttk.Button(runtime_actions, text="Effective command", command=self.show_effective_command).grid(
+            row=1, column=0, columnspan=2, sticky="w", padx=(0, 5), pady=2)
+        ttk.Button(runtime_actions, text="Save model profile", command=self._save_selected_model_profile).grid(
+            row=1, column=4, sticky="e", pady=2)
+
+        generation_box = ttk.LabelFrame(generation, text="Conversation generation defaults", padding=10)
+        generation_box.pack(fill=tk.X)
+        for col in range(2):
+            generation_box.columnconfigure(col, weight=1)
         self.temperature_var = tk.StringVar(value="0.7")
         self.max_tokens_var = tk.StringVar()
-        self._setting_entry(generation, "Temperature", self.temperature_var, "temperature", 8)
-        self._setting_entry(generation, "Max response tokens", self.max_tokens_var, "max_tokens", 8)
-        ttk.Label(generation, text="System prompt").pack(side=tk.LEFT, padx=(12, 3))
+        self._setting_grid_entry(generation_box, "Temperature", self.temperature_var, "temperature", 0, 0)
+        self._setting_grid_entry(generation_box, "Max response tokens", self.max_tokens_var, "max_tokens", 0, 1)
+        ttk.Label(generation_box, text="System prompt").grid(row=1, column=0, sticky="w", pady=(10, 3))
         self.system_prompt_var = tk.StringVar()
-        self.system_prompt_entry = ttk.Entry(generation, textvariable=self.system_prompt_var)
-        self.system_prompt_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.system_prompt_entry = ttk.Entry(generation_box, textvariable=self.system_prompt_var)
+        self.system_prompt_entry.grid(row=1, column=1, sticky="ew", pady=(10, 3))
         self._settings_widgets["system_prompt"] = self.system_prompt_entry
-        ttk.Label(generation, text="Stop strings (one per line)").pack(anchor="w", pady=(4, 0))
-        self.stop_strings = tk.Text(generation, height=2, wrap=tk.NONE)
-        self.stop_strings.pack(fill=tk.X)
+        ttk.Label(generation_box, text="Stop strings (one per line)").grid(row=2, column=0, columnspan=2, sticky="w", pady=(10, 3))
+        self.stop_strings = tk.Text(generation_box, height=3, wrap=tk.NONE, background="#202633",
+                                    foreground="#e7ebf2", insertbackground="#e7ebf2", relief=tk.FLAT)
+        self.stop_strings.grid(row=3, column=0, columnspan=2, sticky="ew")
         self._settings_widgets["stop_strings"] = self.stop_strings
+        self.reasoning_var = tk.BooleanVar(value=False)
+        self.reasoning_check = ttk.Checkbutton(generation_box, text="Enable thinking", variable=self.reasoning_var)
+        self.reasoning_check.grid(row=4, column=0, sticky="w", pady=(8, 0))
 
         chat_tools = ttk.Frame(right)
         chat_tools.pack(fill=tk.X, pady=(4, 0))
-        ttk.Label(chat_tools, text="Conversation").pack(side=tk.LEFT)
+        chat_tools.columnconfigure(1, weight=1)
+        ttk.Label(chat_tools, text="Conversation").grid(row=0, column=0, sticky="w", padx=(0, 6), pady=2)
         self.session_var = tk.StringVar(value=_session_label(self.chat_session))
         self.session_box = ttk.Combobox(chat_tools, textvariable=self.session_var,
                                         values=[_session_label(item) for item in self.sessions],
-                                        state="readonly", width=28)
-        self.session_box.pack(side=tk.LEFT, padx=5)
+                                        state="readonly", width=20)
+        self.session_box.grid(row=0, column=1, sticky="ew", padx=(0, 6), pady=2)
         self.session_box.bind("<<ComboboxSelected>>", self.select_chat)
         self._generation_controls = [self.session_box, self.model_list, self.backend_box]
-        for label, command in (("New chat", self.new_chat), ("Rename", self.rename_chat),
-                               ("Delete", self.delete_chat), ("Export", self.export_chat),
-                               ("Presets", self.open_preset_manager)):
+        for column, (label, command) in enumerate((("New chat", self.new_chat), ("Rename", self.rename_chat),
+                                                   ("Delete", self.delete_chat)), start=2):
             button = ttk.Button(chat_tools, text=label, command=command)
-            button.pack(side=tk.LEFT, padx=(4, 0) if label != "New chat" else 0)
+            button.grid(row=0, column=column, sticky="ew", padx=(0, 4), pady=2)
+            self._generation_controls.append(button)
+        for column, (label, command) in enumerate((("Export", self.export_chat), ("Presets", self.open_preset_manager))):
+            button = ttk.Button(chat_tools, text=label, command=command)
+            button.grid(row=1, column=column, sticky="w", padx=(0, 4), pady=2)
             self._generation_controls.append(button)
         self.agent_mode_var = tk.BooleanVar(value=False)
         agent_check = ttk.Checkbutton(chat_tools, text="Read-only agent tools", variable=self.agent_mode_var)
-        agent_check.pack(side=tk.LEFT, padx=6)
+        agent_check.grid(row=1, column=2, columnspan=3, sticky="w", pady=2)
         self._generation_controls.append(agent_check)
-        self.voice_status = ttk.Label(chat_tools, text=self.voice.capabilities.setup_help())
-        self.voice_status.pack(side=tk.RIGHT)
+        self.voice_status = ttk.Label(chat_tools, text=self.voice.capabilities.setup_help(),
+                                       wraplength=560, foreground="#a7b1c2")
+        self.voice_status.grid(row=2, column=0, columnspan=5, sticky="ew", pady=(2, 4))
         voice_row = ttk.Frame(right)
         voice_row.pack(fill=tk.X)
-        ttk.Button(voice_row, text="Speak last answer", command=self.speak_last_answer).pack(side=tk.LEFT)
+        ttk.Button(voice_row, text="Speak last answer", command=self.speak_last_answer).grid(row=0, column=0, sticky="w", padx=(0, 4), pady=2)
         self.stop_speech_button = ttk.Button(voice_row, text="Stop speaking", command=self.stop_speaking,
                                              state=tk.DISABLED)
-        self.stop_speech_button.pack(side=tk.LEFT, padx=(0, 5))
+        self.stop_speech_button.grid(row=0, column=1, sticky="w", padx=(0, 4), pady=2)
         self.record_button = ttk.Button(voice_row, text="Record & transcribe", command=self.record_and_transcribe)
-        self.record_button.pack(side=tk.LEFT, padx=5)
+        self.record_button.grid(row=0, column=2, sticky="w", padx=(0, 4), pady=2)
         self.attach_images_button = ttk.Button(voice_row, text="Attach image(s)", command=self.attach_images)
-        self.attach_images_button.pack(side=tk.LEFT, padx=5)
+        self.attach_images_button.grid(row=1, column=0, sticky="w", padx=(0, 4), pady=2)
         self.attach_documents_button = ttk.Button(voice_row, text="Attach document(s)", command=self.attach_documents)
-        self.attach_documents_button.pack(side=tk.LEFT)
+        self.attach_documents_button.grid(row=1, column=1, sticky="w", padx=(0, 4), pady=2)
         self.clear_images_button = ttk.Button(voice_row, text="Clear images", command=self.clear_images, state=tk.DISABLED)
-        self.clear_images_button.pack(side=tk.LEFT, padx=(4, 0))
+        self.clear_images_button.grid(row=1, column=2, sticky="w", padx=(0, 4), pady=2)
         self.clear_documents_button = ttk.Button(voice_row, text="Clear documents", command=self.clear_documents,
                                                  state=tk.DISABLED)
-        self.clear_documents_button.pack(side=tk.LEFT, padx=(4, 0))
+        self.clear_documents_button.grid(row=1, column=3, sticky="w", padx=(0, 4), pady=2)
         self._generation_controls.extend([self.attach_images_button, self.attach_documents_button,
                                           self.clear_images_button, self.clear_documents_button])
-        self.images_status = ttk.Label(voice_row, text="")
-        self.images_status.pack(side=tk.LEFT, padx=6)
-        self.documents_status = ttk.Label(voice_row, text="")
-        self.documents_status.pack(side=tk.LEFT, padx=4)
+        self.images_status = ttk.Label(voice_row, text="", wraplength=300, foreground="#a7b1c2")
+        self.images_status.grid(row=2, column=0, columnspan=2, sticky="w", padx=(0, 8), pady=2)
+        self.documents_status = ttk.Label(voice_row, text="", wraplength=300, foreground="#a7b1c2")
+        self.documents_status.grid(row=2, column=2, columnspan=2, sticky="w", pady=2)
         voice_input_row = ttk.Frame(right)
         voice_input_row.pack(fill=tk.X)
-        ttk.Label(voice_input_row, text="Whisper model").pack(side=tk.LEFT)
+        voice_input_row.columnconfigure(1, weight=1)
+        ttk.Label(voice_input_row, text="Whisper model").grid(row=0, column=0, sticky="w", padx=(0, 6), pady=2)
         voice_configuration = self.voice.configuration()
         self.whisper_model_var = tk.StringVar(value="")
         self.whisper_model_box = ttk.Combobox(voice_input_row, textvariable=self.whisper_model_var,
                                               values=[str(path) for path in voice_configuration.whisper_models],
-                                              state="readonly", width=34)
+                                              state="readonly", width=24)
         if voice_configuration.whisper_models:
             self.whisper_model_var.set(str(voice_configuration.whisper_models[0]))
-        self.whisper_model_box.pack(side=tk.LEFT, padx=5)
-        ttk.Button(voice_input_row, text="Browse…", command=self.choose_whisper_model).pack(side=tk.LEFT)
-        ttk.Label(voice_input_row, text="Record seconds").pack(side=tk.LEFT, padx=(10, 3))
+        self.whisper_model_box.grid(row=0, column=1, sticky="ew", padx=(0, 5), pady=2)
+        ttk.Button(voice_input_row, text="Browse…", command=self.choose_whisper_model).grid(row=0, column=2, sticky="w", pady=2)
+        ttk.Label(voice_input_row, text="Record seconds").grid(row=1, column=0, sticky="w", padx=(0, 6), pady=2)
         self.record_seconds_var = tk.StringVar(value="5")
         ttk.Spinbox(voice_input_row, from_=1, to=120, textvariable=self.record_seconds_var,
-                    width=4).pack(side=tk.LEFT)
+                    width=5).grid(row=1, column=1, sticky="w", pady=2)
         self.transcribe_audio_button = ttk.Button(voice_input_row, text="Transcribe audio file…",
                                                   command=self.transcribe_audio_file)
-        self.transcribe_audio_button.pack(side=tk.LEFT, padx=6)
+        self.transcribe_audio_button.grid(row=1, column=2, sticky="w", padx=(6, 0), pady=2)
         ptt_row = ttk.Frame(right)
         ptt_row.pack(fill=tk.X, pady=(2, 0))
         self.push_to_talk_button = ttk.Button(ptt_row, text="Hold to talk")
@@ -222,22 +327,43 @@ class AIDreamWindow:
         self.push_to_talk_button.bind("<ButtonRelease-1>", self._push_to_talk_up, add="+")
         self.push_to_talk_button.bind("<KeyPress-space>", self._push_to_talk_down, add="+")
         self.push_to_talk_button.bind("<KeyRelease-space>", self._push_to_talk_up, add="+")
-        ttk.Label(ptt_row, text="Press and hold; release to insert transcription. Local only.").pack(side=tk.LEFT, padx=8)
+        self.ptt_help = ttk.Label(ptt_row, text="Press and hold; release to insert transcription. Local only.",
+                                  wraplength=560, foreground="#a7b1c2")
+        self.ptt_help.pack(side=tk.LEFT, padx=8, fill=tk.X, expand=True, anchor="w")
         self._ptt_worker = None
         self._ptt_model = None
         self._ptt_path = None
-        self.chat = tk.Text(right, state=tk.DISABLED, wrap=tk.WORD)
-        self.chat.pack(fill=tk.BOTH, expand=True, pady=4)
+        chat_frame = ttk.Frame(right)
+        chat_frame.pack(fill=tk.BOTH, expand=True, pady=4)
+        self.chat = tk.Text(chat_frame, height=8, state=tk.DISABLED, wrap=tk.WORD, background="#202633",
+                            foreground="#e7ebf2", insertbackground="#e7ebf2", relief=tk.FLAT)
+        self.chat.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        chat_scroll = ttk.Scrollbar(chat_frame, orient=tk.VERTICAL, command=self.chat.yview)
+        chat_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.chat.configure(yscrollcommand=chat_scroll.set)
         self._restore_chat()
         prompt_row = ttk.Frame(right)
         prompt_row.pack(fill=tk.X)
-        self.prompt = tk.Text(prompt_row, height=4, wrap=tk.WORD)
+        self.prompt = tk.Text(prompt_row, height=3, wrap=tk.WORD, background="#202633",
+                              foreground="#e7ebf2", insertbackground="#e7ebf2", relief=tk.FLAT)
         self.prompt.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.prompt.bind("<Control-Return>", self._send_shortcut)
         self.send_button = ttk.Button(prompt_row, text="Load and send", command=self.send)
         self.send_button.pack(side=tk.LEFT, padx=(6, 0), fill=tk.Y)
         self.stop_button = ttk.Button(prompt_row, text="Stop", command=self.stop_generation, state=tk.DISABLED)
         self.stop_button.pack(side=tk.LEFT, padx=(4, 0), fill=tk.Y)
+        right.bind("<Configure>", self._resize_right_panel, add="+")
+
+    def _resize_right_panel(self, event):
+        """Keep wrapped helper/status text inside the resizable chat column."""
+        wrap = max(240, event.width - 72)
+        for widget in (getattr(self, "capability_label", None), getattr(self, "voice_status", None),
+                       getattr(self, "model_profile_status", None), getattr(self, "ptt_help", None)):
+            if widget is not None:
+                widget.configure(wraplength=wrap)
+        for widget in (getattr(self, "images_status", None), getattr(self, "documents_status", None)):
+            if widget is not None:
+                widget.configure(wraplength=max(160, (event.width - 80) // 2))
 
     def _show_text(self, widget: tk.Text, text: str):
         widget.configure(state=tk.NORMAL)
@@ -254,6 +380,166 @@ class AIDreamWindow:
         entry = ttk.Entry(parent, textvariable=variable, width=width)
         entry.pack(side=tk.LEFT, padx=(0, 10))
         self._settings_widgets[capability] = entry
+
+    def _setting_grid_entry(self, parent, label, variable, capability, row, column):
+        field = ttk.Frame(parent)
+        field.grid(row=row, column=column, sticky="ew", padx=(0, 14), pady=4)
+        field.columnconfigure(0, weight=1)
+        ttk.Label(field, text=label).grid(row=0, column=0, sticky="w", pady=(0, 3))
+        entry = ttk.Entry(field, textvariable=variable)
+        entry.grid(row=1, column=0, sticky="ew")
+        self._settings_widgets[capability] = entry
+        return entry
+
+    def _selected_runtime_configuration(self):
+        backend = self.backend_by_name.get(self.backend_var.get())
+        selected = self.model_list.curselection()
+        if not backend:
+            raise ValueError("Choose an available runtime.")
+        if not selected or selected[0] >= len(self.models):
+            raise ValueError("Select a model from the catalog first.")
+        model = self.models[selected[0]]
+        placement = {}
+        if self.device_var.get().strip():
+            placement["device"] = self.device_var.get().strip()
+        if self.gpu_layers_var.get().strip():
+            placement["gpu_layers"] = int(self.gpu_layers_var.get().strip())
+        if self.tensor_split_var.get().strip():
+            placement["tensor_split"] = self.tensor_split_var.get().strip()
+        if self.split_mode_var.get().strip():
+            placement["split_mode"] = self.split_mode_var.get().strip()
+        if self.main_gpu_var.get().strip():
+            placement["main_gpu"] = int(self.main_gpu_var.get().strip())
+        caps = backend.capabilities()
+        options = {}
+        for key, variable in (("context_size", self.context_var), ("threads", self.threads_var),
+                              ("batch_size", self.batch_var)):
+            value = variable.get().strip()
+            if value and getattr(caps, key, False):
+                options[key] = int(value)
+        for key, variable in (("physical_batch_size", self.physical_batch_var),
+                              ("max_concurrent", self.max_concurrent_var)):
+            value = variable.get().strip()
+            if value and getattr(caps, key, False):
+                options[key] = int(value)
+        for key, variable in self._advanced_load_vars.items():
+            if getattr(caps, key, False):
+                options[key] = variable.get()
+        if caps.reasoning:
+            options["reasoning"] = self.reasoning_var.get()
+        validate = getattr(backend, "validate_load", None)
+        if validate:
+            validate(model, placement or None, options)
+        return backend, model, placement or None, options
+
+    def load_selected_model(self):
+        if self._generation_busy:
+            self.voice_status.configure(text="Stop the current generation before changing the loaded model.")
+            return
+        try:
+            backend, model, placement, options = self._selected_runtime_configuration()
+            if not backend.can_load(model):
+                raise ValueError(f"{backend.name} cannot load this model.")
+            self._save_current_chat_settings()
+        except (ValueError, TypeError, OSError, RuntimeError) as exc:
+            messagebox.showerror("Model configuration unavailable", str(exc), parent=self.root)
+            return
+        self._start_model_load(backend, model, placement, options)
+
+    def _start_model_load(self, backend, model, placement, options):
+        """Run one load/reload transaction off the Tk thread.
+
+        A reload is a single ordered operation. Keeping unload and load in the
+        same worker prevents the old implementation's timer-based race where
+        the new server could start before the previous server had stopped.
+        """
+        if self._runtime_action_busy:
+            self.voice_status.configure(text="A runtime action is already in progress.")
+            return
+        self._runtime_action_busy = True
+        self.voice_status.configure(text=f"Loading {model.path}…")
+
+        def work():
+            try:
+                previous = self.loaded_backend
+                if previous is not None and previous is not backend:
+                    previous.unload()
+                # LlamaCppBackend.load itself stops an existing process when
+                # reloading on the same backend.
+                self.loaded_backend = None
+                self.loaded_key = None
+                backend.load(model, placement, options=options)
+                self.loaded_backend = backend
+                self.loaded_key = (id(backend), getattr(model, "id", model.path),
+                                   tuple(sorted((placement or {}).items())), tuple(sorted(options.items())))
+                result = f"Loaded {model.path} with {backend.name}."
+            except Exception as exc:
+                self.loaded_backend = None
+                self.loaded_key = None
+                result = f"Load failed: {exc}"
+            self.root.after(0, lambda: self._finish_runtime_action(result))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _finish_runtime_action(self, result):
+        self._runtime_action_busy = False
+        self.voice_status.configure(text=result)
+
+    def unload_model(self):
+        if self._generation_busy:
+            self.voice_status.configure(text="Stop the current generation before unloading the model.")
+            return
+        backend = self.loaded_backend
+        if backend is None:
+            self.voice_status.configure(text="No model is loaded.")
+            return
+        if self._runtime_action_busy:
+            self.voice_status.configure(text="A runtime action is already in progress.")
+            return
+        self._runtime_action_busy = True
+        self.voice_status.configure(text="Unloading model…")
+        def work():
+            try:
+                backend.unload()
+                result = "Model unloaded."
+            except Exception as exc:
+                result = f"Unload failed: {exc}"
+            else:
+                self.loaded_backend = None
+                self.loaded_key = None
+            self.root.after(0, lambda: self._finish_runtime_action(result))
+        threading.Thread(target=work, daemon=True).start()
+
+    def reload_model(self):
+        self.load_selected_model()
+
+    def show_runtime_status(self):
+        backend = self.loaded_backend
+        model = getattr(backend, "_loaded_model", None) if backend else None
+        process = getattr(backend, "_process", None) if backend else None
+        running = bool(process and process.poll() is None)
+        message = (f"Backend: {backend.name if backend else 'none'}\n"
+                   f"Model: {model or 'none'}\nStatus: {'running' if running else 'unloaded'}")
+        messagebox.showinfo("Runtime status", message, parent=self.root)
+
+    def show_effective_command(self):
+        try:
+            backend, model, placement, options = self._selected_runtime_configuration()
+            command = getattr(backend, "effective_command", None)
+            if command is None:
+                raise ValueError("This runtime does not expose its effective command.")
+            value = command(model, placement, options)
+            if not isinstance(value, str):
+                value = shlex.join(list(map(str, value)))
+            win = tk.Toplevel(self.root)
+            win.title("Effective llama.cpp command")
+            text = tk.Text(win, width=100, height=5, wrap=tk.WORD)
+            text.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+            text.insert("1.0", value)
+            text.configure(state=tk.DISABLED)
+            ttk.Button(win, text="Copy", command=lambda: (self.root.clipboard_clear(), self.root.clipboard_append(value))).pack(pady=(0, 8))
+        except (ValueError, TypeError, OSError, RuntimeError) as exc:
+            messagebox.showerror("Command unavailable", str(exc), parent=self.root)
 
     def _current_preset_settings(self):
         def optional_int(variable, label):
@@ -274,6 +560,10 @@ class AIDreamWindow:
             placement["device"] = self.device_var.get().strip()
         if self.tensor_split_var.get().strip():
             placement["tensor_split"] = self.tensor_split_var.get().strip()
+        if self.split_mode_var.get().strip():
+            placement["split_mode"] = self.split_mode_var.get().strip()
+        if self.main_gpu_var.get().strip():
+            placement["main_gpu"] = int(self.main_gpu_var.get().strip())
         return {
             "system_prompt": self.system_prompt_var.get(),
             "reasoning": self.reasoning_var.get(),
@@ -292,7 +582,9 @@ class AIDreamWindow:
                                    ("temperature_var", "temperature"),
                                    ("max_tokens_var", "max_tokens"),
                                    ("context_var", "context_size"),
-                                   ("threads_var", "threads"), ("batch_var", "batch_size")):
+                                   ("threads_var", "threads"), ("batch_var", "batch_size"),
+                                   ("physical_batch_var", "physical_batch_size"),
+                                   ("max_concurrent_var", "max_concurrent")):
             value = settings.get(key)
             getattr(self, variable_name).set("" if value is None else str(value))
         self.reasoning_var.set(settings.get("reasoning", False))
@@ -305,6 +597,11 @@ class AIDreamWindow:
         self.gpu_layers_var.set(str(placement.get("gpu_layers", "")))
         self.device_var.set(str(placement.get("device", "")))
         self.tensor_split_var.set(str(placement.get("tensor_split", "")))
+        self.split_mode_var.set(str(placement.get("split_mode", "")))
+        self.main_gpu_var.set(str(placement.get("main_gpu", "")))
+        for key, variable in self._advanced_load_vars.items():
+            if key in settings:
+                variable.set(bool(settings[key]))
 
     def _capture_chat_settings(self):
         selected = self.model_list.curselection()
@@ -316,12 +613,18 @@ class AIDreamWindow:
             placement["device"] = self.device_var.get().strip()
         if self.tensor_split_var.get().strip():
             placement["tensor_split"] = self.tensor_split_var.get().strip()
+        if self.split_mode_var.get().strip():
+            placement["split_mode"] = self.split_mode_var.get().strip()
+        if self.main_gpu_var.get().strip():
+            placement["main_gpu"] = int(self.main_gpu_var.get().strip())
         load = {}
         for key, variable in (("context_size", self.context_var), ("threads", self.threads_var),
-                              ("batch_size", self.batch_var)):
+                              ("batch_size", self.batch_var), ("physical_batch_size", self.physical_batch_var),
+                              ("max_concurrent", self.max_concurrent_var)):
             value = variable.get().strip()
             if value:
                 load[key] = int(value)
+        load.update({key: variable.get() for key, variable in self._advanced_load_vars.items()})
         return {
             "backend_name": self.backend_var.get().strip(),
             "model_id": getattr(model, "id", "") if model else "",
@@ -331,10 +634,158 @@ class AIDreamWindow:
             "preset_id": None,
         }
 
-    def _save_current_chat_settings(self):
+    def _selected_model(self):
+        selected = self.model_list.curselection()
+        return self.models[selected[0]] if selected and selected[0] < len(self.models) else None
+
+    @staticmethod
+    def _profile_model_id(model):
+        identity = getattr(model, "id", None)
+        if identity:
+            return str(identity)
+        # Legacy or test catalog records may not have an ID. A path-derived ID
+        # keeps their settings attached to the same file without storing a path
+        # as an identity or exposing it in profile indexes.
+        import hashlib
+        path = str(Path(model.path).expanduser().resolve())
+        return "path-" + hashlib.sha256(path.encode("utf-8")).hexdigest()[:48]
+
+    def _persist_model_profile(self, settings):
+        model = self._selected_model()
+        if model is None:
+            return None
+        backend = self.backend_by_name.get(self.backend_var.get())
+        model_id = self._profile_model_id(model)
+        runtime = settings.get("runtime", {})
+        generation_values = settings.get("generation", {})
+        generation_keys = {"system_prompt", "reasoning", "temperature", "max_tokens", "stop_strings",
+                           "top_p", "top_k", "min_p", "repeat_penalty", "seed", "structured_output"}
+        profile_data = {
+            "name": model.display_info().get("name", Path(model.path).name),
+            "model_id": model_id,
+            "backend_name": getattr(backend, "name", settings.get("backend_name")) if backend else settings.get("backend_name"),
+            "runtime_id": getattr(backend, "runtime_id", None) if backend else None,
+            "placement": dict(runtime.get("placement", {})),
+            "load": dict(runtime.get("load", {})),
+            "generation": {key: value for key, value in generation_values.items() if key in generation_keys},
+        }
+        exact_profiles = [item for item in self.profile_store.list_profiles(model_id)
+                          if item.get("model_id") == model_id]
+        if exact_profiles:
+            saved = self.profile_store.update(exact_profiles[0]["id"], profile_data)
+        else:
+            saved = self.profile_store.create(profile_data)
+        self._active_model_profile = saved
+        status = f"Saved load profile for {profile_data['name']}"
+        if hasattr(self, "model_profile_status"):
+            self.model_profile_status.configure(text=status)
+        return saved
+
+    def _save_selected_model_profile(self):
+        try:
+            model = self._selected_model()
+            if model is None:
+                # Keep the old per-conversation fallback when there is no
+                # selected catalog model to own a reusable profile.
+                self._save_current_chat_settings(save_profile=False)
+                self.model_profile_status.configure(text="No model selected; saved settings with this conversation.")
+                return None
+            return self._persist_model_profile(self._capture_chat_settings())
+        except (AttributeError, KeyError, OSError, ValueError, TypeError) as exc:
+            messagebox.showerror("Model profile could not be saved", str(exc), parent=self.root)
+            return None
+
+    def _apply_model_profile(self, model):
+        """Restore the persistent model profile, falling back to legacy chat data."""
+        model_id = self._profile_model_id(model)
+        try:
+            profiles = [item for item in self.profile_store.list_profiles(model_id)
+                        if item.get("model_id") == model_id]
+        except (AttributeError, OSError, ValueError):
+            profiles = []
+        if profiles:
+            profile = profiles[0]
+            self._active_model_profile = profile
+            runtime_id = profile.get("runtime_id")
+            backend_name = profile.get("backend_name")
+            backend = next((item for item in self.backends
+                            if (runtime_id and getattr(item, "runtime_id", None) == runtime_id)
+                            or (not runtime_id and item.name == backend_name)), None)
+            if backend is not None:
+                self.backend_var.set(backend.name)
+                self._update_capabilities()
+            placement = profile.get("placement", {})
+            self.gpu_layers_var.set(str(placement.get("gpu_layers", "")))
+            self.device_var.set(str(placement.get("device", "")))
+            self.tensor_split_var.set(str(placement.get("tensor_split", "")))
+            self.split_mode_var.set(str(placement.get("split_mode", "")))
+            self.main_gpu_var.set(str(placement.get("main_gpu", "")))
+            load = profile.get("load", {})
+            for key, variable in (("context_size", self.context_var), ("threads", self.threads_var),
+                                  ("batch_size", self.batch_var), ("physical_batch_size", self.physical_batch_var),
+                                  ("max_concurrent", self.max_concurrent_var)):
+                variable.set(str(load[key]) if key in load else "")
+            for key, variable in self._advanced_load_vars.items():
+                variable.set(bool(load.get(key, False)))
+            self._apply_generation_profile(profile.get("generation", {}))
+            self.model_profile_status.configure(text=f"Loaded saved profile: {profile.get('name', model.path)}")
+            return
+
+        self._active_model_profile = None
+        legacy = {}
+        try:
+            legacy = self.chat_store.get_session_settings(self.chat_session["id"])
+        except (AttributeError, KeyError, OSError, ValueError, TypeError):
+            pass
+        if legacy.get("model_path") == model.path:
+            runtime = legacy.get("runtime", {})
+            placement = runtime.get("placement", {})
+            load = runtime.get("load", {})
+            self.gpu_layers_var.set(str(placement.get("gpu_layers", "")))
+            self.device_var.set(str(placement.get("device", "")))
+            self.tensor_split_var.set(str(placement.get("tensor_split", "")))
+            self.split_mode_var.set(str(placement.get("split_mode", "")))
+            self.main_gpu_var.set(str(placement.get("main_gpu", "")))
+            for key, variable in (("context_size", self.context_var), ("threads", self.threads_var),
+                                  ("batch_size", self.batch_var), ("physical_batch_size", self.physical_batch_var),
+                                  ("max_concurrent", self.max_concurrent_var)):
+                variable.set(str(load[key]) if key in load else "")
+            for key, variable in self._advanced_load_vars.items():
+                variable.set(bool(load.get(key, False)))
+            self.model_profile_status.configure(text="Using this conversation's legacy model settings; save to create a model profile.")
+        else:
+            self._clear_model_load_settings()
+            self.model_profile_status.configure(text="No saved profile for this model yet.")
+
+    def _clear_model_load_settings(self):
+        for variable in (self.gpu_layers_var, self.device_var, self.tensor_split_var,
+                         self.split_mode_var, self.main_gpu_var, self.threads_var, self.batch_var,
+                         self.physical_batch_var, self.max_concurrent_var):
+            variable.set("")
+        self.context_var.set("4096")
+        for variable in self._advanced_load_vars.values():
+            variable.set(False)
+
+    def _apply_generation_profile(self, settings):
+        for variable_name, key in (("system_prompt_var", "system_prompt"), ("temperature_var", "temperature"),
+                                   ("max_tokens_var", "max_tokens")):
+            if key in settings:
+                getattr(self, variable_name).set("" if settings[key] is None else str(settings[key]))
+        if "reasoning" in settings:
+            self.reasoning_var.set(bool(settings["reasoning"]))
+        if "stop_strings" in settings:
+            state = self.stop_strings.cget("state")
+            self.stop_strings.configure(state=tk.NORMAL)
+            self.stop_strings.delete("1.0", tk.END)
+            self.stop_strings.insert("1.0", "\n".join(settings["stop_strings"]))
+            self.stop_strings.configure(state=state)
+
+    def _save_current_chat_settings(self, *, save_profile=True):
         try:
             settings = self._capture_chat_settings()
             self.chat_store.replace_session_settings(self.chat_session["id"], settings)
+            if save_profile and self._selected_model() is not None:
+                self._persist_model_profile(settings)
             return settings
         except (AttributeError, OSError, ValueError, TypeError) as exc:
             self.voice_status.configure(text=f"Chat settings were not saved: {exc}")
@@ -365,15 +816,23 @@ class AIDreamWindow:
         self.gpu_layers_var.set(str(placement.get("gpu_layers", "")))
         self.device_var.set(str(placement.get("device", "")))
         self.tensor_split_var.set(str(placement.get("tensor_split", "")))
+        self.split_mode_var.set(str(placement.get("split_mode", "")))
+        self.main_gpu_var.set(str(placement.get("main_gpu", "")))
         load = runtime.get("load", {})
         for key, variable in (("context_size", self.context_var), ("threads", self.threads_var),
-                              ("batch_size", self.batch_var)):
+                              ("batch_size", self.batch_var), ("physical_batch_size", self.physical_batch_var),
+                              ("max_concurrent", self.max_concurrent_var)):
             variable.set(str(load[key]) if key in load else "")
+        for key, variable in self._advanced_load_vars.items():
+            variable.set(bool(load.get(key, False)))
         generation = dict(settings.get("generation", {}))
         generation["context_size"] = load.get("context_size", generation.get("context_size") or 4096)
         generation["threads"] = load.get("threads", generation.get("threads"))
         generation["batch_size"] = load.get("batch_size", generation.get("batch_size"))
         self._apply_preset_settings(generation)
+        model = self._selected_model()
+        if model is not None:
+            self._apply_model_profile(model)
 
     def open_preset_manager(self):
         from aidream.preset_ui import PresetManagerDialog
@@ -447,6 +906,26 @@ class AIDreamWindow:
                 f"Architecture: {info['architecture']} · Context: {context}\n"
                 f"License: {info['license']}\nSource: {info['source']}\n{info['path']}")
         self.model_details.configure(text=text)
+        self._apply_model_profile(self.models[selection[0]])
+
+    @staticmethod
+    def _runtime_native_device_ids(backend):
+        """Return only exact device IDs reported by this llama.cpp runtime."""
+        list_devices = getattr(backend, "list_devices", None)
+        if not callable(list_devices):
+            return []
+        try:
+            devices = list_devices()
+        except (OSError, RuntimeError, ValueError):
+            return []
+        native_ids = []
+        for device in devices or []:
+            if not isinstance(device, dict):
+                continue
+            identifier = device.get("runtime_id") or device.get("id")
+            if isinstance(identifier, str) and identifier and identifier not in native_ids:
+                native_ids.append(identifier)
+        return native_ids
 
     def _update_capabilities(self):
         backend = self.backend_by_name.get(self.backend_var.get())
@@ -454,15 +933,23 @@ class AIDreamWindow:
             self.capability_label.configure(text="No inference runtime found. Install llama.cpp CLI to run GGUF models.")
             self.reasoning_check.configure(state=tk.DISABLED)
             self.reasoning_var.set(False)
+            self.device_box.configure(state=tk.DISABLED, values=("",))
+            self.manual_device_check.configure(state=tk.DISABLED)
+            self.gpu_layers_entry.configure(state=tk.DISABLED)
+            self.tensor_split_entry.configure(state=tk.DISABLED)
+            self.split_mode_box.configure(state=tk.DISABLED)
+            self.main_gpu_entry.configure(state=tk.DISABLED)
             for name, widget in self._settings_widgets.items():
                 widget.configure(state=tk.DISABLED)
                 if name == "stop_strings":
                     widget.configure(state=tk.NORMAL)
                     widget.delete("1.0", tk.END)
                     widget.configure(state=tk.DISABLED)
-                elif name in ("context_size", "threads", "batch_size", "max_tokens", "system_prompt"):
-                    variable_name = {"context_size":"context_var", "threads":"threads_var", "batch_size":"batch_var", "max_tokens":"max_tokens_var", "system_prompt":"system_prompt_var"}[name]
+                elif name in ("context_size", "threads", "batch_size", "physical_batch_size", "max_concurrent", "max_tokens", "system_prompt"):
+                    variable_name = {"context_size":"context_var", "threads":"threads_var", "batch_size":"batch_var", "physical_batch_size":"physical_batch_var", "max_concurrent":"max_concurrent_var", "max_tokens":"max_tokens_var", "system_prompt":"system_prompt_var"}[name]
                     getattr(self, variable_name).set("")
+                elif name in self._advanced_load_vars:
+                    self._advanced_load_vars[name].set(False)
             return
         caps = backend.capabilities()
         controls = []
@@ -475,13 +962,23 @@ class AIDreamWindow:
         if caps.reasoning:
             controls.append("reasoning")
         status = f"Executable: {caps.executable or 'not found'}; controls: {', '.join(controls) or 'CPU/default only'}"
-        self.device_box.configure(state=tk.NORMAL if caps.device_selection else tk.DISABLED)
+        native_devices = self._runtime_native_device_ids(backend) if caps.device_selection else []
+        self.device_box.configure(values=("", *native_devices),
+                                  state=(tk.NORMAL if caps.device_selection and self.manual_device_var.get() else
+                                         "readonly" if caps.device_selection else tk.DISABLED))
+        self.manual_device_check.configure(state=tk.NORMAL if caps.device_selection else tk.DISABLED)
         self.gpu_layers_entry.configure(state=tk.NORMAL if caps.gpu_layers else tk.DISABLED)
         self.tensor_split_entry.configure(state=tk.NORMAL if caps.tensor_split else tk.DISABLED)
+        self.split_mode_box.configure(state=tk.NORMAL if caps.split_mode else tk.DISABLED)
+        self.main_gpu_entry.configure(state=tk.NORMAL if caps.main_gpu else tk.DISABLED)
         if not caps.gpu_layers:
             self.gpu_layers_var.set("")
         if not caps.tensor_split:
             self.tensor_split_var.set("")
+        if not caps.split_mode:
+            self.split_mode_var.set("")
+        if not caps.main_gpu:
+            self.main_gpu_var.set("")
         self.reasoning_check.configure(state=tk.NORMAL if caps.reasoning else tk.DISABLED)
         if not caps.reasoning:
             self.reasoning_var.set(False)
@@ -489,10 +986,14 @@ class AIDreamWindow:
             self.device_var.set("")
             status += ". Device selection is not exposed by this runtime."
         else:
-            status += ". Device name uses the runtime's naming; it is not inferred from hardware indices."
+            status += ". Detected devices use llama.cpp runtime identifiers; enable manual override for another identifier."
         self.capability_label.configure(text=status)
         for name, widget in self._settings_widgets.items():
-            supported = (bool(getattr(caps, name, False)) if name in ("context_size", "threads", "batch_size")
+            supported = (bool(getattr(caps, name, False)) if name in ("context_size", "threads", "batch_size",
+                                                                       "physical_batch_size", "max_concurrent",
+                                                                       "flash_attention", "unified_kv_cache",
+                                                                       "offload_kv_cache", "mmap",
+                                                                       "keep_model_in_memory", "fit", "split_mode", "main_gpu")
                          else bool(caps.available))
             widget.configure(state=tk.NORMAL if supported else tk.DISABLED)
             if not supported:
@@ -500,9 +1001,11 @@ class AIDreamWindow:
                     widget.configure(state=tk.NORMAL)
                     widget.delete("1.0", tk.END)
                     widget.configure(state=tk.DISABLED)
-                elif name in ("context_size", "threads", "batch_size", "max_tokens", "system_prompt"):
-                    variable = getattr(self, {"context_size":"context_var", "threads":"threads_var", "batch_size":"batch_var", "max_tokens":"max_tokens_var", "system_prompt":"system_prompt_var"}[name])
+                elif name in ("context_size", "threads", "batch_size", "physical_batch_size", "max_concurrent", "max_tokens", "system_prompt"):
+                    variable = getattr(self, {"context_size":"context_var", "threads":"threads_var", "batch_size":"batch_var", "physical_batch_size":"physical_batch_var", "max_concurrent":"max_concurrent_var", "max_tokens":"max_tokens_var", "system_prompt":"system_prompt_var"}[name])
                     variable.set("")
+                elif name in self._advanced_load_vars:
+                    self._advanced_load_vars[name].set(False)
 
     def add_folder(self):
         path = filedialog.askdirectory(title="Add existing model directory")
@@ -1050,6 +1553,9 @@ class AIDreamWindow:
     def send(self):
         if self._generation_busy:
             return
+        if self._runtime_action_busy:
+            self.voice_status.configure(text="Wait for the current model load or unload to finish.")
+            return
         selected = self.model_list.curselection()
         if not selected:
             messagebox.showinfo("Select a model", "Choose a GGUF model first.")
@@ -1106,6 +1612,14 @@ class AIDreamWindow:
         tensor_split = self.tensor_split_var.get().strip()
         if tensor_split:
             placement["tensor_split"] = tensor_split
+        if self.split_mode_var.get().strip():
+            placement["split_mode"] = self.split_mode_var.get().strip()
+        if self.main_gpu_var.get().strip():
+            try:
+                placement["main_gpu"] = int(self.main_gpu_var.get().strip())
+            except ValueError:
+                messagebox.showerror("Invalid main GPU", "Main GPU must be a non-negative whole number.")
+                return
         placement = placement or None
         caps = backend.capabilities()
         load_options = {}
@@ -1119,6 +1633,22 @@ class AIDreamWindow:
                 except ValueError:
                     messagebox.showerror("Invalid setting", f"{key.replace('_', ' ').title()} must be a positive whole number.")
                     return
+        for key, var in (("physical_batch_size", self.physical_batch_var), ("max_concurrent", self.max_concurrent_var)):
+            value = var.get().strip()
+            if value and getattr(caps, key, False):
+                try:
+                    load_options[key] = int(value)
+                    if load_options[key] < 1:
+                        raise ValueError
+                except ValueError:
+                    messagebox.showerror("Invalid setting", f"{key.replace('_', ' ').title()} must be a positive whole number.")
+                    return
+        for key, variable in self._advanced_load_vars.items():
+            if getattr(caps, key, False):
+                load_options[key] = variable.get()
+        for key, variable in self._advanced_load_vars.items():
+            if getattr(caps, key, False):
+                load_options[key] = variable.get()
         if caps.reasoning:
             load_options["reasoning"] = self.reasoning_var.get()
         generation_options = {}
@@ -1369,7 +1899,7 @@ class AIDreamWindow:
                     self.send_button.configure(state=tk.NORMAL)
                     self.stop_button.configure(state=tk.DISABLED)
                     for widget in self._generation_controls:
-                        widget.configure(state=(tk.READONLY if widget in (self.session_box, self.backend_box)
+                        widget.configure(state=("readonly" if widget in (self.session_box, self.backend_box)
                                                 else tk.NORMAL))
                     self.clear_images_button.configure(state=tk.NORMAL if self._pending_images else tk.DISABLED)
         except queue.Empty:
@@ -1396,20 +1926,59 @@ class AIDreamWindow:
             backend.unload()
 
     def close(self):
+        if self._closing:
+            return
+        self._closing = True
         if self._ptt_worker and not self._ptt_worker.done:
-            self._ptt_worker.cancel()
+            threading.Thread(target=self._ptt_worker.cancel, name="ai-dream-stop-recording", daemon=True).start()
         if self._ptt_path:
-            self._ptt_path.unlink(missing_ok=True)
+            try:
+                self._ptt_path.unlink(missing_ok=True)
+            except OSError:
+                pass
         if self._speech_worker and not self._speech_worker.done:
-            self._speech_worker.cancel()
+            threading.Thread(target=self._speech_worker.cancel, name="ai-dream-stop-speech", daemon=True).start()
         if self._generation_event:
             self._generation_event.set()
             backend = self._pending_generation.get("backend") if self._pending_generation else None
             cancel = getattr(backend, "cancel_generation", None)
             if cancel:
-                cancel()
-        self._unload_current()
-        self.root.destroy()
+                threading.Thread(target=cancel, name="ai-dream-cancel-generation", daemon=True).start()
+        try:
+            self.root.title("AI Dream — Closing")
+        except tk.TclError:
+            pass
+        stopped = threading.Event()
+
+        def cleanup():
+            # Let an explicit UI load finish before tearing its backend down.
+            # This avoids a close/load race that could otherwise leave a newly
+            # spawned llama-server process alive after the Tk window exits.
+            if getattr(self, "_runtime_action_busy", False):
+                try:
+                    self.root.after(50, cleanup)
+                except tk.TclError:
+                    pass
+                return
+            try:
+                self._unload_current()
+            finally:
+                stopped.set()
+
+        threading.Thread(target=cleanup, name="ai-dream-shutdown", daemon=True).start()
+        self._finish_close(stopped)
+
+    def _finish_close(self, stopped):
+        if stopped.is_set():
+            try:
+                self.root.destroy()
+            except tk.TclError:
+                pass
+            return
+        try:
+            self.root.after(50, lambda: self._finish_close(stopped))
+        except tk.TclError:
+            pass
 
 
 def _session_label(session):

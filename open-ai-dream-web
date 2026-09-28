@@ -1,4 +1,26 @@
 #!/usr/bin/env bash
-set -e
-cd -- "$(dirname -- "$0")"
-exec python3 -m aidream web "$@"
+set -u
+cd -- "$(dirname -- "$(readlink -f -- "$0")")" || {
+  echo "AI Dream Web: could not enter the application directory." >&2
+  exit 1
+}
+
+web_args=("$@")
+restart_managed=1
+for arg in "${web_args[@]}"; do
+  case "$arg" in
+    --stop|--restart|--help|-h) restart_managed=0 ;;
+  esac
+done
+if (( restart_managed )); then
+  # A second desktop click replaces our own previous server instead of failing
+  # with EADDRINUSE. stop_web_server validates the PID and command before signaling.
+  web_args=(--restart "${web_args[@]}")
+fi
+
+python3 -m aidream web "${web_args[@]}"
+status=$?
+if (( status != 0 )); then
+  echo "AI Dream Web startup failed (exit $status). Check that web/dist exists and review the error above." >&2
+fi
+exit "$status"

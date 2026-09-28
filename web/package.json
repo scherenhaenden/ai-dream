@@ -5,7 +5,9 @@
   "scripts": {
     "start": "vite --host 127.0.0.1",
     "build": "vite build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:runtime-layout": "node scripts/check-runtime-layout.mjs",
+    "smoke:hardware-settings": "node scripts/smoke-hardware-settings-ui.mjs"
   },
   "dependencies": {
     "@angular/common": "^20.3.0",
@@ -21,6 +23,7 @@
     "@analogjs/vite-plugin-angular": "^2.2.0",
     "@angular/build": "^20.3.37",
     "@angular/compiler-cli": "^20.3.32",
+    "playwright": "^1.63.0",
     "typescript": "~5.9.2",
     "vite": "^6.3.0"
   }
