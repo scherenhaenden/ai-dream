@@ -8,10 +8,14 @@ export interface ModelDownload { id: string; repo_id: string; file_name: string;
 @Injectable({ providedIn: 'root' })
 export class HubService {
   readonly downloads = signal<ModelDownload[]>([]);
+  readonly downloadsLoading = signal(false);
+  readonly downloadsError = signal<string | null>(null);
   private streams = new Map<string, EventSource>();
   constructor(private api: ApiService) { void this.refreshDownloads(); }
 
   async refreshDownloads() {
+    this.downloadsLoading.set(true);
+    this.downloadsError.set(null);
     try {
       const raw: any = await this.api.request<unknown>('/api/downloads');
       const data = raw?.data ?? raw;
@@ -23,7 +27,15 @@ export class HubService {
       }
       this.downloads.set([...existing.values()]);
       for (const job of restored) if (job.state === 'queued' || job.state === 'downloading' || job.state === 'cancelling') this.watch(job.id);
-    } catch { /* Keep the empty local list until the API is reachable. */ }
+    } catch (error) {
+      const details = error && typeof error === 'object' ? error as { error?: unknown; message?: unknown } : null;
+      const body = details?.error;
+      const bodyMessage = typeof body === 'string' ? body :
+        body && typeof body === 'object' && 'error' in body && typeof body.error === 'string' ? body.error : null;
+      this.downloadsError.set(bodyMessage || (typeof details?.message === 'string' ? details.message : 'Could not load downloads from the local API.'));
+    } finally {
+      this.downloadsLoading.set(false);
+    }
   }
 
   async search(query: string): Promise<HubModel[]> {
