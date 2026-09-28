@@ -11,6 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 import re
+import shlex
 import select
 from pathlib import Path
 import mimetypes
@@ -400,6 +401,71 @@ class ReadOnlyAPI:
         if backend is not None:
             backend.unload()
 
+    def runtime_status(self):
+        backend = self._active_backend
+        details = backend.status() if backend is not None and callable(getattr(backend, "status", None)) else {}
+        model = getattr(backend, "_loaded_model", None) if backend is not None else None
+        return {"loaded": bool(details.get("loaded", model is not None)),
+                "backend": getattr(backend, "name", None),
+                "model": details.get("model_path", str(model) if model is not None else None),
+                "command": list(details.get("command", ())),
+                "placement": details.get("placement", []),
+                "uptime_seconds": details.get("uptime_seconds")}
+
+    def load_model(self, body):
+        if not isinstance(body, dict) or set(body) - {"model_id", "backend", "placement", "load"} or "model_id" not in body:
+            raise APIError("model_id is required; accepted fields are backend, placement and load")
+        if not self._chat_lock.acquire(blocking=False):
+            raise APIConflict("A model turn or runtime action is active")
+        try:
+            model_id = body["model_id"]
+            if not isinstance(model_id, str):
+                raise APIError("model_id must be a string")
+            if body.get("backend") is not None and not isinstance(body["backend"], str):
+                raise APIError("backend must be a string")
+            model = next((m for m in self.catalog.list_models() if getattr(m, "id", None) == model_id), None)
+            if model is None:
+                raise APIError("Model id was not found in the local catalog")
+            candidates = self.runtimes.list_backends()
+            backend_name = body.get("backend")
+            backend = next((b for b in candidates if (not backend_name or b.name == backend_name)
+                            and b.capabilities().available and b.can_load(model)), None)
+            if backend is None:
+                raise APIError("No available backend can load this model")
+            self._unload_active()
+            backend.load(model, body.get("placement", {}), body.get("load", {}))
+            self._active_backend = backend
+            self._active_binding = (id(backend), model_id, None)
+            return {"data": {"status": self.runtime_status()}}
+        except (ValueError, RuntimeError, OSError) as exc:
+            raise APIError(str(exc)) from exc
+        finally:
+            self._chat_lock.release()
+
+    def unload_model(self):
+        if not self._chat_lock.acquire(blocking=False):
+            raise APIConflict("A model turn or runtime action is active")
+        try:
+            self._unload_active()
+            return {"data": {"status": self.runtime_status()}}
+        finally:
+            self._chat_lock.release()
+
+    def generate_active(self, prompt):
+        if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > MAX_PROMPT_CHARS:
+            raise APIError(f"prompt must contain 1 to {MAX_PROMPT_CHARS} characters")
+        if not self._chat_lock.acquire(blocking=False):
+            raise APIConflict("A model turn or runtime action is active")
+        try:
+            backend = self._active_backend
+            if backend is None or getattr(backend, "_loaded_model", None) is None:
+                raise APIError("No model is loaded")
+            return {"data": {"response": backend.generate(prompt.strip())}}
+        except (ValueError, RuntimeError, OSError) as exc:
+            raise APIError(str(exc)) from exc
+        finally:
+            self._chat_lock.release()
+
     def close(self):
         """Unload the retained local model when the HTTP service shuts down."""
         with self._chat_lock:
@@ -430,7 +496,25 @@ class ReadOnlyAPI:
                 capabilities = backend.capabilities()
                 backends.append({"name": str(backend.name), "capabilities": _jsonable(capabilities),
                                  "available": bool(capabilities.available)})
-            return 200, {"data": {"backends": backends}}
+            snapshot = self.hardware.detect()
+            gpus = snapshot.get("gpus", []) if isinstance(snapshot, dict) else getattr(snapshot, "gpus", [])
+            devices = []
+            supports_device = any(getattr(b.capabilities(), "device_selection", False)
+                                  for b in self.runtimes.list_backends())
+            for gpu in gpus:
+                index = getattr(gpu, "index", gpu.get("index", 0) if isinstance(gpu, dict) else 0)
+                gpu_name = getattr(gpu, "name", gpu.get("name", "GPU") if isinstance(gpu, dict) else "GPU")
+                gpu_backends = getattr(gpu, "backends", gpu.get("backends", []) if isinstance(gpu, dict) else []) or []
+                for backend_id, prefix in (("rocm", "ROCm"), ("vulkan", "Vulkan"), ("cuda", "CUDA")):
+                    if supports_device and backend_id in gpu_backends:
+                        devices.append({"id": f"{prefix}{index}", "name": gpu_name, "backend": prefix})
+            return 200, {"data": {"backends": backends, "devices": devices, "status": self.runtime_status()}}
+        if path == "/api/runtime/status":
+            return 200, {"data": {"status": self.runtime_status()}}
+        if path == "/api/runtime/command":
+            backend = self._active_backend
+            state = backend.status() if backend is not None and callable(getattr(backend, "status", None)) else {}
+            return 200, {"data": {"command": list(state.get("command", ()))}}
         if path == "/api/downloads":
             with self._download_lock:
                 return 200, {"data": {"downloads": [self._public_download(item) for item in self._downloads.values()]}}
@@ -916,6 +1000,53 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
                 return
             if self.path == "/api/agent":
                 self._post_agent()
+                return
+            if self.path == "/api/runtime/load":
+                try:
+                    result = self.server.services.load_model(self._read_json_body())
+                    self._send_json(200, result)
+                except (APIError, ValueError) as exc:
+                    self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
+                return
+            if self.path == "/api/runtime/unload":
+                try:
+                    if self._read_json_body():
+                        raise APIError("unload accepts an empty object")
+                    self._send_json(200, self.server.services.unload_model())
+                except (APIError, ValueError) as exc:
+                    self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
+                return
+            if self.path == "/api/runtime/chat":
+                try:
+                    body = self._read_json_body()
+                    if set(body) != {"prompt"}:
+                        raise APIError("prompt is required")
+                    self._send_json(200, self.server.services.generate_active(body["prompt"]))
+                except (APIError, ValueError) as exc:
+                    self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
+                return
+            if self.path == "/api/runtime/command":
+                try:
+                    body = self._read_json_body()
+                    if set(body) - {"model_id", "backend", "placement", "load"} or "model_id" not in body:
+                        raise APIError("model_id is required; accepted fields are backend, placement and load")
+                    if body.get("backend") is not None and not isinstance(body["backend"], str):
+                        raise APIError("backend must be a string")
+                    model_id = body.get("model_id")
+                    model = next((m for m in self.server.services.catalog.list_models()
+                                  if getattr(m, "id", None) == model_id), None)
+                    if model is None:
+                        raise APIError("Model id was not found in the local catalog")
+                    backend = next((b for b in self.server.services.runtimes.list_backends()
+                                    if (not body.get("backend") or b.name == body.get("backend"))
+                                    and b.can_load(model)), None)
+                    if backend is None:
+                        raise APIError("No available backend can load this model")
+                    command = backend.effective_command(model, body.get("placement", {}), body.get("load", {}))
+                    argv = list(command)
+                    self._send_json(200, {"data": {"command": shlex.join(argv), "argv": argv}})
+                except (APIError, ValueError, RuntimeError, OSError, AttributeError) as exc:
+                    self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
                 return
             cancel_match = re.fullmatch(r"/api/downloads/([a-f0-9]{32})/cancel", self.path)
             if cancel_match:
