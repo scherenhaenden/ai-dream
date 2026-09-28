@@ -39,7 +39,8 @@ class LauncherTests(unittest.TestCase):
         web = (ROOT / "open-ai-dream-web").read_text()
 
         self.assertIn("python3 -m aidream.ui", standalone)
-        self.assertIn('python3 -m aidream web "$@"', web)
+        self.assertIn('python3 -m aidream web "${web_args[@]}"', web)
+        self.assertIn("web_args=(--restart", web)
         self.assertIn("startup failed", standalone)
         self.assertIn("startup failed", web)
         self.assertNotIn("read -r", standalone)
@@ -77,3 +78,21 @@ class LauncherTests(unittest.TestCase):
         self.assertEqual(result.returncode, 7)
         self.assertIn("simulated startup error", result.stderr)
         self.assertIn("desktop startup failed", result.stderr)
+
+    def test_web_desktop_launcher_restarts_managed_server_by_default(self):
+        with tempfile.TemporaryDirectory() as directory:
+            shim = Path(directory) / "python3"
+            shim.write_text('#!/bin/sh\nprintf "%s\\n" "$*" > "$AIDREAM_ARGS"\n')
+            shim.chmod(0o755)
+            args_file = Path(directory) / "args"
+            env = dict(os.environ, PATH=f"{directory}:{os.environ.get('PATH', '')}",
+                       AIDREAM_ARGS=str(args_file))
+            result = subprocess.run([str(ROOT / "open-ai-dream-web")], cwd=ROOT,
+                                    env=env, capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(args_file.read_text().strip(), "-m aidream web --restart")
+
+            result = subprocess.run([str(ROOT / "open-ai-dream-web"), "--stop"], cwd=ROOT,
+                                    env=env, capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(args_file.read_text().strip(), "-m aidream web --stop")
