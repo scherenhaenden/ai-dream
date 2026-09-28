@@ -490,6 +490,15 @@ class LlamaCppBackend:
             if isinstance(seed, bool) or not isinstance(seed, int):
                 raise ValueError("seed must be an integer")
             payload["seed"] = seed
+        if "structured_output" in opts:
+            response_format = opts["structured_output"]
+            if not isinstance(response_format, Mapping):
+                raise ValueError("structured_output must be an object")
+            try:
+                json.dumps(response_format, allow_nan=False)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("structured_output must contain JSON values") from exc
+            payload["response_format"] = dict(response_format)
         if "stop" in opts:
             stop = opts["stop"]
             if isinstance(stop, str):
