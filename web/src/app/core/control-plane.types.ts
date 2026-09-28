@@ -48,7 +48,6 @@ export interface RuntimeCapabilities {
   offload_kv_cache: boolean;
   mmap: boolean;
   mmap_disable: boolean;
-  mmap_disable: boolean;
   keep_model_in_memory: boolean;
   fit: boolean;
   reasoning: boolean;

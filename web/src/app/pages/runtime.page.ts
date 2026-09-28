@@ -58,7 +58,7 @@ export class RuntimePage implements OnInit {
   constructor(readonly api:ApiService, private readonly runtime:RuntimeService) {}
   ngOnInit(){ void this.initialize(); }
   async initialize(){ this.loading.set(true); this.error.set(''); try { await this.api.check(); if(!this.api.connected()) return;
-    const {models,runtime}=await this.runtime.snapshot(); this.models.set(models); this.backends.set(runtime.backends); this.devices.set(runtime.devices); this.status(runtime.status);
+    const {models,runtime}=await this.runtime.snapshot(); this.models.set(models); this.backends.set(runtime.backends); this.devices.set(runtime.devices); this.status.set(runtime.status);
     try { const installs=await this.runtime.installations(); this.installations.set(installs); } catch { this.installations.set([]); }
     if(!this.backends().some(b=>b.name===this.backendName())) this.backendName.set(this.backends()[0]?.name||'');
     if(this.installations().length) this.setInstallation(this.installations()[0].id);
@@ -90,9 +90,9 @@ export class RuntimePage implements OnInit {
     if(this.supports('device_selection')&&this.device()) placement.device=this.device();
     return {model_id:this.modelId(),backend:this.installation?(this.installation.backend||undefined):this.backendName(),runtime_id:this.runtimeId()||undefined,placement,load};
   }
-  async load(){this.busy.set(true);this.error.set('');this.notice.set('Loading model…');this.command.set('');try{this.status(await this.runtime.load(this.payload()));this.notice.set('Model loaded.');await this.refreshStatus();}catch(e){this.notice.set('');this.error.set(errorMessage(e));}finally{this.busy.set(false);}}
-  async unload(){this.busy.set(true);this.error.set('');try{this.status(await this.runtime.unload());this.notice.set('Model unloaded.');}catch(e){this.error.set(errorMessage(e));}finally{this.busy.set(false);}}
-  async refreshStatus(){try{this.status(await this.runtime.status());}catch(e){this.error.set(errorMessage(e));}}
+  async load(){this.busy.set(true);this.error.set('');this.notice.set('Loading model…');this.command.set('');try{this.status.set(await this.runtime.load(this.payload()));this.notice.set('Model loaded.');await this.refreshStatus();}catch(e){this.notice.set('');this.error.set(errorMessage(e));}finally{this.busy.set(false);}}
+  async unload(){this.busy.set(true);this.error.set('');try{this.status.set(await this.runtime.unload());this.notice.set('Model unloaded.');}catch(e){this.error.set(errorMessage(e));}finally{this.busy.set(false);}}
+  async refreshStatus(){try{this.status.set(await this.runtime.status());}catch(e){this.error.set(errorMessage(e));}}
   async showCommand(){try{const result=await this.runtime.command(this.payload());this.command.set(result.command);}catch(e){this.error.set(errorMessage(e));}}
   copyCommand(){void navigator.clipboard?.writeText(this.command());this.copied.set(true);}
 }
