@@ -15,7 +15,8 @@ prompt = build_document_prompt("Summarize the attached notes.", [document])
 
 The runtime can restore document references in saved user turns and re-extract
 them with these same limits; see
-[`chat-attachment-history.md`](chat-attachment-history.md). Desktop UI
-attachment controls remain separate work.
+[`chat-attachment-history.md`](chat-attachment-history.md). The Tk interface
+has controls to attach and clear local documents. Angular chat does not
+currently expose document attachment controls.
 
 To enable PDF text extraction in a local environment, install `pypdf` into that environment. TXT and Markdown support has no extra dependency.

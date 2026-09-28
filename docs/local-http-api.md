@@ -9,11 +9,12 @@ app serve --port 8765
 ```
 
 The server always binds to `127.0.0.1`; there is no option to expose it to a
-LAN interface. Snapshot and history routes are GET/HEAD. The only write routes
-create a local chat and submit a prompt to a catalog-selected local model. There
-is no install, arbitrary file read, caller-selected model path, or arbitrary
-filesystem action endpoint. Agent mode exposes only its existing fixed
-read-only hardware, model-catalog, and runtime-status tools. Chat generation
+LAN interface. Snapshot and history routes are GET/HEAD. Write routes create,
+rename, and delete local chats, submit prompts to catalog-selected models, and
+start or cancel managed Hugging Face downloads. There is no runtime install,
+arbitrary file read, caller-selected model path, or arbitrary filesystem action
+endpoint. Agent mode exposes only its existing fixed read-only hardware,
+model-catalog, and runtime-status tools. Chat generation
 keeps one local backend/model loaded and reuses it for consecutive turns in the
 same chat; switching chat or model restores bounded history and reloads. Server
 shutdown unloads the model.
@@ -28,27 +29,45 @@ Successful JSON responses use a `{ "data": ... }` envelope. Errors use a short
 - `GET /api/chats/<32-hex-id>` → `data.chat` (transcript roles, text and timestamps; excludes settings and attachment paths)
 - `GET /api/hub/search?q=<text>&limit=<1-100>` → `data.items` with public Hugging Face GGUF repository metadata
 - `GET /api/hub/repos/<percent-encoded-owner%2Frepo>/files?revision=main` → validated GGUF filenames and public repository details
-- `GET /api/downloads` → current in-memory downloads with status and received/total byte counts
+- `GET /api/downloads` → current in-memory downloads with status and received/total byte counts; jobs are recovered by the browser after a page refresh while the server stays running
+- `GET /api/downloads/<32-hex-id>` → one current in-memory download snapshot
 - `POST /api/chats` with optional `{"title":"..."}` → creates one local session and returns `data.chat`
 - `PATCH /api/chats/<32-hex-id>` with `{"title":"..."}` → renames a local session; title must contain 1–120 characters
 - `DELETE /api/chats/<32-hex-id>` → deletes only the saved chat record; referenced attachment files remain untouched
 - `POST /api/chat` with `{"chat_id":"...","model_id":"...","prompt":"..."}` → SSE `delta` events (`{"text":"..."}`), then `complete` (`chat_id`, saved `assistant` text, and `session_id`). Model IDs must match the local catalog; callers cannot provide paths.
 - `POST /api/agent` with the same body → SSE `status`, then `complete` with `assistant`, `chat_id`, `session_id`, and a bounded `agent` summary (`tools`, `tool_call_count`, `elapsed_seconds`, `stop_reason`, `tool_calls_supported`). Agent mode requires the selected catalog model's runtime to support tool calls. It permits at most four registered read-only calls and 45 seconds per turn; results and audit snippets are bounded. Disconnecting cancels the active backend call. Completed agent turns and a compact audit record are saved to that chat; `GET /api/chats/<id>` returns audit data in `agent_audits` and keeps the internal audit record out of visible transcript messages.
-- `POST /api/downloads` with `{"repo_id":"owner/model","file_name":"model.Q4_K_M.gguf"}` → HTTP 202 and a download ID; only one transfer runs at a time. Files go under `$XDG_DATA_HOME/ai-dream/models` (normally `~/.local/share/ai-dream/models`), and that folder is registered in the local catalog on completion.
+- `POST /api/downloads` with `{"repo_id":"owner/model","file_name":"model.Q4_K_M.gguf"}` and optional `"revision":"main"` → HTTP 202 and a download ID; only one transfer runs at a time. Files go under `$XDG_DATA_HOME/ai-dream/models` (normally `~/.local/share/ai-dream/models`), and that folder is registered in the local catalog on completion.
 - `GET /api/downloads/<32-hex-id>/events` → SSE `progress` events with transfer state, received bytes, optional total and percentage, and a terminal state.
-- `POST /api/downloads/<32-hex-id>/cancel` → requests safe cancellation; incomplete transfers use the downloader's validated resumable partial-file behavior.
+- `POST` or `DELETE /api/downloads/<32-hex-id>/cancel` → requests safe cancellation; incomplete transfers use the downloader's validated resumable partial-file behavior.
 
 Requests must send a Host header for `127.0.0.1:<port>` or
-`localhost:<port>`. Other Host values are rejected. Chat creation, rename,
-deletion, chat generation, agent calls, and download cancellation require an
-exact allowed `Origin`: the
-Angular development origin `http://127.0.0.1:5173` or same-origin production;
-no credentials are allowed. Other mutating HTTP methods return 405 without
-consuming request bodies.
-The server caps JSON responses at 4 MiB and POST bodies at 32 KiB, bounds chat
-history and transcript sizes, permits one model generation at a time, and
-cancels generation or agent work when the SSE client disconnects. Snapshot service calls have
-a six-second deadline. Hugging Face requests access public repositories only.
+`localhost:<port>`. Other Host values are rejected. Every write, including
+download creation, requires an exact allowed `Origin`: the Angular development
+origin `http://127.0.0.1:5173` or the current server origin in production. An
+ordinary terminal HTTP client must set that header explicitly. No credentials
+are allowed. `OPTIONS` preflight is restricted to known write paths; unsupported
+methods such as PUT return 405 without consuming request bodies.
+The server bounds work and data before handing it to local services:
+
+| Limit | Value |
+|---|---:|
+| JSON request body | 32 KiB |
+| JSON response | 4 MiB |
+| Local models returned | 1,000 |
+| Chats listed | 200 |
+| Chat file read by the API | 2 MiB |
+| Visible transcript | 100 messages / 262,144 characters |
+| History restored into the runtime | 32 messages / 32,768 characters |
+| Submitted prompt | 8,000 characters |
+| Streamed assistant answer | 65,536 characters |
+| In-memory download jobs | 8 |
+| Concurrent HTTP requests / snapshot workers | 8 / 4 |
+| Snapshot service deadline | 6 seconds |
+
+Only one model generation runs at a time. Disconnecting an SSE client cancels
+chat generation or agent work. Hugging Face requests access public repositories
+only.
+
 Responses are not cached. Model paths are returned for
 local model identity; paths in existing saved attachments are revalidated by
 the local runtime before reading and are never returned in browser transcripts.

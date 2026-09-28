@@ -1,7 +1,7 @@
-"""Local JSON HTTP adapter with fixed snapshot and chat endpoints.
+"""Loopback HTTP adapter for snapshots, chats, agent turns and downloads.
 
-The server binds only IPv4 loopback. Writes are limited to local chat creation
-and model generation through the existing, catalog-backed application services.
+Write endpoints use the catalog, local chat store and managed Hub destination;
+the server does not expose arbitrary model paths or general filesystem actions.
 """
 from __future__ import annotations
 

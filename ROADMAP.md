@@ -14,7 +14,7 @@ This snapshot is the next executable preview after those milestones; features be
 ## Current baseline
 
 - [x] Detect CPU, RAM, accelerators, local model directories, GGUF files and llama.cpp availability.
-- [x] Install the Debian/Ubuntu llama.cpp package through the explicit runtime-manager action.
+- [ ] Expose the existing Debian/Ubuntu llama.cpp runtime-manager install operation in a user-facing action; detection is implemented, but no current entry point calls `RuntimeManager.install()`.
 - [x] Run a persistent llama.cpp server and send OpenAI-compatible chat-completion requests.
 - [x] Expose model placement, context, CPU threads, batch and reasoning settings in the runtime/UI.
 - [x] Launch the UI from the repository root with `./open-ai-dream`.
@@ -42,7 +42,7 @@ This snapshot is the next executable preview after those milestones; features be
 
 ### Model lifecycle
 
-- [x] Provide llama.cpp install/detect status and an explicit install action through the runtime manager.
+- [ ] Expose llama.cpp installation through an explicit UI/CLI action. `RuntimeManager` detects the installed executable and implements an opt-in Debian/Ubuntu install method, but the method is not wired to an entry point.
 - [x] Prevalidate model files, projector-vs-chat-model status, backend availability and unsupported device/load controls before starting a server.
 - [x] Scan multiple model folders without moving user files; filter by model metadata/path and sort by name or size.
 - [x] Download public Hugging Face GGUFs with progress, destination selection and safe filenames.

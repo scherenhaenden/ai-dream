@@ -1,20 +1,34 @@
-# AI Dream Angular Console
+# AI Dream Angular frontend
 
-A compact Angular standalone front-end based on the supplied Local AI Studio visual direction. Uses Vite with the Analog Angular plugin, lazy standalone route components, strict TypeScript, and no UI framework or icon package.
+This directory contains the local browser interface. It is an Angular 20 standalone application bundled with Vite and the Analog Angular plugin. It talks to AI Dream's Python loopback API; the browser does not load GGUF files or run inference itself.
 
-## Run
+## Start
+
+From the repository root, build and launch the app and API together:
 
 ```sh
-npm install
-npm run start
+npm --prefix web ci
+npm --prefix web run build
+./open-ai-dream-web
 ```
 
-Open <http://127.0.0.1:5173>. For a production bundle, run `npm run build`.
+`./open-ai-dream-web --port 8780` selects another loopback port. The server opens the browser and serves `web/dist` plus `/api/*` from the same origin. The root `AI Dream.desktop` launcher runs the same command. If the bundle is missing, the launcher reports that the web build is required.
 
-## Local API
+For frontend development, start the API and Vite in separate terminals:
 
-The browser checks `GET http://127.0.0.1:8765/api/health`. Change the base URL in Settings (only `http://127.0.0.1:<port>` and `http://localhost:<port>` are accepted; port must be 1–65535). Hardware, Models, and Runtime request `GET /api/hardware`, `/api/models`, and `/api/runtime`. Chat loads sessions from `GET /api/chats`, creates them with `POST /api/chats`, and reads `GET /api/chats/:id`. It sends `{chat_id, model_id, prompt}` to `POST /api/chat` and parses SSE `delta`, `complete`, and `error` events; Stop aborts the stream. Interrupted turns are discarded by the backend and the prompt is restored in the composer. GET responses may be raw JSON or `{ "data": ... }`; both are accepted. Hub and Downloads are not wired to backend actions yet. Screens do not invent model, device, download, or runtime data.
+```sh
+python3 -m aidream serve --port 8765
+cd web && npm ci && npm run start
+```
 
-## Performance and dependencies
+Open <http://127.0.0.1:5173>. Vite listens on loopback only. Its browser client defaults to `http://127.0.0.1:8765`; Settings accepts another explicit loopback port. Use `npm run typecheck` for strict TypeScript checking and `npm run build` to produce `web/dist`.
 
-Standalone routes load on demand; Angular change detection uses OnPush, and the app uses signals for local connection and palette state. System fonts avoid network requests. CSS is native. Vite serves locally on loopback.
+## What the browser offers
+
+- Chat: choose a catalogued model, create/select/rename/delete conversations, stream a response, stop a turn, retry a failed draft, copy response text, and export the visible transcript as Markdown.
+- Agent: run bounded read-only hardware, model and runtime queries through a compatible local model; see status and the saved tool audit.
+- Model Hub and Downloads: search public Hugging Face GGUF repositories, inspect GGUF files, start transfers, follow live progress, cancel, and restore the backend's current transfer list when the screen reopens.
+- Hardware, Models and Runtime: show API snapshots as JSON. These are diagnostic views, not full management editors.
+- Settings: configure the local API base URL and check connectivity.
+
+The web chat currently sends text only. Attachments, voice, presets, per-chat parameter editing and response regeneration are not exposed here. Some of these capabilities are available in the Python desktop interface. See [the frontend guide](../docs/angular-frontend.md) for architecture, data flow, route-by-route behavior, limitations, and accessibility notes. See [the local API contract](../docs/local-http-api.md) for endpoints and security rules.

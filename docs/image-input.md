@@ -1,4 +1,4 @@
-# Local image input (first slice)
+# Local image input
 
 `aidream.image_input` prepares local raster attachments for an OpenAI-compatible
 chat-completions request. It deliberately does not call a remote service or
@@ -23,6 +23,7 @@ and four images per message. Only `user` and `system` roles are accepted by the
 builder. The data URI adds base64 overhead to the JSON request, so callers should
 also keep the server's overall request/body limit in mind. Runtime history
 restores metadata-only image references as described in
-[`chat-attachment-history.md`](chat-attachment-history.md). Desktop UI
-attachment controls and image resizing/thumbnail generation remain separate
-work.
+[`chat-attachment-history.md`](chat-attachment-history.md). The Tk interface
+has controls to attach and clear local images before sending. Angular chat does
+not currently expose image attachment controls. Image resizing and thumbnail
+generation are not implemented.

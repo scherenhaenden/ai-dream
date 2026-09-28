@@ -12,5 +12,6 @@ license and source values are reported explicitly instead of inferred. The raw
 header metadata remains available on `ModelRecord.metadata`, and `to_dict()`
 continues to serialize the original record shape.
 
-This API is ready for the model details panel to consume. Displaying these fields
-in the desktop UI is a separate integration step.
+The Tk model details panel displays this information. The Angular Models route
+shows the available local catalog through the HTTP API; its presentation is
+currently less detailed than the Tk panel.

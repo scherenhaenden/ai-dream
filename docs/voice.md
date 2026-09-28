@@ -19,8 +19,8 @@ errors, while `done` and `cancelled` expose state. `speak(text)` remains the
 synchronous convenience method.
 
 On Linux install `espeak-ng`, `alsa-utils`, and `whisper.cpp` as needed. A
-Whisper model file is separately required for transcription. The application
-does not install system packages or fetch speech models automatically.
+Whisper model file is separately required for transcription. The voice
+component does not install speech packages or fetch speech models automatically.
 
 In the desktop app, hold **Hold to talk** to capture local microphone audio and
 release the control to stop early and transcribe with the selected installed
