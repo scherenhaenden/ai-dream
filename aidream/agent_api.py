@@ -95,12 +95,16 @@ def prepare_agent(api: Any, chat_id: str, model_id: str, prompt: str) -> AgentRu
         model = next((item for item in models if getattr(item, "id", None) == model_id), None)
         if model is None:
             raise APIError("Model id was not found in the local catalog")
-        backend = next((item for item in api.runtimes.list_backends()
+        settings = api._resolve_settings(model_id, chat_settings=api.chat_store.get_session_settings(chat_id))
+        backend = next((item for item in api._all_backends()
+                        if (not settings.get("runtime_id") or getattr(item, "runtime_id", None) == settings["runtime_id"])
+                        and (not settings.get("backend_name") or item.name == settings["backend_name"])
                         if item.capabilities().available and item.can_load(model)
                         and callable(getattr(item, "chat_with_tools", None))), None)
         if backend is None:
             raise APIError("No available local runtime supports read-only agent tool calls for this model")
-        binding = (id(backend), model_id, chat_id)
+        from aidream.model_profiles import load_fingerprint
+        binding = (id(backend), model_id, chat_id, load_fingerprint(settings))
         healthy = api._active_binding == binding
         process = getattr(backend, "_process", None)
         if hasattr(backend, "_process"):
@@ -108,7 +112,7 @@ def prepare_agent(api: Any, chat_id: str, model_id: str, prompt: str) -> AgentRu
                        and getattr(backend, "_loaded_model", None) is not None)
         if not healthy:
             api._unload_active()
-            backend.load(model)
+            backend.load(model, settings.get("placement"), settings.get("load"))
             api._active_backend = backend
             api._active_binding = binding
         return AgentRun(api, backend, chat_id, prompt.strip())
