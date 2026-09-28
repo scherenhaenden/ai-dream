@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any
@@ -31,7 +33,7 @@ def _print(value: Any) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="app", description="Local AI model manager")
+    parser = argparse.ArgumentParser(prog="aidream", description="Local AI model manager")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("hardware", help="detect CPU, memory, and available accelerators")
 
@@ -49,12 +51,60 @@ def build_parser() -> argparse.ArgumentParser:
     web = sub.add_parser("web", help="serve the bundled Angular application and API")
     web.add_argument("--port", type=int, default=8765)
     run = sub.add_parser("run", help="load a model and chat in the terminal")
-    run.add_argument("model", help="model id or GGUF file path")
-    run.add_argument("--backend", default="auto")
-    run.add_argument("--gpu-layers", type=int, help="GPU layers, when supported by the selected backend")
-    run.add_argument("--device", help="runtime device name, when supported by the selected backend")
-    run.add_argument("--tensor-split", help="runtime tensor split, when supported by the selected backend")
+    _add_model_runtime_args(run)
+    load = sub.add_parser("load", help="load a model without sending a chat prompt")
+    _add_model_runtime_args(load)
+    sub.add_parser("unload", help="unload the active model")
+    sub.add_parser("status", help="show runtime status")
+    chat = sub.add_parser("chat", help="chat with the selected model")
+    _add_model_runtime_args(chat, model_required=False)
+    bench = sub.add_parser("benchmark", help="benchmark a model configuration or matrix")
+    _add_model_runtime_args(bench)
+    bench.add_argument("--prompt", default="Explain what a local language model is in one paragraph.")
+    bench.add_argument("--results", help="JSON result file (default: application data directory)")
+    bench.add_argument("--matrix", help="JSON array of named placement objects")
     return parser
+
+
+def _add_model_runtime_args(parser, model_required=True):
+    parser.add_argument("model", nargs=None if model_required else "?",
+                        help="model id or GGUF file path; omit to use active model" if not model_required else "model id or GGUF file path")
+    parser.add_argument("--backend", default="auto")
+    parser.add_argument("--gpu-layers", type=int)
+    parser.add_argument("--device", help="runtime-native device id")
+    parser.add_argument("--split-mode")
+    parser.add_argument("--tensor-split")
+    parser.add_argument("--main-gpu", type=int)
+    parser.add_argument("--context-size", type=int)
+    parser.add_argument("--threads", type=int)
+    parser.add_argument("--batch-size", type=int)
+    parser.add_argument("--physical-batch-size", type=int)
+    parser.add_argument("--max-concurrent", type=int)
+    for name in ("flash-attention", "unified-kv-cache", "offload-kv-cache", "mmap", "keep-model-in-memory"):
+        parser.add_argument("--" + name, action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument("--fit", type=_bool_setting)
+
+
+def _bool_setting(value):
+    normalized = str(value).lower()
+    if normalized in {"on", "true", "yes", "1"}:
+        return True
+    if normalized in {"off", "false", "no", "0"}:
+        return False
+    raise argparse.ArgumentTypeError("expected on/off, true/false, yes/no, or 1/0")
+
+
+def _runtime_settings(args):
+    placement = {"gpu_layers": args.gpu_layers, "device": args.device,
+                 "split_mode": args.split_mode, "tensor_split": args.tensor_split,
+                 "main_gpu": args.main_gpu}
+    placement = {key: value for key, value in placement.items() if value is not None}
+    options = {"context_size": args.context_size, "threads": args.threads,
+               "batch_size": args.batch_size, "physical_batch_size": args.physical_batch_size,
+               "max_concurrent": args.max_concurrent, "flash_attention": args.flash_attention,
+               "unified_kv_cache": args.unified_kv_cache, "offload_kv_cache": args.offload_kv_cache,
+               "mmap": args.mmap, "keep_model_in_memory": args.keep_model_in_memory, "fit": args.fit}
+    return placement, {key: value for key, value in options.items() if value is not None}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -86,44 +136,62 @@ def main(argv: list[str] | None = None) -> int:
                 {"name": backend.name, "capabilities": backend.capabilities()}
                 for backend in RuntimeRegistry().list_backends()
             ])
+        elif args.command == "status":
+            try:
+                _print(_api_request("GET", "/api/runtime/status"))
+            except RuntimeError:
+                from aidream.runtime_manager import RuntimeManager
+                _print({"server": RuntimeManager().status(), "runtime": {"loaded": False}})
+        elif args.command in {"load", "unload", "chat"}:
+            if args.command == "unload":
+                return _runtime_action("unload")
+            if args.command == "load":
+                return _runtime_load(args)
+            if args.command == "chat" and args.model is None:
+                return _runtime_action("chat")
+            return _run_chat(args, interactive=args.command in {"run", "chat"})
+        elif args.command == "benchmark":
+            return _run_benchmark(args)
         else:
-            return _run_chat(args)
+            return _run_chat(args, interactive=True)
         return 0
     except (OSError, ValueError, RuntimeError) as exc:
         print(f"app: {exc}", file=sys.stderr)
         return 2
 
 
-def _run_chat(args: argparse.Namespace) -> int:
+def _select_model_backend(model_arg, backend_name):
     from aidream.models import ModelCatalog
     from aidream.runtime import RuntimeRegistry
-
     catalog = ModelCatalog()
     models = catalog.list_models()
-    model = next((m for m in models if getattr(m, "id", None) == args.model or
-                  str(getattr(m, "path", "")) == args.model), None)
+    model = next((m for m in models if getattr(m, "id", None) == model_arg or
+                  str(getattr(m, "path", "")) == model_arg), None)
     if model is None:
-        path = Path(args.model).expanduser()
+        path = Path(model_arg).expanduser()
         if path.suffix.lower() != ".gguf" or not path.is_file():
-            raise ValueError(f"Model '{args.model}' was not found; run 'app models scan' or pass an existing GGUF path")
+            raise ValueError(f"Model '{model_arg}' was not found; run 'aidream models scan' or pass an existing GGUF path")
         model = path
     registry = RuntimeRegistry()
     backends = registry.list_backends()
-    if args.backend == "auto":
+    if backend_name == "auto":
         backend = next((b for b in backends if b.capabilities().available and b.can_load(model)), None)
     else:
-        backend = next((b for b in backends if getattr(b, "name", "") == args.backend), None)
+        backend = next((b for b in backends if getattr(b, "name", "") == backend_name), None)
     if backend is None:
-        raise RuntimeError(f"Backend '{args.backend}' is unavailable. See 'app backends'.")
-    placement = {}
-    if args.gpu_layers is not None:
-        placement["gpu_layers"] = args.gpu_layers
-    if args.device is not None:
-        placement["device"] = args.device
-    if args.tensor_split is not None:
-        placement["tensor_split"] = args.tensor_split
-    backend.load(model, placement)
+        raise RuntimeError(f"Backend '{backend_name}' is unavailable. See 'aidream backends'.")
+    return model, backend
+
+
+def _run_chat(args: argparse.Namespace, *, interactive=True) -> int:
+    model, backend = _select_model_backend(args.model, args.backend)
+    placement, options = _runtime_settings(args)
+    backend.load(model, placement, options)
     try:
+        if not interactive:
+            _print({"status": "loaded", "model": str(getattr(model, "id", getattr(model, "path", model))),
+                    "backend": backend.name, "placement": placement, "options": options})
+            return 0
         print("Model ready. Enter /exit to unload and quit.")
         while True:
             prompt = input("you> ").strip()
@@ -135,6 +203,98 @@ def _run_chat(args: argparse.Namespace) -> int:
             print(f"assistant> {response}")
     finally:
         backend.unload()
+    return 0
+
+
+def _runtime_action(action):
+    if action == "unload":
+        _print(_api_request("POST", "/api/runtime/unload", {}))
+        return 0
+    if action == "chat":
+        while True:
+            try:
+                prompt = input("you> ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                return 0
+            if prompt == "/exit":
+                return 0
+            if not prompt:
+                continue
+            result = _api_request("POST", "/api/runtime/chat", {"prompt": prompt})
+            data = result.get("data", result)
+            print("assistant> " + str(data.get("response", data.get("assistant", data.get("text", data)))))
+    status = _api_request("GET", "/api/runtime/status")
+    _print(status)
+    return 0
+
+
+def _runtime_load(args):
+    from aidream.models import ModelCatalog
+    placement, options = _runtime_settings(args)
+    records = ModelCatalog().list_models()
+    model = next((item for item in records if item.id == args.model or item.path == args.model), None)
+    if model is None:
+        candidate = Path(args.model).expanduser()
+        if candidate.suffix.lower() != ".gguf" or not candidate.is_file():
+            raise ValueError(f"Model '{args.model}' was not found in the catalog or as a GGUF file")
+        # The API accepts catalog identifiers. Register the containing directory and resolve again.
+        ModelCatalog().add_source(candidate.parent)
+        model = next((item for item in ModelCatalog().list_models() if item.path == str(candidate)), None)
+    if model is None:
+        raise ValueError("Could not resolve model in the local catalog")
+    result = _api_request("POST", "/api/runtime/load", {
+        "model_id": model.id, "backend": None if args.backend == "auto" else args.backend,
+        "placement": placement, "load": options,
+    })
+    _print(result)
+    return 0
+
+
+def _api_request(method, path, payload=None):
+    url = "http://127.0.0.1:8765" + path
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    request = Request(url, data=data, method=method,
+                      headers={"Content-Type": "application/json", "Host": "127.0.0.1:8765",
+                               "Origin": "http://127.0.0.1:8765"})
+    try:
+        timeout_seconds = 240 if path == "/api/runtime/load" else 300 if path == "/api/runtime/chat" else 8
+        with urlopen(request, timeout=timeout_seconds) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        try:
+            detail = json.loads(exc.read().decode("utf-8")).get("error", str(exc))
+        except Exception:
+            detail = str(exc)
+        raise RuntimeError(f"AI Dream API rejected the request: {detail}") from exc
+    except (URLError, OSError, TimeoutError) as exc:
+        raise RuntimeError("AI Dream API is not running on 127.0.0.1:8765; start the desktop or run 'aidream web'") from exc
+    return result
+
+
+def _run_benchmark(args):
+    from aidream.benchmark import benchmark_one, run_matrix, save_result
+    model, backend = _select_model_backend(args.model, args.backend)
+    placement, options = _runtime_settings(args)
+    if args.matrix:
+        try:
+            configs = json.loads(args.matrix)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"--matrix must be a JSON array: {exc}") from exc
+        if not isinstance(configs, list) or not configs or any(not isinstance(item, dict) for item in configs):
+            raise ValueError("--matrix must be a non-empty JSON array of placement objects")
+        from aidream.runtime import RuntimeRegistry
+        result = run_matrix(model, args.prompt, lambda: backend,
+            configs, options=options, results_path=args.results)
+        print("Configuration | Load s | Prompt tok/s | Generation tok/s | Prompt tokens | Generated tokens")
+        for item in result:
+            print(f"{item['matrix_name']} | {item['model_load_seconds']:.3f} | "
+                  f"{item['prompt_processing_tokens_per_second']:.2f} | {item['generation_tokens_per_second']:.2f} | "
+                  f"{item['prompt_token_count']} | {item['generated_token_count']}")
+        return 0
+    result = benchmark_one(model, args.prompt, backend, placement=placement, options=options)
+    result_path = save_result(result, args.results)
+    _print({"result": result, "saved_to": result_path})
     return 0
 
 
