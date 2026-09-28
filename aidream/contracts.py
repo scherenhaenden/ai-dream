@@ -34,6 +34,7 @@ class RuntimeDevice(TypedDict):
 
 class RuntimeCapabilities(TypedDict, total=False):
     available: bool
+    device_listing: bool
     executable: str | None
     details: str
     gpu_layers: bool

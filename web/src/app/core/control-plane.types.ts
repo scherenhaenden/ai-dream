@@ -24,6 +24,7 @@ export interface ModelSource {
 
 export interface RuntimeCapabilities {
   available: boolean;
+  device_listing: boolean;
   executable: string | null;
   details: string;
   gpu_layers: boolean;
