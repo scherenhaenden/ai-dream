@@ -24,14 +24,17 @@ Or use the CLI:
 python3 -m pip install -e .
 aidream hardware
 aidream models add ~/Models
-aidream models scan
+aidream models rescan
 aidream models list
 aidream backends
-aidream run /path/to/model.gguf --backend auto
+aidream load MODEL_ID --gpu-layers 20 --context-size 4096
+aidream status
+aidream unload
+aidream run MODEL_ID --backend auto
 aidream-gui
 ```
 
-`aidream run` also accepts `--gpu-layers`, `--device`, and `--tensor-split` when the selected runtime supports them; `aidream backends` reports available controls. Device names are runtime-native identifiers rather than hardware-list indexes. For a source checkout without installing the console script, use `python3 -m aidream`.
+`aidream load MODEL_ID` explicitly loads a catalog entry without sending a prompt; `MODEL_ID` comes from `aidream models list` (or use a GGUF path). Loading through the persistent runtime requires the local AI Dream API to be running via the desktop, `aidream serve`, or `aidream web`. `aidream run` also accepts `--gpu-layers`, `--device`, and `--tensor-split` when the selected runtime supports them; `aidream backends` reports available controls. Device names are runtime-native identifiers rather than hardware-list indexes. For a source checkout without installing the console script, use `python3 -m aidream`.
 
 The current dated Linux test build is generated under `build/linux/25.09.2026/`.
 

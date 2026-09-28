@@ -41,7 +41,7 @@ Tk window:
 ```sh
 python3 -m aidream hardware
 python3 -m aidream models add /absolute/path/to/models
-python3 -m aidream models scan
+python3 -m aidream models rescan
 python3 -m aidream models list
 python3 -m aidream backends
 python3 -m aidream run /absolute/path/to/model.gguf

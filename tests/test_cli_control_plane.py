@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from aidream import cli
+from aidream.cli import build_parser
 from aidream.models import ModelCatalog
 
 
@@ -34,6 +35,46 @@ class ControlPlaneCliTest(unittest.TestCase):
                 self.assertTrue(json.loads(output)['removed'])
                 self.assertEqual(catalog.list_sources(), [])
                 self.assertTrue(model_file.exists())
+
+    def test_local_gguf_folder_can_be_added_rescanned_listed_and_loaded_by_id(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            models = root / "Models"
+            models.mkdir()
+            model_path = models / "first-test-model.gguf"
+            model_path.write_bytes(b"not-a-real-model")
+            environment = {"HOME": str(root), "XDG_CONFIG_HOME": str(root / "config")}
+            with patch.dict(os.environ, environment):
+                result, add_output = self.run_cli("models", "add", str(models))
+                self.assertEqual(result, 0)
+                self.assertEqual(json.loads(add_output), str(models.resolve()))
+
+                result, list_output = self.run_cli("models", "list")
+                self.assertEqual(result, 0)
+                listed = json.loads(list_output)
+                self.assertEqual(len(listed), 1)
+                self.assertEqual(listed[0]["path"], str(model_path.resolve()))
+                model_id = listed[0]["id"]
+
+                result, rescan_output = self.run_cli("models", "rescan")
+                self.assertEqual(result, 0)
+                self.assertEqual(json.loads(rescan_output)[0]["id"], model_id)
+
+                with patch.object(cli, "_api_request", return_value={"status": "loaded"}) as api:
+                    result, load_output = self.run_cli(
+                        "load", model_id, "--gpu-layers", "12", "--context-size", "2048"
+                    )
+                self.assertEqual(result, 0)
+                self.assertEqual(json.loads(load_output)["status"], "loaded")
+                api.assert_called_once_with("POST", "/api/runtime/load", {
+                    "model_id": model_id, "backend": None,
+                    "placement": {"gpu_layers": 12},
+                    "load": {"context_size": 2048},
+                })
+
+    def test_models_scan_remains_compatible_as_rescan_alias(self):
+        self.assertEqual(build_parser().parse_args(["models", "scan"]).models_command, "scan")
+        self.assertEqual(build_parser().parse_args(["models", "rescan"]).models_command, "rescan")
 
     def test_runtime_add_list_devices_probe_and_remove_use_registry_service(self):
         with tempfile.TemporaryDirectory() as td:
