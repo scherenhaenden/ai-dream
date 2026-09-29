@@ -27,7 +27,9 @@ jobs:
           cache-dependency-path: web/package-lock.json
 
       - name: Apply source patch
-        run: python3 scripts/apply_canvas_modalities_patch.py
+        run: |
+          python3 scripts/apply_canvas_modalities_patch.py
+          python3 scripts/fix_canvas_smoke_fixture.py
 
       - name: Install web dependencies
         working-directory: web
@@ -65,7 +67,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm scripts/apply_canvas_modalities_patch.py .github/workflows/apply-canvas-modalities.yml
+          git rm scripts/apply_canvas_modalities_patch.py scripts/fix_canvas_smoke_fixture.py .github/workflows/apply-canvas-modalities.yml
           git add web/src/app/pages/chat.page.ts \
                   web/src/app/pages/model-studio.page.ts \
                   web/src/styles.css \
