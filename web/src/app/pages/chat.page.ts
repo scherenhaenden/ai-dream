@@ -13,19 +13,12 @@ type ChatEvent = { text?: string; chat_id?: string; assistant?: string | { role?
   template: `
     <section class="chat-workspace">
       <header class="chat-toolbar">
-        <div class="chat-heading"><span class="chat-heading-icon">◫</span><div><h1>Chat</h1><p>Conversations stay on this device</p></div></div>
+        <div class="chat-heading"><span class="chat-heading-icon">◫</span><div><h1>Chat workspace</h1><p>Local inference · {{ chats().length }} conversations · {{ models().length }} models</p></div></div>
         <div class="chat-controls">
-          <label class="sr-only" for="chat-session">Conversation</label>
-          <select id="chat-session" [value]="selectedChatId()" [disabled]="busy() || chats().length === 0" (change)="selectChat($any($event.target).value)">
-            @if (chats().length === 0) { <option value="">{{ chatsLoading() ? 'Loading conversations…' : 'No conversations' }}</option> }
-            @for (chat of chats(); track chat.id) { <option [value]="chat.id">{{ chat.title || 'New chat' }}</option> }
-          </select>
-          <button class="chat-new-button" (click)="createChat()" [disabled]="busy() || !api.connected()" title="Start a new conversation">＋ <span>New chat</span></button>
-          @if (selectedChatId()) {
-            <button class="chat-action-button" (click)="renameChat()" [disabled]="busy() || !api.connected()" title="Rename this conversation">Rename</button>
-            <button class="chat-action-button chat-delete-button" (click)="deleteChat()" [disabled]="busy() || !api.connected()" title="Delete this conversation">Delete</button>
-          }
-          <button class="chat-action-button" (click)="exportTranscript()" [disabled]="messages().length === 0 || streaming()" title="Download this conversation as Markdown">Export</button>
+          <label class="model-picker"><span>MODEL</span><select id="chat-model" [value]="selectedModelId()" (change)="selectedModelId.set($any($event.target).value)" [disabled]="modelsLoading() || models().length === 0 || busy()">
+            <option value="" [selected]="!selectedModelId()">{{ modelsLoading() ? 'Loading models…' : models().length ? 'Select a model' : 'No local models' }}</option>@for (model of models(); track model.id) {<option [value]="model.id" [selected]="model.id === selectedModelId()">{{ modelLabel(model) }}</option>}
+          </select></label>
+          <button class="chat-new-button" (click)="createChat()" [disabled]="busy() || !api.connected()" title="Start a new conversation">＋ <span>New thread</span></button>
         </div>
       </header>
 
@@ -35,7 +28,22 @@ type ChatEvent = { text?: string; chat_id?: string; assistant?: string | { role?
         <div class="chat-notice error-notice" role="alert"><span>!</span><div><b>Could not load chat data</b><p>{{ apiError() }}</p></div><button (click)="reload()" [disabled]="busy()">Retry</button></div>
       }
 
-      <section class="transcript" #transcript aria-label="Conversation messages" [attr.aria-busy]="transcriptLoading() || streaming()">
+      <div class="chat-grid">
+        <aside class="thread-rail" aria-label="Conversations">
+          <div class="rail-title"><span>THREAD LEDGER</span><b>{{ chats().length }}</b></div>
+          <label class="thread-search"><span>⌕</span><input aria-label="Filter conversations" placeholder="Filter chats…" [value]="threadFilter()" (input)="threadFilter.set($any($event.target).value)"></label>
+          <div class="thread-list">
+            @for (chat of visibleChats(); track chat.id) {
+              <button class="thread-item" [class.selected]="selectedChatId() === chat.id" [disabled]="busy()" (click)="selectChat(chat.id)">
+                <span class="thread-dot" [class.active]="selectedChatId() === chat.id"></span><span class="thread-copy"><b>{{ chat.title || 'New chat' }}</b><small>{{ chat.updated_at ? formatTime(chat.updated_at) : 'Saved locally' }}</small></span>
+              </button>
+            } @empty { <p class="thread-empty">{{ chatsLoading() ? 'Loading…' : 'No matching conversations' }}</p> }
+          </div>
+          <div class="rail-footer"><span class="online-dot" [class.offline]="!api.connected()"></span><span>{{ api.connected() ? 'LOCAL API ONLINE' : 'API OFFLINE' }}</span></div>
+        </aside>
+        <section class="chat-center">
+          <div class="active-thread-bar"><div><span class="eyebrow">CURRENT THREAD</span><b>{{ activeChatTitle() }}</b></div><div class="thread-actions">@if (selectedChatId()) {<button class="chat-action-button" (click)="renameChat()" [disabled]="busy()" title="Rename conversation">Rename</button><button class="chat-action-button chat-delete-button" (click)="deleteChat()" [disabled]="busy()" title="Delete conversation">Delete</button>}<button class="chat-action-button" (click)="exportTranscript()" [disabled]="messages().length === 0 || streaming()" title="Export Markdown">Export</button></div></div>
+          <section class="transcript" #transcript aria-label="Conversation messages" [attr.aria-busy]="transcriptLoading() || streaming()">
         @if (transcriptLoading()) { <div class="transcript-loading" role="status">Loading conversation…</div> }
         @if (messages().length === 0 && !streaming() && !turnError()) {
           <div class="chat-empty"><div class="empty-illustration">◫</div><h2>{{ selectedChatId() ? 'Start this conversation' : 'Your local chat workspace' }}</h2><p>{{ selectedChatId() ? 'Choose a model below and send a message.' : 'Create a conversation to chat with a model installed on this device.' }}</p></div>
@@ -51,25 +59,34 @@ type ChatEvent = { text?: string; chat_id?: string; assistant?: string | { role?
         }
         @if (turnError()) { <div class="turn-error" role="alert"><span>{{ turnError() }}</span>@if (prompt().trim() && api.connected()) {<button (click)="send()" [disabled]="busy() || !selectedModelId()">Retry message</button>}</div> }
         <div #scrollAnchor></div>
-      </section>
+          </section>
 
       <div class="sr-only" aria-live="polite">{{ sending() ? 'Sending message.' : streaming() ? 'The model is responding.' : turnError() }}</div>
-      <footer class="composer-area">
+          <footer class="composer-area">
         @if (models().length === 0 && !modelsLoading()) {
           <div class="model-warning" role="status">No local models are available. Add a model in the Models screen before sending.</div>
         }
         <div class="composer surface">
           <label class="sr-only" for="chat-prompt">Message</label>
           <textarea id="chat-prompt" rows="2" placeholder="Message your local model…" [value]="prompt()" (input)="prompt.set($any($event.target).value)" (keydown)="onComposerKey($event)" [disabled]="!canCompose()" [attr.aria-describedby]="'composer-hint'"></textarea>
-          <div class="composer-bottom"><div class="composer-options"><label class="sr-only" for="chat-model">Model</label><select id="chat-model" [value]="selectedModelId()" (change)="selectedModelId.set($any($event.target).value)" [disabled]="modelsLoading() || models().length === 0 || busy()">
-            <option value="">{{ modelsLoading() ? 'Loading models…' : models().length ? 'Select a model' : 'No local models' }}</option>@for (model of models(); track model.id) {<option [value]="model.id">{{ modelLabel(model) }}</option>}
-          </select><span id="composer-hint">Local inference · model ID is stored with the conversation</span></div>
+          <div class="composer-bottom"><div class="composer-options"><span id="composer-hint">Local inference · model ID is stored with the conversation</span></div>
           @if (busy()) { <button class="cancel-button" (click)="cancel()" [attr.aria-label]="sending() ? 'Cancel request' : 'Stop generation'">{{ sending() ? 'Cancel' : 'Stop' }} <span>■</span></button> }
           @else { <button class="send-button" (click)="send()" [disabled]="!canSend()" [attr.aria-label]="sending() ? 'Sending message' : 'Send message'">{{ sending() ? 'Sending…' : 'Send' }} <span>↗</span></button> }
           </div>
         </div>
         <p class="composer-footnote">Responses can be incorrect. Attachments are not available in this web chat yet.</p>
-      </footer>
+          </footer>
+        </section>
+        <aside class="chat-inspector" aria-label="Runtime inspector">
+          <div class="inspector-tabs"><span class="active">SESSION</span><span>MODEL</span></div>
+          <section class="inspector-section"><div class="inspector-heading"><span>SESSION STATUS</span><i [class.offline]="!api.connected()"></i></div><div class="inspector-status"><b>{{ api.connected() ? 'Connected' : 'Unavailable' }}</b><small>{{ api.baseUrl() }}</small></div></section>
+          <section class="inspector-section"><div class="inspector-heading"><span>ACTIVE MODEL</span><span class="inspector-count">{{ models().length }} AVAILABLE</span></div>
+            @if (selectedModel()) {<div class="model-detail"><b>{{ modelLabel(selectedModel()!) }}</b><small>{{ selectedModel()!.format || 'Local model' }}</small><code>{{ selectedModel()!.id }}</code></div>} @else {<p class="inspector-empty">No local model selected</p>}
+          </section>
+          <section class="inspector-section"><div class="inspector-heading"><span>THREAD</span></div><dl class="session-facts"><div><dt>Messages</dt><dd>{{ messages().length }}</dd></div><div><dt>Storage</dt><dd>On device</dd></div><div><dt>Generation</dt><dd>{{ streaming() ? 'Streaming' : 'Ready' }}</dd></div></dl></section>
+          <div class="inspector-note">No cloud egress<br><span>Conversation data stays local.</span></div>
+        </aside>
+      </div>
     </section>
   `,
   styles: [`
@@ -94,6 +111,10 @@ export class ChatPage implements OnInit {
   readonly turnError = signal('');
   readonly apiError = signal('');
   readonly copiedKey = signal('');
+  readonly threadFilter = signal('');
+  visibleChats = () => this.chats().filter(chat => (chat.title || 'New chat').toLowerCase().includes(this.threadFilter().toLowerCase()));
+  activeChatTitle = () => this.chats().find(chat => chat.id === this.selectedChatId())?.title || (this.selectedChatId() ? 'New chat' : 'No conversation selected');
+  selectedModel = () => this.models().find(model => model.id === this.selectedModelId()) ?? null;
   private selectionVersion = 0;
   private aborter: AbortController | null = null;
   private streamCompleted = false;

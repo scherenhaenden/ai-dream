@@ -1749,7 +1749,7 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
     return server
 
 
-def serve_web(port: int = DEFAULT_PORT) -> None:
+def serve_web(port: int = DEFAULT_PORT, *, open_browser: bool = True) -> None:
     """Serve the bundled Angular build and API from one same-origin loopback URL."""
     web_root = default_web_dist()
     if not (web_root / "index.html").is_file():
@@ -1759,12 +1759,13 @@ def serve_web(port: int = DEFAULT_PORT) -> None:
     pid_path = _web_pid_path(port)
     _write_web_pid(pid_path)
     print(f"AI Dream Web listening at {url}")
-    try:
-        import webbrowser
-        if not webbrowser.open(url, new=2):
+    if open_browser:
+        try:
+            import webbrowser
+            if not webbrowser.open(url, new=2):
+                print(f"Open this address in your browser: {url}")
+        except (OSError, RuntimeError):
             print(f"Open this address in your browser: {url}")
-    except (OSError, RuntimeError):
-        print(f"Open this address in your browser: {url}")
     try:
         _serve_until_stopped(server)
     finally:

@@ -85,6 +85,7 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--port", type=int, default=8765)
     web = sub.add_parser("web", help="serve the bundled Angular application and API")
     web.add_argument("--port", type=int, default=8765)
+    web.add_argument("--no-open", action="store_true", help="do not open a browser window")
     web.add_argument("--stop", action="store_true", help="stop a managed AI Dream web server")
     web.add_argument("--restart", action="store_true", help="stop then start the web server")
     run = sub.add_parser("run", help="load a model and chat in the terminal")
@@ -222,7 +223,7 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 if args.restart:
                     stop_web_server(args.port, missing_ok=True)
-                serve_web(args.port)
+                serve_web(args.port, open_browser=not args.no_open)
         elif args.command == "backends":
             from aidream.runtime import RuntimeRegistry
             _print([

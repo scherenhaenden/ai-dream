@@ -15,6 +15,10 @@ AI Dream.desktop / open-ai-dream-web
     -> ReadOnlyAPI: hardware, model catalog, chat store, runtime, Hub
     -> runtime.py: one local llama-server child process
 
+open-ai-dream-tauri
+    -> Tauri WebView -> python3 -m aidream web --no-open
+    -> same loopback HTTP server and Angular files
+
 open-ai-dream / app-gui -> ui.py: Tk event loop -> same core services
 python3 -m aidream / app -> cli.py -> same core services
 ```
@@ -27,11 +31,18 @@ ID or an existing GGUF path, loads a backend, reads prompts until `/exit`, and
 unloads it in a `finally` block. This direct path exception applies only to the
 CLI; the HTTP chat routes require a catalog model ID.
 
-`open-ai-dream-web` changes to its own directory and executes `python3 -m
-aidream web`; `serve_web` requires `web/dist/index.html`, binds to
+`open-ai-dream-tauri` builds the Angular bundle and starts the Rust desktop
+host. Tauri launches a child `python3 -m aidream web --no-open` process on
+`127.0.0.1:17865`, waits for `/api/health`, then opens that same-origin URL in
+its WebView. Closing the app sends the child a graceful termination signal.
+The bundle includes the Python package and Angular files; Python 3 and a local
+inference runtime remain host requirements. `open-ai-dream-web` executes
+`python3 -m aidream web`; `serve_web` requires `web/dist/index.html`, binds to
 `127.0.0.1` (default port 8765), and asks the default browser to open it.
-`AI Dream.desktop` runs that script. `open-ai-dream` starts the older Tk GUI
-through `python3 -m aidream.ui`. Neither launcher embeds a model or starts
+`AI Dream.desktop` and `AI Dream Web.desktop` run the browser script, while
+`open-ai-dream-tauri` starts the optional Tauri host when its toolchain is
+installed. `open-ai-dream` starts the older Tk GUI through
+`python3 -m aidream.ui`. Neither desktop launcher embeds a model or starts
 llama.cpp until a generation needs it.
 
 ## Module responsibilities
@@ -251,4 +262,3 @@ does not append an incomplete chat exchange.
 - Add a browser operation through `http_api.py` with path/body validation,
   loopback/Origin checks, bounded output and a documented contract in
   [local-http-api.md](local-http-api.md).
-

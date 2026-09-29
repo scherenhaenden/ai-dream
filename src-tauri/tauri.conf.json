@@ -1,0 +1,28 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "AI Dream",
+  "version": "0.1.0",
+  "identifier": "com.aidream.local",
+  "build": {
+    "frontendDist": "../web/dist",
+    "beforeDevCommand": "npm --prefix ../web run build",
+    "beforeBuildCommand": "npm --prefix ../web run build"
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": "default-src 'self' http://127.0.0.1:17865; connect-src ipc: http://127.0.0.1:17865; img-src 'self' data: blob: http://127.0.0.1:17865; style-src 'self' 'unsafe-inline' http://127.0.0.1:17865; script-src 'self' http://127.0.0.1:17865"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "DeveloperTool",
+    "shortDescription": "Local AI model studio",
+    "longDescription": "A local-first interface for managing models and chatting with on-device runtimes.",
+    "resources": {
+      "../aidream/": "python/aidream/",
+      "../web/dist/": "python/web/dist/"
+    }
+  }
+}

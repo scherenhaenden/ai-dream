@@ -2,9 +2,10 @@
 Version=1.0
 Type=Application
 Name=AI Dream
-Comment=Open the standalone AI Dream desktop application
-TryExec=/home/edward/Development/ai-dream/open-ai-dream
-Exec=/home/edward/Development/ai-dream/open-ai-dream
+Comment=Open AI Dream in its application window
+TryExec=/home/edward/Development/ai-dream/open-ai-dream-app
+Exec=/home/edward/Development/ai-dream/open-ai-dream-app
 Path=/home/edward/Development/ai-dream
-Terminal=true
-Categories=Utility;
+Terminal=false
+StartupWMClass=AiDream
+Categories=Development;

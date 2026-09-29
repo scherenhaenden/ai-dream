@@ -1,0 +1,13 @@
+[package]
+name = "ai-dream-desktop"
+version = "0.1.0"
+description = "Local AI Dream desktop application"
+authors = ["Edward Flores"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+libc = "0.2"
+tauri = { version = "2", features = [] }

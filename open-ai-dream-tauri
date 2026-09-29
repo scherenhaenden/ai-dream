@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+cd "$ROOT"
+
+if ! command -v cargo >/dev/null 2>&1; then
+  printf '%s\n' "Rust/Cargo is required to build and run the AI Dream Tauri desktop app." >&2
+  exit 127
+fi
+
+npm --prefix web run build
+exec cargo run --manifest-path src-tauri/Cargo.toml "$@"

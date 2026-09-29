@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+set -u
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$(readlink -f -- "$0")")" && pwd) || exit 1
+cd "$ROOT" || exit 1
+
+URL="http://127.0.0.1:8765"
+LOG_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/ai-dream"
+LOG_FILE="$LOG_DIR/web.log"
+APP_PROFILE="${XDG_DATA_HOME:-$HOME/.local/share}/ai-dream/chrome-profile"
+SERVER_PID=""
+
+show_error() {
+  if command -v zenity >/dev/null 2>&1; then
+    zenity --error --title="AI Dream" --text="$1" 2>/dev/null || true
+  elif command -v notify-send >/dev/null 2>&1; then
+    notify-send "AI Dream" "$1" 2>/dev/null || true
+  fi
+}
+
+api_ready() {
+  python3 -c 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8765/api/health", timeout=0.6).close()' >/dev/null 2>&1
+}
+
+if ! api_ready; then
+  mkdir -p "$APP_PROFILE" 2>/dev/null || true
+  if ! mkdir -p "$LOG_DIR" 2>/dev/null; then LOG_FILE=/dev/null; fi
+  python3 -u -m aidream web --restart --no-open >>"$LOG_FILE" 2>&1 </dev/null &
+  SERVER_PID=$!
+  for _ in {1..50}; do
+    if api_ready; then break; fi
+    sleep 0.2
+  done
+fi
+
+if ! api_ready; then
+  if [[ -n "$SERVER_PID" ]]; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi
+  show_error "AI Dream could not start its local service. See $LOG_FILE for details."
+  exit 1
+fi
+
+CHROME=$(command -v google-chrome || command -v google-chrome-stable || true)
+if [[ -z "$CHROME" ]]; then
+  if [[ -n "$SERVER_PID" ]]; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi
+  show_error "Google Chrome is required for the AI Dream application window."
+  exit 1
+fi
+
+mkdir -p "$APP_PROFILE" 2>/dev/null || true
+"$CHROME" --user-data-dir="$APP_PROFILE" --no-first-run --no-default-browser-check --app="$URL/chat" --class=AiDream --new-window
+status=$?
+if [[ -n "$SERVER_PID" ]]; then
+  kill "$SERVER_PID" 2>/dev/null || true
+  wait "$SERVER_PID" 2>/dev/null || true
+fi
+exit "$status"
