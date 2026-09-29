@@ -22,5 +22,9 @@ model_text = model_text.replace(
     "model('beta', 'Beta model', betaPath, { 'general.basename': 'bge-m3-embedding' }),",
     "model('beta', 'Beta model', betaPath, { 'general.description': 'embedding model' }),",
 )
+model_text = model_text.replace(
+    "    await expect(presetSelect.locator('option', { hasText: 'beta preset' })).toBeAttached();\n    await page.waitForTimeout(650);\n    await expect(presetSelect.locator('option', { hasText: 'alpha preset' })).toHaveCount(0);\n    await expect(presetSelect.locator('option', { hasText: 'beta preset' })).toHaveCount(1);",
+    "    await expect(presetSelect.locator('option[value=\"beta-profile\"]')).toBeAttached();\n    await page.waitForTimeout(650);\n    await expect(presetSelect.locator('option[value=\"alpha-profile\"]')).toHaveCount(0);\n    await expect(presetSelect.locator('option[value=\"beta-profile\"]')).toHaveCount(1);",
+)
 model_path.write_text(model_text, encoding='utf-8')
-print('Fixed SSE fixture, textarea assertions, and kept model smoke fixture identity stable')
+print('Fixed SSE fixture, textarea assertions, and made preset race assertion identity-based')
