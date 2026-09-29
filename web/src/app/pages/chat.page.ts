@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, ElementRef, OnInit, effect, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, OnInit, effect, signal, viewChild, ViewEncapsulation } from '@angular/core';
 import { ApiService } from '../core/api.service';
 
 type Model = { id: string; path?: string; format?: string };
@@ -9,6 +9,7 @@ type ChatEvent = { text?: string; chat_id?: string; assistant?: string | { role?
 @Component({
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
+  encapsulation: ViewEncapsulation.None,
   template: `
     <section class="chat-workspace">
       <header class="chat-toolbar">
@@ -70,7 +71,10 @@ type ChatEvent = { text?: string; chat_id?: string; assistant?: string | { role?
         <p class="composer-footnote">Responses can be incorrect. Attachments are not available in this web chat yet.</p>
       </footer>
     </section>
-  `
+  `,
+  styles: [`
+    :host { display: block; height: 100%; }
+  `]
 })
 export class ChatPage implements OnInit {
   readonly chats = signal<ChatSummary[]>([]);
