@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><meta content="web_dashboard" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&family=JetBrains+Mono:wght@100..900&display=swap" rel="stylesheet"/><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config={darkMode:"class",theme:{extend:{"colors":{"primary-container":"#4d8eff","surface-variant":"#303540","on-error":"#690005","tertiary-container":"#00a572","surface-container":"#1b202a","surface-dim":"#0e131d","surface-container-highest":"#303540","primary-fixed-dim":"#adc6ff","on-secondary-container":"#b0b2ff","secondary-fixed-dim":"#c0c1ff","on-primary":"#002e6a","outline-variant":"#424754","surface-tint":"#adc6ff","outline":"#8c909f","on-secondary-fixed-variant":"#2f2ebe","inverse-on-surface":"#2b303b","on-tertiary-container":"#00311f","tertiary-fixed":"#6ffbbe","inverse-surface":"#dee2f1","on-background":"#dee2f1","surface-container-high":"#252a35","on-tertiary-fixed-variant":"#005236","on-secondary":"#1000a9","on-primary-fixed-variant":"#004395","secondary":"#c0c1ff","secondary-container":"#3131c0","on-tertiary-fixed":"#002113","on-primary-container":"#00285d","primary-fixed":"#d8e2ff","on-surface":"#dee2f1","tertiary":"#4edea3","on-surface-variant":"#c2c6d6","error-container":"#93000a","on-error-container":"#ffdad6","surface-container-low":"#171c26","error":"#ffb4ab","on-primary-fixed":"#001a42","surface-bright":"#343944","tertiary-fixed-dim":"#4edea3","surface":"#0e131d","inverse-primary":"#005ac2","secondary-fixed":"#e1e0ff","primary":"#adc6ff","on-tertiary":"#003824","surface-container-lowest":"#090e18","on-secondary-fixed":"#07006c","background":"#0e131d"},"borderRadius":{"DEFAULT":"0.125rem","lg":"0.25rem","xl":"0.5rem","full":"0.75rem"},"spacing":{"margin-dense":"0.5rem","space-lg":"0.75rem","space-xl":"1rem","gutter":"0.5rem","gutter-compact":"0.25rem","space-sm":"0.25rem","space-xs":"0.125rem","space-md":"0.5rem","margin":"0.75rem"},"fontFamily":{"headline-sm":["Inter"],"body-sm":["Inter"],"metric-display":["JetBrains Mono"],"label-code-sm":["JetBrains Mono"],"body-md":["Inter"],"label-code-lg":["JetBrains Mono"],"headline-md":["Inter"],"headline-lg":["Inter"],"body-lg":["Inter"],"label-code-md":["JetBrains Mono"]},"fontSize":{"headline-sm":["1rem",{"lineHeight":"1.375rem","letterSpacing":"-0.01em","fontWeight":"600"}],"body-sm":["0.75rem",{"lineHeight":"1.125rem","letterSpacing":"0.005em","fontWeight":"400"}],"metric-display":["1.125rem",{"lineHeight":"1.25rem","letterSpacing":"-0.03em","fontWeight":"700"}],"label-code-sm":["0.6875rem",{"lineHeight":"0.875rem","letterSpacing":"0.01em","fontWeight":"500"}],"body-md":["0.8125rem",{"lineHeight":"1.25rem","letterSpacing":"0em","fontWeight":"400"}],"label-code-lg":["0.875rem",{"lineHeight":"1.25rem","letterSpacing":"-0.01em","fontWeight":"500"}],"headline-md":["1.25rem",{"lineHeight":"1.625rem","letterSpacing":"-0.015em","fontWeight":"600"}],"headline-lg":["1.5rem",{"lineHeight":"1.875rem","letterSpacing":"-0.02em","fontWeight":"600"}],"body-lg":["0.875rem",{"lineHeight":"1.375rem","letterSpacing":"0em","fontWeight":"400"}],"label-code-md":["0.75rem",{"lineHeight":"1rem","letterSpacing":"0em","fontWeight":"500"}]}}}}</script></head><body class="bg-background font-body-md text-on-surface antialiased select-none"><aside class="fixed left-0 top-0 bottom-6 w-64 bg-surface-container-lowest z-40 flex flex-col justify-between shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="flex flex-col flex-1 min-h-0"><div class="h-12 px-space-md flex items-center justify-between bg-surface-container-low"><div class="flex items-center gap-space-sm"><div class="flex items-center gap-1"><div class="w-2.5 h-2.5 rounded-full bg-error/70"></div><div class="w-2.5 h-2.5 rounded-full bg-tertiary-container/80"></div><div class="w-2.5 h-2.5 rounded-full bg-primary-container/80"></div></div><div class="ml-space-sm flex items-baseline gap-space-xs"><span class="font-headline-sm text-headline-sm text-on-surface tracking-tight font-semibold">Local AI Studio</span><span class="font-label-code-sm text-label-code-sm text-outline">v1.4.2</span></div></div></div><nav class="flex-1 overflow-y-auto px-space-sm py-space-xs space-y-0.5" data-active-classes="bg-surface-container-high text-primary font-bold"><a class="flex items-center gap-space-sm px-space-md py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="chat" href="#"><span class="material-symbols-outlined text-[17px]">chat_bubble</span><span>Chat (Loaded Model)</span></a><a class="flex items-center gap-space-sm px-space-md py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="models" href="#"><span class="material-symbols-outlined text-[17px]">inventory_2</span><span>Models (Local Library)</span></a><a class="flex items-center gap-space-sm px-space-md py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="model-hubs" href="#"><span class="material-symbols-outlined text-[17px]">hub</span><span>Model Hubs (HF / Scope)</span></a><a class="flex items-center gap-space-sm px-space-md py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="hardware" href="#"><span class="material-symbols-outlined text-[17px]">developer_board</span><span>Hardware (Multi-GPU)</span></a><a aria-current="page" class="flex items-center gap-space-sm px-space-md py-1.5 rounded-lg transition-colors bg-surface-container-high text-primary font-bold" data-path="load-model" href="#"><span class="material-symbols-outlined text-[17px]">memory</span><span>Load Model (Placement)</span></a><a class="flex items-center gap-space-sm px-space-md py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="runtime-manager" href="#"><span class="material-symbols-outlined text-[17px]">terminal</span><span>Runtime Manager</span></a><a class="flex items-center gap-space-sm px-space-md py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="profiles" href="#"><span class="material-symbols-outlined text-[17px]">tune</span><span>Profiles (Hardware)</span></a><a class="flex items-center gap-space-sm px-space-md py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="downloads" href="#"><span class="material-symbols-outlined text-[17px]">download</span><span>Downloads</span></a><a class="flex items-center gap-space-sm px-space-md py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="logs" href="#"><span class="material-symbols-outlined text-[17px]">dvr</span><span>Logs (Output)</span></a><a class="flex items-center gap-space-sm px-space-md py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="settings" href="#"><span class="material-symbols-outlined text-[17px]">settings</span><span>Settings</span></a></nav></div><div class="p-space-sm bg-surface-container-low/80 flex flex-col gap-space-xs"><div class="flex items-center justify-between font-label-code-sm text-label-code-sm text-outline px-space-xs"><span class="tracking-wide uppercase font-semibold">Hardware Telemetry</span><span class="flex items-center gap-1 text-tertiary"><span class="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse"></span>ROCm</span></div><div class="bg-surface-container-lowest p-space-xs rounded-lg space-y-1.5"><div class="flex items-center justify-between font-label-code-sm text-label-code-sm"><span class="text-on-surface font-semibold">GPU 0: RX 9070</span><span class="text-error font-medium">14.2 / 16G (88%)</span></div><div class="w-full h-1.5 bg-surface-variant rounded-full overflow-hidden"><div class="h-full bg-error rounded-full" style="width: 88%"></div></div></div><div class="bg-surface-container-lowest p-space-xs rounded-lg space-y-1.5"><div class="flex items-center justify-between font-label-code-sm text-label-code-sm"><span class="text-on-surface font-semibold">GPU 1: RX 9070</span><span class="text-tertiary font-medium">7.8 / 16G (48%)</span></div><div class="w-full h-1.5 bg-surface-variant rounded-full overflow-hidden"><div class="h-full bg-tertiary rounded-full" style="width: 48%"></div></div></div><div class="bg-surface-container-lowest p-space-xs rounded-lg space-y-1.5"><div class="flex items-center justify-between font-label-code-sm text-label-code-sm"><span class="text-on-surface-variant">Host RAM</span><span class="text-on-surface-variant font-medium">28.4 / 64G (44%)</span></div><div class="w-full h-1 bg-surface-variant rounded-full overflow-hidden"><div class="h-full bg-primary-container rounded-full" style="width: 44%"></div></div></div><div class="mt-space-xs flex items-center justify-between px-space-xs py-1 rounded bg-surface-container-high font-label-code-sm text-label-code-sm"><span class="text-on-surface-variant">llama.cpp / Vulkan</span><span class="text-tertiary flex items-center gap-1 font-semibold"><span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>Healthy</span></div></div></aside><div class="pl-64 flex flex-col min-h-screen"><header class="fixed top-0 left-64 right-0 h-12 bg-surface-container-lowest/90 backdrop-blur-xl z-30 flex items-center justify-between px-space-md shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="flex items-center gap-space-md"><div class="flex items-center gap-space-xs font-label-code-md text-label-code-md text-outline"><span class="text-on-surface-variant font-medium">Studio</span><span class="material-symbols-outlined text-[14px]">chevron_right</span><span class="text-primary font-semibold">Runtime Workspace</span></div><div class="relative flex items-center"><span class="material-symbols-outlined absolute left-2 text-outline text-[16px]">search</span><input class="w-80 h-7 pl-7 pr-3 bg-surface-container-low text-on-surface placeholder:text-outline font-body-sm text-body-sm rounded-lg focus:outline-none focus:ring-1 focus:ring-primary" placeholder="Search models, runtimes, commands (Ctrl+K)..." type="text"/></div></div><div class="flex items-center gap-space-md"><div class="flex items-center gap-space-xs px-space-sm py-1 rounded-lg bg-surface-container-low hover:bg-surface-container-high transition-colors cursor-pointer"><span class="material-symbols-outlined text-primary text-[16px]">bolt</span><span class="font-label-code-sm text-label-code-sm text-on-surface">llama.cpp v6821 / Vulkan</span><span class="material-symbols-outlined text-outline text-[14px]">expand_more</span></div><div class="flex items-center gap-1.5 px-space-sm py-1 rounded-lg bg-tertiary-container/20 font-label-code-sm text-label-code-sm text-tertiary"><span class="w-2 h-2 rounded-full bg-tertiary animate-pulse"></span><span>System Ready • 2 GPUs Active</span></div><a class="flex items-center gap-space-xs px-space-md py-1 bg-primary text-on-primary rounded-lg font-body-sm text-body-sm font-semibold hover:bg-primary-fixed-dim transition-colors shadow-sm" data-path="load-model" href="#"><span class="material-symbols-outlined text-[16px]">add</span><span>Load Model</span></a><button class="p-1 text-on-surface-variant hover:text-on-surface rounded hover:bg-surface-container-high transition-colors" type="button"><span class="material-symbols-outlined text-[18px]">tune</span></button><div class="w-7 h-7 rounded-full bg-primary flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[16px]">person</span></div></div></header><main class="flex-1 pt-12 pb-6 w-full bg-surface"><div class="flex flex-col w-full">
+<!-- Top Ambient Glow Field -->
+<div class="relative w-full overflow-hidden">
+<div class="absolute -top-24 left-1/3 w-96 h-96 bg-primary-container/10 rounded-full blur-3xl pointer-events-none"></div>
+<div class="absolute -top-24 right-1/4 w-80 h-80 bg-tertiary-container/10 rounded-full blur-3xl pointer-events-none"></div>
+<!-- Wizard Header Block -->
+<div class="px-space-xl pt-space-lg pb-space-md flex flex-col gap-space-md">
+<div class="flex flex-wrap items-center justify-between gap-space-md">
+<div>
+<div class="flex items-center gap-space-xs font-label-code-sm text-label-code-sm text-outline uppercase tracking-wider mb-1">
+<span>Execution Target</span>
+<span>/</span>
+<span class="text-tertiary font-semibold">Topology Matrix v2</span>
+</div>
+<h1 class="font-headline-lg text-headline-lg text-on-surface font-semibold tracking-tight">Load Model into Memory — Hardware Orchestration</h1>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-0.5">Partition weights, KV caches, and attention heads across heterogeneous PCIe clusters.</p>
+</div>
+<div class="flex items-center gap-space-sm bg-surface-container-low px-space-md py-1.5 rounded-lg shadow-sm">
+<div class="w-2 h-2 rounded-full bg-tertiary animate-pulse"></div>
+<span class="font-label-code-sm text-label-code-sm text-on-surface-variant font-medium">ROCm / Vulkan Pipeline:</span>
+<span class="font-label-code-sm text-label-code-sm text-tertiary font-semibold">Ready for Allocation</span>
+</div>
+</div>
+<!-- Step Flow Pipeline Indicator -->
+<div class="grid grid-cols-1 md:grid-cols-5 gap-space-xs pt-space-xs">
+<!-- Step 1 -->
+<div class="bg-surface-container-low px-space-md py-2 rounded-lg flex items-center justify-between">
+<div class="flex items-center gap-space-sm min-w-0">
+<span class="flex items-center justify-center w-5 h-5 rounded-full bg-tertiary/20 text-tertiary text-[12px] font-semibold font-label-code-sm">✓</span>
+<div class="truncate">
+<div class="font-label-code-sm text-label-code-sm text-outline truncate">Step 1 • Model</div>
+<div class="font-body-sm text-body-sm text-on-surface font-medium truncate">Qwen3.8-27B</div>
+</div>
+</div>
+<span class="font-label-code-sm text-label-code-sm text-tertiary">Q4_K_M</span>
+</div>
+<!-- Step 2 -->
+<div class="bg-surface-container-low px-space-md py-2 rounded-lg flex items-center justify-between">
+<div class="flex items-center gap-space-sm min-w-0">
+<span class="flex items-center justify-center w-5 h-5 rounded-full bg-tertiary/20 text-tertiary text-[12px] font-semibold font-label-code-sm">✓</span>
+<div class="truncate">
+<div class="font-label-code-sm text-label-code-sm text-outline truncate">Step 2 • Backend</div>
+<div class="font-body-sm text-body-sm text-on-surface font-medium truncate">llama.cpp Vulkan</div>
+</div>
+</div>
+<span class="font-label-code-sm text-label-code-sm text-outline">b6821</span>
+</div>
+<!-- Step 3 (Active) -->
+<div class="bg-surface-container-high px-space-md py-2 rounded-lg flex items-center justify-between shadow-sm relative overflow-hidden">
+<div class="absolute left-0 top-0 bottom-0 w-1 bg-primary"></div>
+<div class="flex items-center gap-space-sm min-w-0 pl-1">
+<span class="flex items-center justify-center w-5 h-5 rounded-full bg-primary text-on-primary text-[12px] font-semibold font-label-code-sm">3</span>
+<div class="truncate">
+<div class="font-label-code-sm text-label-code-sm text-primary font-semibold truncate">Step 3 • Active</div>
+<div class="font-body-sm text-body-sm text-on-surface font-semibold truncate">Device Placement</div>
+</div>
+</div>
+<span class="material-symbols-outlined text-primary text-[16px]">tune</span>
+</div>
+<!-- Step 4 -->
+<div class="bg-surface-container-lowest px-space-md py-2 rounded-lg flex items-center justify-between opacity-60">
+<div class="flex items-center gap-space-sm min-w-0">
+<span class="flex items-center justify-center w-5 h-5 rounded-full bg-surface-variant text-outline text-[12px] font-semibold font-label-code-sm">4</span>
+<div class="truncate">
+<div class="font-label-code-sm text-label-code-sm text-outline truncate">Step 4 • Flags</div>
+<div class="font-body-sm text-body-sm text-on-surface-variant truncate">FlashAttn / mlock</div>
+</div>
+</div>
+<span class="material-symbols-outlined text-outline text-[14px]">arrow_forward</span>
+</div>
+<!-- Step 5 -->
+<div class="bg-surface-container-lowest px-space-md py-2 rounded-lg flex items-center justify-between opacity-60">
+<div class="flex items-center gap-space-sm min-w-0">
+<span class="flex items-center justify-center w-5 h-5 rounded-full bg-surface-variant text-outline text-[12px] font-semibold font-label-code-sm">5</span>
+<div class="truncate">
+<div class="font-label-code-sm text-label-code-sm text-outline truncate">Step 5 • Launch</div>
+<div class="font-body-sm text-body-sm text-on-surface-variant truncate">Deploy Process</div>
+</div>
+</div>
+<span class="material-symbols-outlined text-outline text-[14px]">rocket_launch</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Primary Workspace Canvas -->
+<div class="px-space-xl pb-space-xl flex flex-col gap-space-lg">
+<!-- Mode Toggle and Autoplacement Banner -->
+<div class="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-space-md bg-surface-container-low p-space-md rounded-lg shadow-sm">
+<div class="flex items-center gap-space-md">
+<div class="font-label-code-md text-label-code-md text-outline uppercase font-semibold">Allocation Engine:</div>
+<div class="inline-flex p-0.5 rounded-lg bg-surface-container-lowest">
+<button class="px-space-md py-1 rounded font-body-sm text-body-sm text-outline hover:text-on-surface transition-colors flex items-center gap-1.5" id="btn-auto-placement" type="button">
+<span class="material-symbols-outlined text-[15px]">auto_mode</span>
+<span>Automatic Placement</span>
+</button>
+<button class="px-space-md py-1 rounded font-body-sm text-body-sm text-on-surface bg-surface-container-high font-semibold transition-colors flex items-center gap-1.5 shadow-sm" id="btn-manual-placement" type="button">
+<span class="material-symbols-outlined text-[15px] text-primary">linear_scale</span>
+<span>Manual Custom Distribution</span>
+</button>
+</div>
+</div>
+<!-- Live VRAM Guard Badge -->
+<div class="flex items-center gap-space-sm px-space-md py-1.5 bg-tertiary-container/10 rounded-lg">
+<span class="material-symbols-outlined text-tertiary text-[18px]">verified_user</span>
+<div class="font-label-code-sm text-label-code-sm text-tertiary font-medium">
+          Safety Check: <span class="font-bold">PASSED</span> • 0 VRAM Overflow • 1.4 GB Headroom Buffer on GPU 0
+        </div>
+</div>
+</div>
+<!-- Automatic Reference Card -->
+<div class="bg-surface-container-lowest px-space-md py-2.5 rounded-lg flex flex-wrap items-center justify-between gap-space-md">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-primary text-[18px]">lightbulb</span>
+<span class="font-label-code-sm text-label-code-sm text-on-surface-variant font-medium">Auto-Tuning Reference Profile:</span>
+<span class="font-label-code-sm text-label-code-sm text-on-surface">Calculated by llama.cpp Vulkan • Split GPU 0 (60%) / GPU 1 (40%) / CPU (0%)</span>
+</div>
+<div class="flex items-center gap-space-lg font-label-code-sm text-label-code-sm">
+<span class="text-on-surface-variant">Estimated Alloc: <span class="text-primary font-semibold">14.6 GB + 10.1 GB</span></span>
+<span class="text-tertiary font-semibold flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">speed</span>42.4+ tok/s</span>
+<button class="text-primary hover:underline text-label-code-sm font-label-code-sm" id="btn-sync-auto" type="button">Apply Preset</button>
+</div>
+</div>
+<!-- Main Grid: Allocation Cards (Left 7 cols) & Pipeline Diagram + Flags (Right 5 cols) -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-space-lg items-start">
+<!-- Left Column: Device Allocation Sliders -->
+<div class="lg:col-span-7 flex flex-col gap-space-md">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs font-label-code-md text-label-code-md text-on-surface font-semibold uppercase tracking-wider">
+<span class="material-symbols-outlined text-primary text-[18px]">developer_board</span>
+<span>Hardware Devices & Split Allocator</span>
+</div>
+<div class="font-label-code-sm text-label-code-sm text-outline">Total Layers: <span class="text-primary font-semibold" id="total-layers-display">48 / 48</span> offloaded</div>
+</div>
+<!-- Card 1: GPU 0 -->
+<div class="bg-surface-container-low p-space-md rounded-lg flex flex-col gap-space-sm relative overflow-hidden shadow-sm">
+<div class="flex flex-wrap items-center justify-between gap-space-xs">
+<div class="flex items-center gap-space-sm">
+<span class="w-2.5 h-2.5 rounded-full bg-tertiary"></span>
+<div>
+<div class="flex items-center gap-space-xs">
+<span class="font-headline-sm text-headline-sm text-on-surface font-semibold">GPU 0 — AMD Radeon RX 9070</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container-highest font-label-code-sm text-label-code-sm text-on-surface-variant">PCIe 4.0 x16</span>
+</div>
+<div class="font-label-code-sm text-label-code-sm text-outline mt-0.5">VRAM Total: 16,384 MB (16.0 GB) • Base Usage: 1.2 GB • Available: 14.8 GB</div>
+</div>
+</div>
+<label class="flex items-center gap-1.5 cursor-pointer bg-surface-container px-space-sm py-1 rounded">
+<input checked="" class="accent-primary w-3.5 h-3.5 rounded" disabled="" type="checkbox"/>
+<span class="font-label-code-sm text-label-code-sm text-primary font-semibold">Primary Compute</span>
+</label>
+</div>
+<!-- Dynamic Layer Allocation Control -->
+<div class="bg-surface-container-lowest p-space-md rounded-lg flex flex-col gap-space-sm mt-1">
+<div class="flex items-center justify-between">
+<span class="font-body-sm text-body-sm text-on-surface-variant font-medium">Assigned Transformer Layers</span>
+<div class="flex items-baseline gap-space-xs font-label-code-md text-label-code-md">
+<span class="text-primary font-bold text-[15px]" id="gpu0-layers-text">29</span>
+<span class="text-outline">/ 48 Layers</span>
+<span class="text-primary-container font-semibold ml-1" id="gpu0-pct-text">(60%)</span>
+</div>
+</div>
+<!-- Slider Element -->
+<input class="w-full accent-primary bg-surface-variant h-2 rounded cursor-pointer" id="gpu0-slider" max="48" min="0" type="range" value="29"/>
+<!-- Segmented Capacity Meter -->
+<div class="flex flex-col gap-1 pt-1">
+<div class="flex items-center justify-between font-label-code-sm text-label-code-sm">
+<span class="text-outline">Post-Load VRAM: <span class="text-on-surface font-semibold" id="gpu0-vram-text">14.6</span> / 16.0 GB</span>
+<span class="text-tertiary font-semibold" id="gpu0-status-badge">89% Optimal Capacity</span>
+</div>
+<div class="w-full h-3 bg-surface-container-highest rounded-full overflow-hidden flex p-0.5 gap-0.5">
+<!-- System OS Baseline (1.2GB = 7.5%) -->
+<div class="h-full bg-outline-variant rounded-l-full" style="width: 7.5%;" title="System Baseline: 1.2 GB"></div>
+<!-- Model Layers (13.4GB = 81.5%) -->
+<div class="h-full bg-primary transition-all duration-150" id="gpu0-model-bar" style="width: 81.5%;" title="Model Weights & KV: 13.4 GB"></div>
+<!-- Free Headroom -->
+<div class="h-full bg-surface-container-low rounded-r-full transition-all duration-150 flex-1" id="gpu0-headroom-bar" title="Free Headroom: 1.4 GB"></div>
+</div>
+<div class="flex items-center justify-between font-label-code-sm text-label-code-sm text-outline pt-0.5">
+<span class="flex items-center gap-1"><span class="w-2 h-2 rounded bg-outline-variant"></span>OS Baseline: 1.2 GB</span>
+<span class="flex items-center gap-1"><span class="w-2 h-2 rounded bg-primary"></span>Model Weights: <span class="text-on-surface font-medium" id="gpu0-model-vram">13.4 GB</span></span>
+<span class="flex items-center gap-1"><span class="w-2 h-2 rounded bg-surface-container-high"></span>Headroom: <span class="text-tertiary font-medium" id="gpu0-free-vram">1.4 GB</span></span>
+</div>
+</div>
+</div>
+</div>
+<!-- Card 2: GPU 1 -->
+<div class="bg-surface-container-low p-space-md rounded-lg flex flex-col gap-space-sm relative overflow-hidden shadow-sm">
+<div class="flex flex-wrap items-center justify-between gap-space-xs">
+<div class="flex items-center gap-space-sm">
+<span class="w-2.5 h-2.5 rounded-full bg-tertiary"></span>
+<div>
+<div class="flex items-center gap-space-xs">
+<span class="font-headline-sm text-headline-sm text-on-surface font-semibold">GPU 1 — AMD Radeon RX 9070</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container-highest font-label-code-sm text-label-code-sm text-on-surface-variant">PCIe 4.0 x8</span>
+</div>
+<div class="font-label-code-sm text-label-code-sm text-outline mt-0.5">VRAM Total: 16,384 MB (16.0 GB) • Base Usage: 0.3 GB • Available: 15.7 GB</div>
+</div>
+</div>
+<span class="font-label-code-sm text-label-code-sm text-on-surface-variant bg-surface-container px-space-sm py-1 rounded">Secondary Worker</span>
+</div>
+<!-- Dynamic Layer Allocation Control -->
+<div class="bg-surface-container-lowest p-space-md rounded-lg flex flex-col gap-space-sm mt-1">
+<div class="flex items-center justify-between">
+<span class="font-body-sm text-body-sm text-on-surface-variant font-medium">Assigned Transformer Layers</span>
+<div class="flex items-baseline gap-space-xs font-label-code-md text-label-code-md">
+<span class="text-secondary font-bold text-[15px]" id="gpu1-layers-text">19</span>
+<span class="text-outline">/ 48 Layers</span>
+<span class="text-secondary-fixed font-semibold ml-1" id="gpu1-pct-text">(40%)</span>
+</div>
+</div>
+<!-- Slider Element -->
+<input class="w-full accent-secondary bg-surface-variant h-2 rounded cursor-pointer" id="gpu1-slider" max="48" min="0" type="range" value="19"/>
+<!-- Segmented Capacity Meter -->
+<div class="flex flex-col gap-1 pt-1">
+<div class="flex items-center justify-between font-label-code-sm text-label-code-sm">
+<span class="text-outline">Post-Load VRAM: <span class="text-on-surface font-semibold" id="gpu1-vram-text">10.1</span> / 16.0 GB</span>
+<span class="text-tertiary font-semibold" id="gpu1-status-badge">61% Safe Load</span>
+</div>
+<div class="w-full h-3 bg-surface-container-highest rounded-full overflow-hidden flex p-0.5 gap-0.5">
+<!-- System OS Baseline (0.3GB = 2%) -->
+<div class="h-full bg-outline-variant rounded-l-full" style="width: 2%;" title="System Baseline: 0.3 GB"></div>
+<!-- Model Layers (9.8GB = 61.2%) -->
+<div class="h-full bg-secondary transition-all duration-150" id="gpu1-model-bar" style="width: 61.2%;" title="Model Weights & KV: 9.8 GB"></div>
+<!-- Free Headroom -->
+<div class="h-full bg-surface-container-low rounded-r-full transition-all duration-150 flex-1" id="gpu1-headroom-bar" title="Free Headroom: 5.9 GB"></div>
+</div>
+<div class="flex items-center justify-between font-label-code-sm text-label-code-sm text-outline pt-0.5">
+<span class="flex items-center gap-1"><span class="w-2 h-2 rounded bg-outline-variant"></span>OS Baseline: 0.3 GB</span>
+<span class="flex items-center gap-1"><span class="w-2 h-2 rounded bg-secondary"></span>Model Weights: <span class="text-on-surface font-medium" id="gpu1-model-vram">9.8 GB</span></span>
+<span class="flex items-center gap-1"><span class="w-2 h-2 rounded bg-surface-container-high"></span>Headroom: <span class="text-tertiary font-medium" id="gpu1-free-vram">5.9 GB</span></span>
+</div>
+</div>
+</div>
+</div>
+<!-- Card 3 & 4 Grid: Excluded GPU + Host CPU -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-space-md">
+<!-- Card 3: GPU 2 (Excluded) -->
+<div class="bg-surface-container-low p-space-md rounded-lg flex flex-col justify-between opacity-70">
+<div>
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs font-label-code-md text-label-code-md text-outline font-semibold">
+<span class="w-2 h-2 rounded-full bg-outline"></span>
+<span>GPU 2 — AMD RX 460</span>
+</div>
+<span class="font-label-code-sm text-label-code-sm text-outline">PCIe 3.0 x8</span>
+</div>
+<p class="font-body-sm text-body-sm text-outline mt-1">4,096 MB (4.0 GB VRAM)</p>
+</div>
+<div class="mt-space-md bg-surface-container-lowest p-space-xs rounded font-label-code-sm text-label-code-sm text-outline flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[14px]">block</span>
+<span class="truncate">Excluded: Insufficient VRAM bandwidth</span>
+</div>
+</div>
+<!-- Card 4: Host CPU & System RAM -->
+<div class="bg-surface-container-low p-space-md rounded-lg flex flex-col justify-between">
+<div>
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs font-label-code-md text-label-code-md text-on-surface font-semibold">
+<span class="material-symbols-outlined text-tertiary text-[15px]">memory</span>
+<span>AMD Ryzen 9 7950X</span>
+</div>
+<span class="font-label-code-sm text-label-code-sm text-tertiary font-semibold">0 Offload Layers</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-0.5">16C/32T • 64 GB DDR5-6000</p>
+</div>
+<div class="mt-space-md bg-surface-container-lowest p-space-xs rounded flex items-center justify-between font-label-code-sm text-label-code-sm">
+<span class="text-outline">Host Orchestration & KV:</span>
+<span class="text-on-surface font-medium">2.1 GB RAM</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Right Column: Partition Diagram + Topology Map + Flags -->
+<div class="lg:col-span-5 flex flex-col gap-space-md">
+<!-- Partition Topology Map -->
+<div class="bg-surface-container-low p-space-md rounded-lg flex flex-col gap-space-sm shadow-sm">
+<div class="flex items-center justify-between">
+<span class="font-label-code-md text-label-code-md text-on-surface font-semibold uppercase tracking-wider flex items-center gap-1.5">
+<span class="material-symbols-outlined text-primary text-[17px]">hub</span>
+<span>Layer Partition Topology</span>
+</span>
+<span class="font-label-code-sm text-label-code-sm text-tertiary font-semibold flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse"></span>PCIe P2P Direct
+            </span>
+</div>
+<div class="font-body-sm text-body-sm text-on-surface-variant">
+            Cross-GPU pipeline distribution over bidirectional 28 GB/s interconnect.
+          </div>
+<!-- Pipeline Visual Flow Diagram -->
+<div class="bg-surface-container-lowest p-space-md rounded-lg flex flex-col gap-space-md">
+<!-- GPU 0 Domain -->
+<div class="p-space-sm rounded bg-surface-container flex flex-col gap-1.5">
+<div class="flex items-center justify-between font-label-code-sm text-label-code-sm">
+<span class="text-primary font-bold">GPU 0 (Primary)</span>
+<span class="text-on-surface font-medium" id="diagram-gpu0-layers">Embedding + Layers 00 – 28</span>
+</div>
+<!-- Visual Mini Blocks representing transformer blocks -->
+<div class="grid grid-cols-8 gap-1 pt-1" id="gpu0-blocks-grid">
+<div class="h-3 rounded-sm bg-primary/90" title="Embedding Layer"></div>
+<div class="h-3 rounded-sm bg-primary/80" title="Block 0-3"></div>
+<div class="h-3 rounded-sm bg-primary/80" title="Block 4-7"></div>
+<div class="h-3 rounded-sm bg-primary/80" title="Block 8-11"></div>
+<div class="h-3 rounded-sm bg-primary/80" title="Block 12-15"></div>
+<div class="h-3 rounded-sm bg-primary/80" title="Block 16-19"></div>
+<div class="h-3 rounded-sm bg-primary/80" title="Block 20-23"></div>
+<div class="h-3 rounded-sm bg-primary/80" title="Block 24-28"></div>
+</div>
+</div>
+<!-- Interconnect Bridge Strip -->
+<div class="flex items-center justify-between px-space-md py-1 bg-surface-container-high rounded text-label-code-sm font-label-code-sm">
+<div class="flex items-center gap-1.5 text-outline">
+<span class="material-symbols-outlined text-primary text-[15px]">swap_vert</span>
+<span>PCIe Gen4 x16 Direct P2P Bridge</span>
+</div>
+<span class="text-tertiary font-semibold">28.0 GB/s</span>
+</div>
+<!-- GPU 1 Domain -->
+<div class="p-space-sm rounded bg-surface-container flex flex-col gap-1.5">
+<div class="flex items-center justify-between font-label-code-sm text-label-code-sm">
+<span class="text-secondary font-bold">GPU 1 (Worker)</span>
+<span class="text-on-surface font-medium" id="diagram-gpu1-layers">Layers 29 – 47 + Head</span>
+</div>
+<!-- Visual Mini Blocks -->
+<div class="grid grid-cols-8 gap-1 pt-1" id="gpu1-blocks-grid">
+<div class="h-3 rounded-sm bg-secondary/80" title="Block 29-31"></div>
+<div class="h-3 rounded-sm bg-secondary/80" title="Block 32-35"></div>
+<div class="h-3 rounded-sm bg-secondary/80" title="Block 36-39"></div>
+<div class="h-3 rounded-sm bg-secondary/80" title="Block 40-43"></div>
+<div class="h-3 rounded-sm bg-secondary/80" title="Block 44-47"></div>
+<div class="h-3 rounded-sm bg-secondary/90" title="Norm & LM Head"></div>
+<div class="h-3 rounded-sm bg-surface-variant/40"></div>
+<div class="h-3 rounded-sm bg-surface-variant/40"></div>
+</div>
+</div>
+<!-- Model Specification Metadata -->
+<div class="grid grid-cols-3 gap-space-xs font-label-code-sm text-label-code-sm pt-1">
+<div class="bg-surface-container p-space-xs rounded">
+<div class="text-outline">Hidden Dim</div>
+<div class="text-on-surface font-semibold">5120</div>
+</div>
+<div class="bg-surface-container p-space-xs rounded">
+<div class="text-outline">Attn Heads</div>
+<div class="text-on-surface font-semibold">40 (GQA 8)</div>
+</div>
+<div class="bg-surface-container p-space-xs rounded">
+<div class="text-outline">Context Size</div>
+<div class="text-on-surface font-semibold">32,768</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Advanced Device Placement Settings (Accordion Style) -->
+<div class="bg-surface-container-low p-space-md rounded-lg flex flex-col gap-space-sm shadow-sm">
+<div class="flex items-center justify-between">
+<span class="font-label-code-md text-label-code-md text-on-surface font-semibold uppercase tracking-wider flex items-center gap-1.5">
+<span class="material-symbols-outlined text-outline text-[16px]">settings_input_component</span>
+<span>Advanced Split Flags</span>
+</span>
+<span class="font-label-code-sm text-label-code-sm text-outline">Optimized Defaults</span>
+</div>
+<!-- Split Strategy Segmented Control -->
+<div class="flex flex-col gap-1">
+<label class="font-body-sm text-body-sm text-on-surface-variant font-medium">Split Strategy</label>
+<div class="grid grid-cols-2 gap-1 bg-surface-container-lowest p-1 rounded-lg">
+<button class="py-1 px-space-sm rounded font-label-code-sm text-label-code-sm bg-surface-container-high text-primary font-bold shadow-sm" type="button">
+                Layer-wise Split (Pipeline)
+              </button>
+<button class="py-1 px-space-sm rounded font-label-code-sm text-label-code-sm text-outline hover:text-on-surface transition-colors" type="button">
+                Tensor Split (Row/Col)
+              </button>
+</div>
+</div>
+<!-- Toggle Controls Matrix -->
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-space-xs pt-1">
+<!-- Flash Attention -->
+<label class="flex items-center justify-between p-space-xs bg-surface-container-lowest rounded px-space-sm cursor-pointer hover:bg-surface-container transition-colors">
+<div class="flex flex-col">
+<span class="font-body-sm text-body-sm text-on-surface font-medium">Flash Attention V2</span>
+<span class="font-label-code-sm text-label-code-sm text-outline">Saves ~1.8 GB VRAM</span>
+</div>
+<input checked="" class="accent-primary w-4 h-4 rounded" type="checkbox"/>
+</label>
+<!-- Memory Locking -->
+<label class="flex items-center justify-between p-space-xs bg-surface-container-lowest rounded px-space-sm cursor-pointer hover:bg-surface-container transition-colors">
+<div class="flex flex-col">
+<span class="font-body-sm text-body-sm text-on-surface font-medium">mlock (Lock Pages)</span>
+<span class="font-label-code-sm text-label-code-sm text-outline">Prevents Host Swap</span>
+</div>
+<input checked="" class="accent-primary w-4 h-4 rounded" type="checkbox"/>
+</label>
+<!-- Context Shift -->
+<label class="flex items-center justify-between p-space-xs bg-surface-container-lowest rounded px-space-sm cursor-pointer hover:bg-surface-container transition-colors">
+<div class="flex flex-col">
+<span class="font-body-sm text-body-sm text-on-surface font-medium">Context Shift</span>
+<span class="font-label-code-sm text-label-code-sm text-outline">Infinite stream ring</span>
+</div>
+<input checked="" class="accent-primary w-4 h-4 rounded" type="checkbox"/>
+</label>
+<!-- NUMA / Node Binding -->
+<label class="flex items-center justify-between p-space-xs bg-surface-container-lowest rounded px-space-sm cursor-pointer hover:bg-surface-container transition-colors">
+<div class="flex flex-col">
+<span class="font-body-sm text-body-sm text-on-surface font-medium">NUMA Node Pin</span>
+<span class="font-label-code-sm text-label-code-sm text-outline">Socket affinity</span>
+</div>
+<input class="accent-primary w-4 h-4 rounded" type="checkbox"/>
+</label>
+</div>
+</div>
+</div>
+</div>
+<!-- Wizard Bottom Actions Bar -->
+<div class="bg-surface-container-low px-space-xl py-space-md rounded-lg flex flex-wrap items-center justify-between gap-space-md shadow-sm">
+<div class="flex items-center gap-space-md">
+<button class="px-space-md py-1.5 rounded-lg text-outline hover:text-on-surface font-body-sm text-body-sm transition-colors flex items-center gap-1" type="button">
+<span class="material-symbols-outlined text-[16px]">close</span>
+<span>Cancel</span>
+</button>
+<span class="text-outline-variant">|</span>
+<button class="px-space-md py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface font-body-sm text-body-sm transition-colors flex items-center gap-1.5" type="button">
+<span class="material-symbols-outlined text-[16px]">arrow_back</span>
+<span>Back: Runtime</span>
+</button>
+</div>
+<div class="flex items-center gap-space-md">
+<button class="px-space-md py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface font-body-sm text-body-sm transition-colors flex items-center gap-1.5" type="button">
+<span class="material-symbols-outlined text-[16px]">bookmark</span>
+<span>Save as Hardware Profile...</span>
+</button>
+<button class="px-space-xl py-2 rounded-lg bg-primary hover:bg-primary-fixed-dim text-on-primary font-headline-sm text-headline-sm font-semibold transition-all flex items-center gap-2 shadow-md" id="btn-launch-model" type="button">
+<span>Load Model & Start Engine</span>
+<span class="material-symbols-outlined text-[18px]">play_arrow</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+<script>
+  (function () {
+    const gpu0Slider = document.getElementById('gpu0-slider');
+    const gpu1Slider = document.getElementById('gpu1-slider');
+    const gpu0Text = document.getElementById('gpu0-layers-text');
+    const gpu1Text = document.getElementById('gpu1-layers-text');
+    const gpu0Pct = document.getElementById('gpu0-pct-text');
+    const gpu1Pct = document.getElementById('gpu1-pct-text');
+    const gpu0ModelVram = document.getElementById('gpu0-model-vram');
+    const gpu1ModelVram = document.getElementById('gpu1-model-vram');
+    const gpu0FreeVram = document.getElementById('gpu0-free-vram');
+    const gpu1FreeVram = document.getElementById('gpu1-free-vram');
+    const gpu0VramText = document.getElementById('gpu0-vram-text');
+    const gpu1VramText = document.getElementById('gpu1-vram-text');
+    const gpu0ModelBar = document.getElementById('gpu0-model-bar');
+    const gpu1ModelBar = document.getElementById('gpu1-model-bar');
+    const gpu0Badge = document.getElementById('gpu0-status-badge');
+    const gpu1Badge = document.getElementById('gpu1-status-badge');
+    const totalLayersDisp = document.getElementById('total-layers-display');
+    const diagGpu0 = document.getElementById('diagram-gpu0-layers');
+    const diagGpu1 = document.getElementById('diagram-gpu1-layers');
+    const btnSyncAuto = document.getElementById('btn-sync-auto');
+
+    const TOTAL_MODEL_LAYERS = 48;
+    const LAYER_WEIGHT_GB = 0.462; // roughly 22.2 GB / 48 layers + overhead
+
+    function updateCalculations(sourceGpu) {
+      let g0 = parseInt(gpu0Slider.value, 10);
+      let g1 = parseInt(gpu1Slider.value, 10);
+
+      // Auto-compensate to total 48 layers if possible
+      if (sourceGpu === 0) {
+        g1 = Math.max(0, TOTAL_MODEL_LAYERS - g0);
+        gpu1Slider.value = g1;
+      } else if (sourceGpu === 1) {
+        g0 = Math.max(0, TOTAL_MODEL_LAYERS - g1);
+        gpu0Slider.value = g0;
+      }
+
+      const g0PctVal = Math.round((g0 / TOTAL_MODEL_LAYERS) * 100);
+      const g1PctVal = Math.round((g1 / TOTAL_MODEL_LAYERS) * 100);
+
+      gpu0Text.textContent = g0;
+      gpu1Text.textContent = g1;
+      gpu0Pct.textContent = `(${g0PctVal}%)`;
+      gpu1Pct.textContent = `(${g1PctVal}%)`;
+
+      totalLayersDisp.textContent = `${g0 + g1} / ${TOTAL_MODEL_LAYERS}`;
+
+      // GPU 0 VRAM math
+      const g0Model = (g0 * LAYER_WEIGHT_GB).toFixed(1);
+      const g0Total = (1.2 + parseFloat(g0Model)).toFixed(1);
+      const g0Free = Math.max(0, (16.0 - parseFloat(g0Total))).toFixed(1);
+
+      gpu0ModelVram.textContent = `${g0Model} GB`;
+      gpu0FreeVram.textContent = `${g0Free} GB`;
+      gpu0VramText.textContent = g0Total;
+
+      const g0BarPct = Math.min(92.5, (parseFloat(g0Model) / 16.0) * 100);
+      gpu0ModelBar.style.width = `${g0BarPct}%`;
+
+      if (parseFloat(g0Total) > 15.5) {
+        gpu0Badge.textContent = 'High Load Warning';
+        gpu0Badge.className = 'text-error font-semibold';
+      } else {
+        gpu0Badge.textContent = `${Math.round((g0Total / 16.0) * 100)}% Optimal Capacity`;
+        gpu0Badge.className = 'text-tertiary font-semibold';
+      }
+
+      // GPU 1 VRAM math
+      const g1Model = (g1 * LAYER_WEIGHT_GB).toFixed(1);
+      const g1Total = (0.3 + parseFloat(g1Model)).toFixed(1);
+      const g1Free = Math.max(0, (16.0 - parseFloat(g1Total))).toFixed(1);
+
+      gpu1ModelVram.textContent = `${g1Model} GB`;
+      gpu1FreeVram.textContent = `${g1Free} GB`;
+      gpu1VramText.textContent = g1Total;
+
+      const g1BarPct = Math.min(98.0, (parseFloat(g1Model) / 16.0) * 100);
+      gpu1ModelBar.style.width = `${g1BarPct}%`;
+
+      if (parseFloat(g1Total) > 15.5) {
+        gpu1Badge.textContent = 'High Load Warning';
+        gpu1Badge.className = 'text-error font-semibold';
+      } else {
+        gpu1Badge.textContent = `${Math.round((g1Total / 16.0) * 100)}% Safe Load`;
+        gpu1Badge.className = 'text-tertiary font-semibold';
+      }
+
+      // Update topology labels
+      if (g0 > 0) {
+        diagGpu0.textContent = `Embedding + Layers 00 – ${g0 - 1}`;
+      } else {
+        diagGpu0.textContent = '0 Layers';
+      }
+
+      if (g1 > 0) {
+        diagGpu1.textContent = `Layers ${g0} – ${TOTAL_MODEL_LAYERS - 1} + Head`;
+      } else {
+        diagGpu1.textContent = '0 Layers';
+      }
+    }
+
+    if (gpu0Slider && gpu1Slider) {
+      gpu0Slider.addEventListener('input', () => updateCalculations(0));
+      gpu1Slider.addEventListener('input', () => updateCalculations(1));
+    }
+
+    if (btnSyncAuto) {
+      btnSyncAuto.addEventListener('click', () => {
+        gpu0Slider.value = 29;
+        gpu1Slider.value = 19;
+        updateCalculations(0);
+      });
+    }
+
+    const launchBtn = document.getElementById('btn-launch-model');
+    if (launchBtn) {
+      launchBtn.addEventListener('click', () => {
+        const origContent = launchBtn.innerHTML;
+        launchBtn.innerHTML = `
+          <div class="w-4 h-4 rounded-full border-2 border-on-primary border-t-transparent animate-spin"></div>
+          <span>Allocating Device Memory...</span>
+        `;
+        launchBtn.classList.add('opacity-90');
+        setTimeout(() => {
+          launchBtn.innerHTML = `
+            <span class="material-symbols-outlined text-[18px]">check_circle</span>
+            <span>Allocated & Initialized</span>
+          `;
+          launchBtn.classList.remove('bg-primary');
+          launchBtn.classList.add('bg-tertiary', 'text-on-tertiary');
+        }, 1200);
+      });
+    }
+  })();
+</script></main></div><footer class="fixed bottom-0 left-0 right-0 h-6 bg-surface-container-lowest z-50 flex items-center justify-between px-space-md font-label-code-sm text-label-code-sm text-outline shadow-[0_-1px_6px_rgba(0,0,0,0.06)]"><div class="flex items-center gap-space-lg"><div class="flex items-center gap-1.5 text-on-surface-variant"><span class="material-symbols-outlined text-tertiary text-[13px]">terminal</span><span>llama.cpp (Vulkan b6821)</span></div><span class="text-outline-variant">|</span><div class="flex items-center gap-1.5 text-primary"><span class="material-symbols-outlined text-[13px]">smart_toy</span><span>Qwen3.8-27B-Instruct (Q4_K_M)</span></div><span class="text-outline-variant">|</span><div class="text-tertiary font-medium">42.4 tok/s • 32K ctx</div><span class="text-outline-variant">|</span><div class="text-on-surface-variant">GPU0: 54°C 18% • GPU1: 49°C 12% • Gen4 x16</div></div><div class="flex items-center gap-space-lg"><div class="text-on-surface-variant">VRAM: <span class="text-on-surface font-semibold">22.0/32.0 GB</span> • RAM: <span class="text-on-surface font-semibold">28.4/64.0 GB</span></div><span class="text-outline-variant">|</span><div class="flex items-center gap-1.5 text-tertiary"><span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span><span>HF Hub Connected</span></div><span class="text-outline-variant">|</span><div class="flex items-center gap-space-xs text-on-surface-variant hover:text-on-surface cursor-pointer"><span class="material-symbols-outlined text-[13px]">vertical_split</span><span>Inspector</span></div><div class="flex items-center gap-space-xs text-on-surface-variant hover:text-on-surface cursor-pointer"><span class="material-symbols-outlined text-[13px]">terminal</span><span>Console</span></div></div></footer></body></html>

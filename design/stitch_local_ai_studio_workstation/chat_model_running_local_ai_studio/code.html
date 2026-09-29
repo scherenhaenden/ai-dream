@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><meta content="web_dashboard" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&family=JetBrains+Mono:wght@100..900&display=swap" rel="stylesheet"/><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config={darkMode:"class",theme:{extend:{"colors":{"primary-container":"#4d8eff","surface-variant":"#303540","on-error":"#690005","tertiary-container":"#00a572","surface-container":"#1b202a","surface-dim":"#0e131d","surface-container-highest":"#303540","primary-fixed-dim":"#adc6ff","on-secondary-container":"#b0b2ff","secondary-fixed-dim":"#c0c1ff","on-primary":"#002e6a","outline-variant":"#424754","surface-tint":"#adc6ff","outline":"#8c909f","on-secondary-fixed-variant":"#2f2ebe","inverse-on-surface":"#2b303b","on-tertiary-container":"#00311f","tertiary-fixed":"#6ffbbe","inverse-surface":"#dee2f1","on-background":"#dee2f1","surface-container-high":"#252a35","on-tertiary-fixed-variant":"#005236","on-secondary":"#1000a9","on-primary-fixed-variant":"#004395","secondary":"#c0c1ff","secondary-container":"#3131c0","on-tertiary-fixed":"#002113","on-primary-container":"#00285d","primary-fixed":"#d8e2ff","on-surface":"#dee2f1","tertiary":"#4edea3","on-surface-variant":"#c2c6d6","error-container":"#93000a","on-error-container":"#ffdad6","surface-container-low":"#171c26","error":"#ffb4ab","on-primary-fixed":"#001a42","surface-bright":"#343944","tertiary-fixed-dim":"#4edea3","surface":"#0e131d","inverse-primary":"#005ac2","secondary-fixed":"#e1e0ff","primary":"#adc6ff","on-tertiary":"#003824","surface-container-lowest":"#090e18","on-secondary-fixed":"#07006c","background":"#0e131d"},"borderRadius":{"DEFAULT":"0.125rem","lg":"0.25rem","xl":"0.5rem","full":"0.75rem"},"spacing":{"margin-dense":"0.5rem","space-lg":"0.75rem","space-xl":"1rem","gutter":"0.5rem","gutter-compact":"0.25rem","space-sm":"0.25rem","space-xs":"0.125rem","space-md":"0.5rem","margin":"0.75rem"},"fontFamily":{"headline-sm":["Inter"],"body-sm":["Inter"],"metric-display":["JetBrains Mono"],"label-code-sm":["JetBrains Mono"],"body-md":["Inter"],"label-code-lg":["JetBrains Mono"],"headline-md":["Inter"],"headline-lg":["Inter"],"body-lg":["Inter"],"label-code-md":["JetBrains Mono"]},"fontSize":{"headline-sm":["1rem",{"lineHeight":"1.375rem","letterSpacing":"-0.01em","fontWeight":"600"}],"body-sm":["0.75rem",{"lineHeight":"1.125rem","letterSpacing":"0.005em","fontWeight":"400"}],"metric-display":["1.125rem",{"lineHeight":"1.25rem","letterSpacing":"-0.03em","fontWeight":"700"}],"label-code-sm":["0.6875rem",{"lineHeight":"0.875rem","letterSpacing":"0.01em","fontWeight":"500"}],"body-md":["0.8125rem",{"lineHeight":"1.25rem","letterSpacing":"0em","fontWeight":"400"}],"label-code-lg":["0.875rem",{"lineHeight":"1.25rem","letterSpacing":"-0.01em","fontWeight":"500"}],"headline-md":["1.25rem",{"lineHeight":"1.625rem","letterSpacing":"-0.015em","fontWeight":"600"}],"headline-lg":["1.5rem",{"lineHeight":"1.875rem","letterSpacing":"-0.02em","fontWeight":"600"}],"body-lg":["0.875rem",{"lineHeight":"1.375rem","letterSpacing":"0em","fontWeight":"400"}],"label-code-md":["0.75rem",{"lineHeight":"1rem","letterSpacing":"0em","fontWeight":"500"}]}}}}</script></head><body class="bg-background font-body-md text-on-surface antialiased select-none"><aside class="fixed left-0 top-0 bottom-6 w-64 bg-surface-container-lowest z-40 flex flex-col justify-between shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="flex flex-col flex-1 min-h-0"><div class="h-12 px-space-md flex items-center justify-between bg-surface-container-low"><div class="flex items-center gap-space-sm"><div class="flex items-center gap-1"><div class="w-2.5 h-2.5 rounded-full bg-error/70"></div><div class="w-2.5 h-2.5 rounded-full bg-tertiary-container/80"></div><div class="w-2.5 h-2.5 rounded-full bg-primary-container/80"></div></div><div class="ml-space-sm flex items-baseline gap-space-xs"><span class="font-headline-sm text-headline-sm text-on-surface tracking-tight font-semibold">Local AI Studio</span><span class="font-label-code-sm text-label-code-sm text-outline">v1.4.2</span></div></div></div><nav class="flex-1 overflow-y-auto px-space-sm py-space-xs space-y-0.5" data-active-classes="bg-surface-container-high text-primary font-bold"><a aria-current="page" class="flex items-center gap-space-sm px-space-md py-1.5 rounded-lg transition-colors bg-surface-container-high text-primary font-bold" data-path="chat" href="#"><span class="material-symbols-outlined text-[17px]">chat_bubble</span><span>Chat (Loaded Model)</span></a><a class="flex items-center gap-space-sm px-space-md py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="models" href="#"><span class="material-symbols-outlined text-[17px]">inventory_2</span><span>Models (Local Library)</span></a><a class="flex items-center gap-space-sm px-space-md py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="model-hubs" href="#"><span class="material-symbols-outlined text-[17px]">hub</span><span>Model Hubs (HF / Scope)</span></a><a class="flex items-center gap-space-sm px-space-md py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="hardware" href="#"><span class="material-symbols-outlined text-[17px]">developer_board</span><span>Hardware (Multi-GPU)</span></a><a class="flex items-center gap-space-sm px-space-md py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="load-model" href="#"><span class="material-symbols-outlined text-[17px]">memory</span><span>Load Model (Placement)</span></a><a class="flex items-center gap-space-sm px-space-md py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="runtime-manager" href="#"><span class="material-symbols-outlined text-[17px]">terminal</span><span>Runtime Manager</span></a><a class="flex items-center gap-space-sm px-space-md py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="profiles" href="#"><span class="material-symbols-outlined text-[17px]">tune</span><span>Profiles (Hardware)</span></a><a class="flex items-center gap-space-sm px-space-md py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="downloads" href="#"><span class="material-symbols-outlined text-[17px]">download</span><span>Downloads</span></a><a class="flex items-center gap-space-sm px-space-md py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="logs" href="#"><span class="material-symbols-outlined text-[17px]">dvr</span><span>Logs (Output)</span></a><a class="flex items-center gap-space-sm px-space-md py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="settings" href="#"><span class="material-symbols-outlined text-[17px]">settings</span><span>Settings</span></a></nav></div><div class="p-space-sm bg-surface-container-low/80 flex flex-col gap-space-xs"><div class="flex items-center justify-between font-label-code-sm text-label-code-sm text-outline px-space-xs"><span class="tracking-wide uppercase font-semibold">Hardware Telemetry</span><span class="flex items-center gap-1 text-tertiary"><span class="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse"></span>ROCm</span></div><div class="bg-surface-container-lowest p-space-xs rounded-lg space-y-1.5"><div class="flex items-center justify-between font-label-code-sm text-label-code-sm"><span class="text-on-surface font-semibold">GPU 0: RX 9070</span><span class="text-error font-medium">14.2 / 16G (88%)</span></div><div class="w-full h-1.5 bg-surface-variant rounded-full overflow-hidden"><div class="h-full bg-error rounded-full" style="width: 88%"></div></div></div><div class="bg-surface-container-lowest p-space-xs rounded-lg space-y-1.5"><div class="flex items-center justify-between font-label-code-sm text-label-code-sm"><span class="text-on-surface font-semibold">GPU 1: RX 9070</span><span class="text-tertiary font-medium">7.8 / 16G (48%)</span></div><div class="w-full h-1.5 bg-surface-variant rounded-full overflow-hidden"><div class="h-full bg-tertiary rounded-full" style="width: 48%"></div></div></div><div class="bg-surface-container-lowest p-space-xs rounded-lg space-y-1.5"><div class="flex items-center justify-between font-label-code-sm text-label-code-sm"><span class="text-on-surface-variant">Host RAM</span><span class="text-on-surface-variant font-medium">28.4 / 64G (44%)</span></div><div class="w-full h-1 bg-surface-variant rounded-full overflow-hidden"><div class="h-full bg-primary-container rounded-full" style="width: 44%"></div></div></div><div class="mt-space-xs flex items-center justify-between px-space-xs py-1 rounded bg-surface-container-high font-label-code-sm text-label-code-sm"><span class="text-on-surface-variant">llama.cpp / Vulkan</span><span class="text-tertiary flex items-center gap-1 font-semibold"><span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>Healthy</span></div></div></aside><div class="pl-64 flex flex-col min-h-screen"><header class="fixed top-0 left-64 right-0 h-12 bg-surface-container-lowest/90 backdrop-blur-xl z-30 flex items-center justify-between px-space-md shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="flex items-center gap-space-md"><div class="flex items-center gap-space-xs font-label-code-md text-label-code-md text-outline"><span class="text-on-surface-variant font-medium">Studio</span><span class="material-symbols-outlined text-[14px]">chevron_right</span><span class="text-primary font-semibold">Runtime Workspace</span></div><div class="relative flex items-center"><span class="material-symbols-outlined absolute left-2 text-outline text-[16px]">search</span><input class="w-80 h-7 pl-7 pr-3 bg-surface-container-low text-on-surface placeholder:text-outline font-body-sm text-body-sm rounded-lg focus:outline-none focus:ring-1 focus:ring-primary" placeholder="Search models, runtimes, commands (Ctrl+K)..." type="text"/></div></div><div class="flex items-center gap-space-md"><div class="flex items-center gap-space-xs px-space-sm py-1 rounded-lg bg-surface-container-low hover:bg-surface-container-high transition-colors cursor-pointer"><span class="material-symbols-outlined text-primary text-[16px]">bolt</span><span class="font-label-code-sm text-label-code-sm text-on-surface">llama.cpp v6821 / Vulkan</span><span class="material-symbols-outlined text-outline text-[14px]">expand_more</span></div><div class="flex items-center gap-1.5 px-space-sm py-1 rounded-lg bg-tertiary-container/20 font-label-code-sm text-label-code-sm text-tertiary"><span class="w-2 h-2 rounded-full bg-tertiary animate-pulse"></span><span>System Ready • 2 GPUs Active</span></div><a class="flex items-center gap-space-xs px-space-md py-1 bg-primary text-on-primary rounded-lg font-body-sm text-body-sm font-semibold hover:bg-primary-fixed-dim transition-colors shadow-sm" data-path="load-model" href="#"><span class="material-symbols-outlined text-[16px]">add</span><span>Load Model</span></a><button class="p-1 text-on-surface-variant hover:text-on-surface rounded hover:bg-surface-container-high transition-colors" type="button"><span class="material-symbols-outlined text-[18px]">tune</span></button><div class="w-7 h-7 rounded-full bg-primary flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[16px]">person</span></div></div></header><main class="flex-1 pt-12 pb-6 w-full bg-surface"><div class="flex flex-col w-full text-on-surface select-none">
+<!-- MODEL TELEMETRY HEADER BANNER -->
+<div class="w-full bg-surface-container-low px-4 py-2.5 flex flex-col gap-2 shadow-sm">
+<div class="flex flex-wrap items-center justify-between gap-3">
+<!-- Title & Main Identifiers -->
+<div class="flex items-center gap-2.5 min-w-0">
+<div class="w-8 h-8 rounded-lg bg-surface-container-high flex items-center justify-center text-primary shrink-0 shadow-sm">
+<span class="material-symbols-outlined text-[20px]">smart_toy</span>
+</div>
+<div class="flex flex-col min-w-0">
+<div class="flex items-center gap-2 flex-wrap">
+<span class="font-headline-sm text-headline-sm text-on-surface font-semibold tracking-tight truncate">Qwen3.8-27B-Instruct-Q4_K_M</span>
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-tertiary-container/20 text-tertiary font-label-code-sm text-label-code-sm font-semibold">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse"></span>
+              Status: Loaded & Hot
+            </span>
+</div>
+<span class="font-label-code-sm text-label-code-sm text-outline font-mono truncate">/mnt/models/qwen/Qwen3.8-27B-Q4_K_M.gguf</span>
+</div>
+</div>
+<!-- Quick Action Controls -->
+<div class="flex items-center gap-2 shrink-0">
+<button class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface font-body-sm text-body-sm transition-colors" type="button">
+<span class="material-symbols-outlined text-[15px]">tune</span>
+<span>Model Settings</span>
+</button>
+<button class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-error-container/30 hover:bg-error-container/50 text-error font-body-sm text-body-sm transition-colors" type="button">
+<span class="material-symbols-outlined text-[15px]">eject</span>
+<span>Unload Model</span>
+</button>
+<button class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-surface-container-high text-primary hover:bg-surface-variant transition-colors" id="toggle-inspector" title="Toggle Inspector Panel" type="button">
+<span class="material-symbols-outlined text-[16px]">dock_to_left</span>
+</button>
+</div>
+</div>
+<!-- Metagroup Badges & Dynamic Hardware Chips -->
+<div class="flex flex-wrap items-center justify-between gap-2 pt-1 font-label-code-sm text-label-code-sm">
+<div class="flex flex-wrap items-center gap-1.5">
+<span class="px-2 py-0.5 rounded bg-surface-container-highest text-on-surface-variant font-medium">GGUF v3</span>
+<span class="px-2 py-0.5 rounded bg-surface-container-highest text-on-surface-variant font-medium">27B Parameters</span>
+<span class="px-2 py-0.5 rounded bg-surface-container-highest text-primary font-medium">Q4_K_M</span>
+<span class="px-2 py-0.5 rounded bg-surface-container-highest text-tertiary font-medium">Vulkan Backend</span>
+<span class="px-2 py-0.5 rounded bg-surface-container-highest text-secondary font-medium">Dual GPU Split (60/40)</span>
+<span class="px-2 py-0.5 rounded bg-surface-container-highest text-on-surface font-medium flex items-center gap-1">
+<span class="material-symbols-outlined text-tertiary text-[13px]">check</span> Flash Attention
+        </span>
+</div>
+<!-- Realtime Metric Readouts -->
+<div class="flex flex-wrap items-center gap-2">
+<div class="flex items-center gap-1.5 px-2 py-1 rounded bg-surface-container">
+<span class="text-outline">CTX:</span>
+<span class="text-on-surface font-medium">14,280 / 32,768</span>
+<span class="text-primary font-bold">(43%)</span>
+</div>
+<div class="flex items-center gap-1.5 px-2 py-1 rounded bg-surface-container">
+<span class="text-outline">RAM:</span>
+<span class="text-on-surface font-medium">4.5 GB</span>
+</div>
+<div class="flex items-center gap-1.5 px-2 py-1 rounded bg-surface-container">
+<span class="text-outline">VRAM:</span>
+<span class="text-tertiary font-medium">24.2 / 32.0 GB</span>
+<span class="text-outline-variant text-[10px]">[GPU0: 14.4G • GPU1: 9.8G]</span>
+</div>
+<div class="flex items-center gap-1.5 px-2 py-1 rounded bg-tertiary/10 text-tertiary font-bold">
+<span class="material-symbols-outlined text-[13px]">speed</span>
+<span>42.8 tok/s</span>
+</div>
+</div>
+</div>
+</div>
+<!-- MAIN CHAT & INSPECTOR WORKSPACE -->
+<div class="flex w-full min-h-[calc(100vh-140px)] relative">
+<!-- LEFT & CENTER: CHAT CANVAS AREA -->
+<div class="flex flex-col flex-1 min-w-0 bg-surface">
+<!-- IN-FLIGHT COMPUTE TELEMETRY STRIP (LIVE) -->
+<div class="px-4 py-1.5 bg-surface-container-lowest flex items-center justify-between font-label-code-sm text-label-code-sm text-outline-variant shadow-inner">
+<div class="flex items-center gap-3">
+<div class="flex items-center gap-1.5 text-tertiary">
+<span class="w-2 h-2 rounded-full bg-tertiary animate-ping"></span>
+<span class="text-on-surface font-semibold font-mono">Stream Active</span>
+</div>
+<span class="text-outline">|</span>
+<span class="text-on-surface-variant font-mono">GPU0 Load: <strong class="text-on-surface">89%</strong> (56°C)</span>
+<span class="text-on-surface-variant font-mono">GPU1 Load: <strong class="text-on-surface">78%</strong> (51°C)</span>
+<span class="text-outline">|</span>
+<span class="text-on-surface-variant font-mono">PCIe Bus: Gen4 x16 P2P Enabled</span>
+</div>
+<div class="flex items-center gap-3">
+<span class="text-primary font-mono">Tokens/sec: 42.8</span>
+<span class="text-tertiary font-mono">TTFT: 142ms</span>
+</div>
+</div>
+<!-- CHAT MESSAGE SCROLL CONTAINER -->
+<div class="flex-1 overflow-y-auto p-4 lg:p-6 space-y-6 max-w-5xl mx-auto w-full">
+<!-- USER MESSAGE ITEM -->
+<div class="flex gap-3 items-start group">
+<div class="w-8 h-8 rounded-lg bg-surface-container-high flex items-center justify-center text-primary shrink-0 shadow-sm">
+<span class="material-symbols-outlined text-[18px]">person</span>
+</div>
+<div class="flex-1 min-w-0">
+<div class="flex items-center gap-2 mb-1">
+<span class="font-headline-sm text-headline-sm font-semibold text-on-surface">Operator</span>
+<span class="font-label-code-sm text-label-code-sm text-outline">10:42:19</span>
+<span class="px-1.5 py-0.2 rounded bg-surface-container-high text-outline text-[10px] font-mono">User Prompt</span>
+</div>
+<div class="p-3.5 rounded-xl bg-surface-container text-on-surface font-body-md text-body-md leading-relaxed shadow-sm max-w-3xl">
+              Write an optimized Vulkan compute shader to benchmark matrix multiplication across heterogeneous AMD GPUs with workgroup synchronization.
+            </div>
+<div class="mt-1 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+<button class="text-outline hover:text-on-surface font-label-code-sm text-label-code-sm inline-flex items-center gap-1" type="button">
+<span class="material-symbols-outlined text-[13px]">edit</span> Edit
+              </button>
+<button class="text-outline hover:text-on-surface font-label-code-sm text-label-code-sm inline-flex items-center gap-1" type="button">
+<span class="material-symbols-outlined text-[13px]">content_copy</span> Copy
+              </button>
+</div>
+</div>
+</div>
+<!-- ASSISTANT MESSAGE ITEM -->
+<div class="flex gap-3 items-start">
+<div class="w-8 h-8 rounded-lg bg-primary text-on-primary flex items-center justify-center shrink-0 shadow-md">
+<span class="material-symbols-outlined text-[18px]">terminal</span>
+</div>
+<div class="flex-1 min-w-0 space-y-3">
+<div class="flex items-center gap-2">
+<span class="font-headline-sm text-headline-sm font-semibold text-primary">Qwen3.8-27B-Instruct</span>
+<span class="font-label-code-sm text-label-code-sm text-outline">10:42:30</span>
+<span class="px-1.5 py-0.5 rounded bg-tertiary-container/30 text-tertiary font-label-code-sm text-label-code-sm font-medium">Full Precision Response</span>
+</div>
+<!-- COLLAPSIBLE REASONING ACCORDION -->
+<details class="group bg-surface-container-low rounded-lg p-2.5 transition-all open:bg-surface-container" open="">
+<summary class="flex items-center justify-between cursor-pointer list-none select-none">
+<div class="flex items-center gap-2 font-label-code-sm text-label-code-sm text-primary">
+<span class="material-symbols-outlined text-[16px] transition-transform group-open:rotate-90">arrow_right</span>
+<span class="font-semibold">Thinking Process</span>
+<span class="px-2 py-0.5 rounded bg-surface-container-high text-on-surface-variant font-mono">1,420 ms • 128 tokens reasoned</span>
+</div>
+<span class="text-outline font-label-code-sm text-label-code-sm group-open:hidden">Click to expand</span>
+</summary>
+<div class="mt-2.5 pt-2 font-label-code-sm text-label-code-sm text-on-surface-variant space-y-1.5 pl-6 font-mono leading-relaxed bg-surface-container-lowest/50 p-2.5 rounded">
+<p>1. Analyzing memory latency and dispatch overhead on dual AMD RDNA4 (RX 9070) Vulkan physical devices.</p>
+<p>2. Formulating tiled matrix multiplication (GEMM) using Shared Local Memory (LDS) with local size 16x16.</p>
+<p>3. Incorporating <code class="text-tertiary font-semibold">controlBarrier(gl_ScopeWorkgroup, gl_ScopeWorkgroup, gl_StorageSemanticsShared, gl_SemanticsAcquireRelease)</code> for robust cross-thread sync.</p>
+<p>4. Setting up uniform strides and float buffers for non-coalesced memory avoidance.</p>
+</div>
+</details>
+<!-- ASSISTANT RESPONSE MARKDOWN BODY -->
+<div class="font-body-md text-body-md text-on-surface space-y-3 leading-relaxed">
+<p>
+                Below is a high-performance SPIR-V compliant GLSL compute shader designed for Vulkan. It implements a 16x16 tiled matrix multiplication with shared workgroup memory caches (<code class="text-primary font-mono text-body-sm">shared float tileA/tileB</code>) to maximize compute pipe saturation across heterogeneous devices.
+              </p>
+<!-- CODE CONTAINER -->
+<div class="rounded-xl overflow-hidden bg-surface-container-lowest shadow-md">
+<div class="px-4 py-2 bg-surface-container-high flex items-center justify-between font-label-code-sm text-label-code-sm">
+<div class="flex items-center gap-2 text-on-surface-variant font-mono">
+<span class="material-symbols-outlined text-tertiary text-[14px]">code</span>
+<span>gemm_heterogeneous_vulkan.comp</span>
+<span class="text-outline">• GLSL Vulkan 1.3</span>
+</div>
+<div class="flex items-center gap-2">
+<button class="hover:text-on-surface text-outline inline-flex items-center gap-1 transition-colors" type="button">
+<span class="material-symbols-outlined text-[14px]">content_copy</span> Copy Code
+                    </button>
+<button class="hover:text-on-surface text-outline inline-flex items-center gap-1 transition-colors" type="button">
+<span class="material-symbols-outlined text-[14px]">file_download</span> Download
+                    </button>
+</div>
+</div>
+<pre class="p-4 overflow-x-auto font-label-code-sm text-label-code-sm text-on-surface font-mono leading-relaxed"><code><span class="text-primary font-semibold">#version 450</span>
+<span class="text-tertiary font-semibold">#extension GL_KHR_memory_scope_semantics : enable</span>
+
+<span class="text-secondary font-semibold">layout</span>(local_size_x = <span class="text-tertiary">16</span>, local_size_y = <span class="text-tertiary">16</span>, local_size_z = <span class="text-tertiary">1</span>) <span class="text-secondary">in</span>;
+
+<span class="text-secondary font-semibold">layout</span>(std430, set = <span class="text-tertiary">0</span>, binding = <span class="text-tertiary">0</span>) <span class="text-secondary">readonly buffer</span> MatrixA { <span class="text-primary">float</span> dataA[]; };
+<span class="text-secondary font-semibold">layout</span>(std430, set = <span class="text-tertiary">0</span>, binding = <span class="text-tertiary">1</span>) <span class="text-secondary">readonly buffer</span> MatrixB { <span class="text-primary">float</span> dataB[]; };
+<span class="text-secondary font-semibold">layout</span>(std430, set = <span class="text-tertiary">0</span>, binding = <span class="text-tertiary">2</span>) <span class="text-secondary">writeonly buffer</span> MatrixC { <span class="text-primary">float</span> dataC[]; };
+
+<span class="text-secondary font-semibold">layout</span>(push_constant) <span class="text-secondary">uniform</span> PushConstants {
+    <span class="text-primary">uint</span> M;
+    <span class="text-primary">uint</span> N;
+    <span class="text-primary">uint</span> K;
+} dims;
+
+<span class="text-outline">// Shared Local Memory cache tiles (16x16)</span>
+<span class="text-secondary font-semibold">shared float</span> tileA[<span class="text-tertiary">16</span>][<span class="text-tertiary">16</span>];
+<span class="text-secondary font-semibold">shared float</span> tileB[<span class="text-tertiary">16</span>][<span class="text-tertiary">16</span>];
+
+<span class="text-primary font-semibold">void</span> <span class="text-secondary">main</span>() {
+    <span class="text-primary">uint</span> row = gl_GlobalInvocationID.y;
+    <span class="text-primary">uint</span> col = gl_GlobalInvocationID.x;
+    <span class="text-primary">float</span> acc = <span class="text-tertiary">0.0</span>;
+
+    <span class="text-primary">uint</span> numTiles = (dims.K + <span class="text-tertiary">15</span>) / <span class="text-tertiary">16</span>;
+
+    <span class="text-primary font-semibold">for</span> (<span class="text-primary">uint</span> t = <span class="text-tertiary">0</span>; t < numTiles; ++t) {
+        <span class="text-primary font-semibold">if</span> (row < dims.M && (t * <span class="text-tertiary">16</span> + gl_LocalInvocationID.x) < dims.K)
+            tileA[gl_LocalInvocationID.y][gl_LocalInvocationID.x] = dataA[row * dims.K + t * <span class="text-tertiary">16</span> + gl_LocalInvocationID.x];
+        <span class="text-primary font-semibold">else</span>
+            tileA[gl_LocalInvocationID.y][gl_LocalInvocationID.x] = <span class="text-tertiary">0.0</span>;
+
+        <span class="text-primary font-semibold">if</span> (col < dims.N && (t * <span class="text-tertiary">16</span> + gl_LocalInvocationID.y) < dims.K)
+            tileB[gl_LocalInvocationID.y][gl_LocalInvocationID.x] = dataB[(t * <span class="text-tertiary">16</span> + gl_LocalInvocationID.y) * dims.N + col];
+        <span class="text-primary font-semibold">else</span>
+            tileB[gl_LocalInvocationID.y][gl_LocalInvocationID.x] = <span class="text-tertiary">0.0</span>;
+
+        <span class="text-outline">// Explicit subgroup synchronization barrier</span>
+        barrier();
+
+        <span class="text-primary font-semibold">for</span> (<span class="text-primary">uint</span> k = <span class="text-tertiary">0</span>; k < <span class="text-tertiary">16</span>; ++k) {
+            acc += tileA[gl_LocalInvocationID.y][k] * tileB[k][gl_LocalInvocationID.x];
+        }
+
+        barrier();
+    }
+
+    <span class="text-primary font-semibold">if</span> (row < dims.M && col < dims.N) {
+        dataC[row * dims.N + col] = acc;
+    }
+}</code></pre>
+</div>
+<!-- BENCHMARK TABLE -->
+<p>Simulated throughput benchmarks across your configured dual RX 9070 arrangement:</p>
+<div class="w-full overflow-x-auto rounded-xl bg-surface-container shadow-sm">
+<table class="w-full text-left font-label-code-sm text-label-code-sm">
+<thead class="bg-surface-container-high text-on-surface-variant uppercase tracking-wider text-[10px]">
+<tr>
+<th class="px-3.5 py-2 font-semibold">Device</th>
+<th class="px-3.5 py-2 font-semibold">Split Ratio</th>
+<th class="px-3.5 py-2 font-semibold">Tile Size</th>
+<th class="px-3.5 py-2 font-semibold">Memory Bandwidth</th>
+<th class="px-3.5 py-2 font-semibold text-right">Effective TFLOPs</th>
+</tr>
+</thead>
+<tbody class="divide-none text-on-surface">
+<tr class="bg-surface-container/60 hover:bg-surface-container-high/50 transition-colors">
+<td class="px-3.5 py-2.5 font-semibold text-primary flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-primary"></span> GPU 0 (PCIe 4.0 x16)
+                      </td>
+<td class="px-3.5 py-2.5 font-mono">60% (16,384 x 9,830)</td>
+<td class="px-3.5 py-2.5 font-mono">16x16 (LDS)</td>
+<td class="px-3.5 py-2.5 font-mono">576 GB/s</td>
+<td class="px-3.5 py-2.5 font-mono text-tertiary font-bold text-right">38.4 TFLOPs</td>
+</tr>
+<tr class="hover:bg-surface-container-high/50 transition-colors">
+<td class="px-3.5 py-2.5 font-semibold text-secondary flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-secondary"></span> GPU 1 (PCIe 4.0 x8)
+                      </td>
+<td class="px-3.5 py-2.5 font-mono">40% (16,384 x 6,554)</td>
+<td class="px-3.5 py-2.5 font-mono">16x16 (LDS)</td>
+<td class="px-3.5 py-2.5 font-mono">512 GB/s</td>
+<td class="px-3.5 py-2.5 font-mono text-tertiary font-bold text-right">29.1 TFLOPs</td>
+</tr>
+<tr class="bg-surface-container-lowest font-medium">
+<td class="px-3.5 py-2.5 text-on-surface">Aggregate Cluster</td>
+<td class="px-3.5 py-2.5">100% Workload</td>
+<td class="px-3.5 py-2.5">Heterogeneous P2P</td>
+<td class="px-3.5 py-2.5">Combined Sync</td>
+<td class="px-3.5 py-2.5 font-bold text-tertiary text-right">67.5 TFLOPs</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<!-- INFERENCE RUN METADATA FOOTER & ACTION TOOLBAR -->
+<div class="p-3 rounded-lg bg-surface-container-low flex flex-wrap items-center justify-between gap-3 text-outline">
+<div class="flex items-center gap-3 font-label-code-sm text-label-code-sm flex-wrap">
+<span class="text-tertiary font-medium">Generated 482 tokens in 11.26s</span>
+<span>•</span>
+<span class="text-on-surface font-semibold font-mono">42.8 tok/s</span>
+<span>•</span>
+<span class="font-mono">TTFT: 142ms</span>
+<span>•</span>
+<span class="font-mono">Context: 2,140 tokens</span>
+<span>•</span>
+<span class="font-mono text-secondary">VRAM Peak: 24.3 GB</span>
+</div>
+<div class="flex items-center gap-1">
+<button class="p-1 hover:text-on-surface text-outline transition-colors" title="Copy Code" type="button">
+<span class="material-symbols-outlined text-[16px]">code</span>
+</button>
+<button class="p-1 hover:text-on-surface text-outline transition-colors" title="Copy Raw Markdown" type="button">
+<span class="material-symbols-outlined text-[16px]">content_copy</span>
+</button>
+<button class="p-1 hover:text-on-surface text-outline transition-colors" title="Regenerate with seed" type="button">
+<span class="material-symbols-outlined text-[16px]">refresh</span>
+</button>
+<button class="p-1 hover:text-on-surface text-outline transition-colors" title="Branch Conversation" type="button">
+<span class="material-symbols-outlined text-[16px]">fork_right</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- BOTTOM COMPOSER / INPUT WORKSPACE -->
+<div class="p-4 bg-surface-container-lowest/80 backdrop-blur-md shadow-lg">
+<div class="max-w-5xl mx-auto w-full flex flex-col gap-2">
+<!-- QUICK CONTEXT SELECTORS & PRESETS TOOLBAR -->
+<div class="flex items-center justify-between gap-2 overflow-x-auto pb-1 text-on-surface-variant font-label-code-sm text-label-code-sm">
+<div class="flex items-center gap-2">
+<button class="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-surface-container hover:bg-surface-container-high text-on-surface transition-colors" type="button">
+<span class="material-symbols-outlined text-[14px]">attach_file</span>
+<span>Attach Context</span>
+</button>
+<div class="flex items-center gap-1.5 px-2.5 py-1 rounded bg-surface-container text-outline">
+<span class="material-symbols-outlined text-[14px] text-tertiary">psychology</span>
+<span class="text-on-surface font-medium truncate max-w-[200px]">System: Linux Kernel & GPU Specialist</span>
+<span class="material-symbols-outlined text-[12px] cursor-pointer hover:text-on-surface">close</span>
+</div>
+<div class="flex items-center gap-1.5 px-2.5 py-1 rounded bg-surface-container text-outline">
+<span class="material-symbols-outlined text-[14px] text-primary">tune</span>
+<span class="text-on-surface font-medium">Preset: Code / Precise (0.2)</span>
+</div>
+</div>
+<div class="flex items-center gap-2 text-outline shrink-0">
+<span class="text-[11px]">Context Remaining: <strong class="text-on-surface font-mono">18,488</strong> tokens</span>
+</div>
+</div>
+<!-- MULTILINE INPUT BUFFER CONTAINER -->
+<div class="relative rounded-xl bg-surface-container-low focus-within:bg-surface-container transition-colors shadow-inner flex flex-col">
+<textarea class="w-full bg-transparent px-3.5 py-3 font-body-md text-body-md text-on-surface placeholder:text-outline focus:outline-none resize-none" placeholder="Send message to Qwen3.8-27B (Shift+Enter for newline, / for commands, @ for files)..." rows="3"></textarea>
+<div class="flex items-center justify-between px-3 py-2 bg-surface-container-lowest/60 rounded-b-xl">
+<div class="flex items-center gap-2">
+<button class="p-1 text-outline hover:text-on-surface rounded hover:bg-surface-container-high transition-colors" title="Slash Commands" type="button">
+<span class="material-symbols-outlined text-[16px]">data_array</span>
+</button>
+<button class="p-1 text-outline hover:text-on-surface rounded hover:bg-surface-container-high transition-colors" title="Prompt History" type="button">
+<span class="material-symbols-outlined text-[16px]">history</span>
+</button>
+<button class="p-1 text-outline hover:text-on-surface rounded hover:bg-surface-container-high transition-colors" title="Format JSON / Code" type="button">
+<span class="material-symbols-outlined text-[16px]">integration_instructions</span>
+</button>
+</div>
+<div class="flex items-center gap-2">
+<button class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-error font-body-sm text-body-sm transition-colors" type="button">
+<span class="material-symbols-outlined text-[16px]">stop_circle</span>
+<span>Stop</span>
+</button>
+<button class="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-primary text-on-primary font-headline-sm text-headline-sm font-semibold hover:bg-primary-fixed-dim transition-all shadow-md" type="button">
+<span>Generate</span>
+<span class="material-symbols-outlined text-[16px]">arrow_forward</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- RIGHT INSPECTOR PANEL (ADVANCED RUNTIME CONTROLS) -->
+<div class="w-80 lg:w-96 bg-surface-container-low flex flex-col shrink-0 overflow-y-auto" id="inspector-panel">
+<!-- INSPECTOR HEADER & MODE TOGGLE -->
+<div class="h-11 px-4 flex items-center justify-between bg-surface-container">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-[17px]">tune</span>
+<span class="font-headline-sm text-headline-sm font-semibold text-on-surface">Runtime Inspector</span>
+</div>
+<!-- Segmented Mode Switcher -->
+<div class="flex items-center p-0.5 rounded-lg bg-surface-container-lowest font-label-code-sm text-label-code-sm">
+<button class="px-2.5 py-0.5 rounded text-outline hover:text-on-surface transition-colors" type="button">Simple</button>
+<button class="px-2.5 py-0.5 rounded bg-surface-container-high text-primary font-semibold shadow-sm" type="button">Advanced</button>
+</div>
+</div>
+<div class="p-4 space-y-5 font-body-md text-body-md">
+<!-- SECTION 1: SAMPLING & GENERATION -->
+<div class="space-y-3">
+<div class="flex items-center justify-between text-outline font-label-code-sm text-label-code-sm uppercase font-bold tracking-wider">
+<span>Sampling & Generation</span>
+<span class="text-primary lowercase cursor-pointer hover:underline">Reset default</span>
+</div>
+<!-- Temperature -->
+<div class="space-y-1">
+<div class="flex justify-between font-label-code-sm text-label-code-sm">
+<span class="text-on-surface-variant font-medium">Temperature</span>
+<span class="font-mono text-primary font-semibold">0.20</span>
+</div>
+<input class="w-full accent-primary h-1 bg-surface-variant rounded cursor-pointer" max="2" min="0" step="0.05" type="range" value="0.2"/>
+<div class="flex justify-between text-[10px] text-outline font-mono">
+<span>0.0 (Deterministic)</span>
+<span>2.0 (Creative)</span>
+</div>
+</div>
+<!-- Top P & Top K in Dual Grid -->
+<div class="grid grid-cols-2 gap-2">
+<div class="space-y-1 bg-surface-container p-2 rounded-lg">
+<div class="flex justify-between font-label-code-sm text-label-code-sm">
+<span class="text-on-surface-variant">Top-P</span>
+<span class="font-mono text-on-surface font-semibold">0.90</span>
+</div>
+<input class="w-full accent-primary h-1 bg-surface-variant rounded cursor-pointer" max="1" min="0" step="0.05" type="range" value="0.9"/>
+</div>
+<div class="space-y-1 bg-surface-container p-2 rounded-lg">
+<div class="flex justify-between font-label-code-sm text-label-code-sm">
+<span class="text-on-surface-variant">Top-K</span>
+<span class="font-mono text-on-surface font-semibold">40</span>
+</div>
+<input class="w-full accent-primary h-1 bg-surface-variant rounded cursor-pointer" max="100" min="0" step="1" type="range" value="40"/>
+</div>
+</div>
+<!-- Min P & Repeat Penalty -->
+<div class="grid grid-cols-2 gap-2">
+<div class="space-y-1 bg-surface-container p-2 rounded-lg">
+<div class="flex justify-between font-label-code-sm text-label-code-sm">
+<span class="text-on-surface-variant">Min-P</span>
+<span class="font-mono text-on-surface font-semibold">0.05</span>
+</div>
+<input class="w-full accent-primary h-1 bg-surface-variant rounded cursor-pointer" max="0.5" min="0" step="0.01" type="range" value="0.05"/>
+</div>
+<div class="space-y-1 bg-surface-container p-2 rounded-lg">
+<div class="flex justify-between font-label-code-sm text-label-code-sm">
+<span class="text-on-surface-variant">Rep Penalty</span>
+<span class="font-mono text-on-surface font-semibold">1.10</span>
+</div>
+<input class="w-full accent-primary h-1 bg-surface-variant rounded cursor-pointer" max="2.0" min="1.0" step="0.05" type="range" value="1.1"/>
+</div>
+</div>
+<!-- Max Tokens -->
+<div class="flex items-center justify-between bg-surface-container px-3 py-2 rounded-lg font-label-code-sm text-label-code-sm">
+<span class="text-on-surface-variant">Max Output Tokens</span>
+<input class="w-20 bg-surface-container-lowest text-right font-mono text-on-surface px-2 py-0.5 rounded focus:outline-none focus:ring-1 focus:ring-primary" type="number" value="4096"/>
+</div>
+</div>
+<!-- SECTION 2: CONTEXT WINDOW & KV CACHE -->
+<div class="space-y-3 pt-2">
+<div class="flex items-center justify-between text-outline font-label-code-sm text-label-code-sm uppercase font-bold tracking-wider">
+<span>Context Window & KV Cache</span>
+<span class="text-tertiary">32K Ready</span>
+</div>
+<div class="space-y-1 bg-surface-container p-2.5 rounded-lg">
+<div class="flex justify-between font-label-code-sm text-label-code-sm">
+<span class="text-on-surface-variant">Context Limit</span>
+<span class="font-mono text-primary font-semibold">32,768 ctx</span>
+</div>
+<input class="w-full accent-primary h-1 bg-surface-variant rounded cursor-pointer" max="65536" min="2048" step="2048" type="range" value="32768"/>
+<div class="w-full bg-surface-variant h-1.5 rounded-full overflow-hidden mt-1">
+<div class="bg-primary h-full" style="width: 43%"></div>
+</div>
+<span class="text-[10px] text-outline font-mono block mt-1">14,280 tokens populated (43% utilization)</span>
+</div>
+<!-- KV Cache Quantization Selector -->
+<div class="space-y-1.5">
+<span class="text-on-surface-variant font-label-code-sm text-label-code-sm">KV Cache Precision</span>
+<div class="grid grid-cols-3 gap-1 bg-surface-container-lowest p-1 rounded-lg font-label-code-sm text-label-code-sm">
+<button class="py-1 text-center rounded text-outline hover:text-on-surface" type="button">FP16</button>
+<button class="py-1 text-center rounded bg-surface-container-high text-tertiary font-bold shadow-sm" type="button">Q8_0 (Active)</button>
+<button class="py-1 text-center rounded text-outline hover:text-on-surface" type="button">Q4_0</button>
+</div>
+<p class="text-[10px] text-tertiary font-mono">Q8_0 saves 4.2 GB VRAM with <0.1% perplexity delta.</p>
+</div>
+</div>
+<!-- SECTION 3: HARDWARE PLACEMENT & DISTRIBUTION -->
+<div class="space-y-3 pt-2">
+<div class="flex items-center justify-between text-outline font-label-code-sm text-label-code-sm uppercase font-bold tracking-wider">
+<span>Hardware Placement</span>
+<span class="text-secondary font-mono">Vulkan Multi-GPU</span>
+</div>
+<!-- Split Visualizer -->
+<div class="bg-surface-container p-2.5 rounded-lg space-y-2">
+<div class="flex justify-between font-label-code-sm text-label-code-sm">
+<span class="text-primary font-semibold">GPU 0 (60% Layers)</span>
+<span class="text-secondary font-semibold">GPU 1 (40% Layers)</span>
+</div>
+<div class="w-full h-3 rounded bg-surface-container-lowest flex overflow-hidden">
+<div class="bg-primary h-full" style="width: 60%"></div>
+<div class="bg-secondary h-full" style="width: 40%"></div>
+</div>
+<div class="flex justify-between text-[10px] font-mono text-outline">
+<span>29 of 48 Layers (14.4 GB)</span>
+<span>19 of 48 Layers (9.8 GB)</span>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-2 font-label-code-sm text-label-code-sm">
+<div class="bg-surface-container p-2 rounded-lg">
+<span class="text-outline block text-[10px]">CPU THREADS</span>
+<span class="text-on-surface font-semibold font-mono">16 (Ryzen 9)</span>
+</div>
+<div class="bg-surface-container p-2 rounded-lg">
+<span class="text-outline block text-[10px]">OFFLOAD RATIO</span>
+<span class="text-tertiary font-semibold font-mono">48/48 (100% VRAM)</span>
+</div>
+<div class="bg-surface-container p-2 rounded-lg">
+<span class="text-outline block text-[10px]">BATCH SIZE (n_batch)</span>
+<span class="text-on-surface font-semibold font-mono">512</span>
+</div>
+<div class="bg-surface-container p-2 rounded-lg">
+<span class="text-outline block text-[10px]">uBATCH (n_ubatch)</span>
+<span class="text-on-surface font-semibold font-mono">128</span>
+</div>
+</div>
+</div>
+<!-- SECTION 4: ENGINE & RUNTIME FLAGS -->
+<div class="space-y-3 pt-2">
+<div class="flex items-center justify-between text-outline font-label-code-sm text-label-code-sm uppercase font-bold tracking-wider">
+<span>Engine & Runtime Flags</span>
+<span class="text-outline font-mono">b6821</span>
+</div>
+<div class="grid grid-cols-2 gap-2 font-label-code-sm text-label-code-sm">
+<label class="flex items-center gap-2 bg-surface-container p-2 rounded-lg cursor-pointer hover:bg-surface-container-high transition-colors">
+<input checked="" class="accent-primary rounded" type="checkbox"/>
+<span class="text-on-surface font-mono">mmap</span>
+</label>
+<label class="flex items-center gap-2 bg-surface-container p-2 rounded-lg cursor-pointer hover:bg-surface-container-high transition-colors">
+<input checked="" class="accent-primary rounded" type="checkbox"/>
+<span class="text-on-surface font-mono">mlock</span>
+</label>
+<label class="flex items-center gap-2 bg-surface-container p-2 rounded-lg cursor-pointer hover:bg-surface-container-high transition-colors">
+<input checked="" class="accent-primary rounded" type="checkbox"/>
+<span class="text-on-surface font-mono">Flash Attn</span>
+</label>
+<label class="flex items-center gap-2 bg-surface-container p-2 rounded-lg cursor-pointer hover:bg-surface-container-high transition-colors">
+<input class="accent-primary rounded" type="checkbox"/>
+<span class="text-on-surface-variant font-mono">No-MMAP</span>
+</label>
+</div>
+<div class="p-2.5 rounded-lg bg-surface-container-lowest font-label-code-sm text-label-code-sm text-outline space-y-1">
+<div class="flex items-center justify-between">
+<span>llama.cpp build:</span>
+<span class="text-on-surface font-mono">vulkan-b6821</span>
+</div>
+<div class="flex items-center justify-between">
+<span>Driver:</span>
+<span class="text-tertiary font-mono">Mesa RADV 24.3.1</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<script>
+  // Simple interaction for expanding/collapsing inspector panel
+  const toggleBtn = document.getElementById('toggle-inspector');
+  const panel = document.getElementById('inspector-panel');
+  if (toggleBtn && panel) {
+    toggleBtn.addEventListener('click', () => {
+      panel.classList.toggle('hidden');
+    });
+  }
+</script></main></div><footer class="fixed bottom-0 left-0 right-0 h-6 bg-surface-container-lowest z-50 flex items-center justify-between px-space-md font-label-code-sm text-label-code-sm text-outline shadow-[0_-1px_6px_rgba(0,0,0,0.06)]"><div class="flex items-center gap-space-lg"><div class="flex items-center gap-1.5 text-on-surface-variant"><span class="material-symbols-outlined text-tertiary text-[13px]">terminal</span><span>llama.cpp (Vulkan b6821)</span></div><span class="text-outline-variant">|</span><div class="flex items-center gap-1.5 text-primary"><span class="material-symbols-outlined text-[13px]">smart_toy</span><span>Qwen3.8-27B-Instruct (Q4_K_M)</span></div><span class="text-outline-variant">|</span><div class="text-tertiary font-medium">42.4 tok/s • 32K ctx</div><span class="text-outline-variant">|</span><div class="text-on-surface-variant">GPU0: 54°C 18% • GPU1: 49°C 12% • Gen4 x16</div></div><div class="flex items-center gap-space-lg"><div class="text-on-surface-variant">VRAM: <span class="text-on-surface font-semibold">22.0/32.0 GB</span> • RAM: <span class="text-on-surface font-semibold">28.4/64.0 GB</span></div><span class="text-outline-variant">|</span><div class="flex items-center gap-1.5 text-tertiary"><span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span><span>HF Hub Connected</span></div><span class="text-outline-variant">|</span><div class="flex items-center gap-space-xs text-on-surface-variant hover:text-on-surface cursor-pointer"><span class="material-symbols-outlined text-[13px]">vertical_split</span><span>Inspector</span></div><div class="flex items-center gap-space-xs text-on-surface-variant hover:text-on-surface cursor-pointer"><span class="material-symbols-outlined text-[13px]">terminal</span><span>Console</span></div></div></footer></body></html>

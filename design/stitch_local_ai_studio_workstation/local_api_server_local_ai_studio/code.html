@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><meta content="web_dashboard" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/><link href="https://fonts.googleapis.com" rel="preconnect"/><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config={darkMode:"class",theme:{extend:{colors:{"on-error-container":"#ffdad6","inverse-on-surface":"#2b303b","on-secondary-container":"#b0b2ff","surface-container-high":"#252a35","surface-container-low":"#171c26","on-tertiary-fixed":"#002113","on-background":"#dee2f1","on-secondary-fixed":"#07006c","tertiary-fixed-dim":"#4edea3","tertiary-container":"#00a572","surface-dim":"#0e131d","on-tertiary":"#003824","surface-tint":"#adc6ff","on-tertiary-fixed-variant":"#005236","tertiary-fixed":"#6ffbbe","inverse-surface":"#dee2f1","inverse-primary":"#005ac2","on-primary":"#002e6a","on-surface-variant":"#c2c6d6","on-primary-fixed":"#001a42","secondary-fixed-dim":"#c0c1ff","error-container":"#93000a","background":"#0e131d","on-secondary-fixed-variant":"#2f2ebe","surface-container":"#1b202a","on-primary-fixed-variant":"#004395","error":"#ffb4ab","on-tertiary-container":"#00311f","on-error":"#690005","primary-fixed":"#d8e2ff","surface-container-highest":"#303540","surface":"#0e131d","surface-bright":"#343944","surface-variant":"#303540","secondary-fixed":"#e1e0ff","surface-container-lowest":"#090e18","on-primary-container":"#00285d","secondary-container":"#3131c0","outline-variant":"#424754","primary":"#adc6ff","tertiary":"#4edea3","primary-container":"#4d8eff","outline":"#8c909f","on-secondary":"#1000a9","secondary":"#c0c1ff","on-surface":"#dee2f1","primary-fixed-dim":"#adc6ff"},borderRadius:{"DEFAULT":"0.125rem","lg":"0.25rem","xl":"0.5rem","full":"0.75rem"},spacing:{"space-lg":"0.75rem","margin":"0.75rem","space-xl":"1rem","gutter":"0.5rem","gutter-compact":"0.25rem","margin-dense":"0.5rem","space-md":"0.5rem","space-xs":"0.125rem","space-sm":"0.25rem"},fontFamily:{"label-code-sm":["JetBrains Mono"],"label-code-lg":["JetBrains Mono"],"body-sm":["Inter"],"headline-sm":["Inter"],"metric-display":["JetBrains Mono"],"headline-lg":["Inter"],"body-md":["Inter"],"body-lg":["Inter"],"label-code-md":["JetBrains Mono"],"headline-md":["Inter"]},fontSize:{"label-code-sm":["0.6875rem",{"lineHeight":"0.875rem","letterSpacing":"0.01em","fontWeight":"500"}],"label-code-lg":["0.875rem",{"lineHeight":"1.25rem","letterSpacing":"-0.01em","fontWeight":"500"}],"body-sm":["0.75rem",{"lineHeight":"1.125rem","letterSpacing":"0.005em","fontWeight":"400"}],"headline-sm":["1rem",{"lineHeight":"1.375rem","letterSpacing":"-0.01em","fontWeight":"600"}],"metric-display":["1.125rem",{"lineHeight":"1.25rem","letterSpacing":"-0.03em","fontWeight":"700"}],"headline-lg":["1.5rem",{"lineHeight":"1.875rem","letterSpacing":"-0.02em","fontWeight":"600"}],"body-md":["0.8125rem",{"lineHeight":"1.25rem","letterSpacing":"0em","fontWeight":"400"}],"body-lg":["0.875rem",{"lineHeight":"1.375rem","letterSpacing":"0em","fontWeight":"400"}],"label-code-md":["0.75rem",{"lineHeight":"1rem","letterSpacing":"0em","fontWeight":"500"}],"headline-md":["1.25rem",{"lineHeight":"1.625rem","letterSpacing":"-0.015em","fontWeight":"600"}]}}}};</script></head><body class="bg-surface font-body-md text-on-surface antialiased selection:bg-primary selection:text-on-primary"><aside class="fixed left-0 top-0 h-full w-72 bg-surface-container-lowest z-50 flex flex-col justify-between overflow-hidden shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="flex flex-col flex-1 min-h-0"><div class="h-14 px-margin flex items-center justify-between bg-surface-container-low"><div class="flex items-center gap-space-md min-w-0"><img alt="Brand logo. - Primary color: #3b82f6
+- Font: inter
+- Mode: dark
+- Roundness: rounded-sm
+" class="h-8 w-auto object-contain" src="https://lh3.googleusercontent.com/aida/AEtjO1VAfHH7GfreRXb-FAFlD5GjgYrHHMJ020NFfjZKTCMCY5TAQt3wxzxcZa9fC5VFHtRVp6jBx65O4AJSiq00zqSR0o3hdMG2B-BhddcS0i5JmafhurXKcS7gwNUpGoGCG7jW1aaOfto9ScTnFDJfiqVJDJgNZmrm1KYNz7CIzHQxNbb0AkOLA5GfqkfxqnFhiQyTM-lej87JFVErGtkVPMcptpKE-DbJIHECTt8BiR1ODPPccYb5bvbmUztB"/><div class="flex flex-col min-w-0"><div class="flex items-center gap-space-xs"><span class="font-headline-sm text-headline-sm text-on-surface tracking-tight truncate">Local AI Studio</span><span class="font-label-code-sm text-label-code-sm px-space-xs py-space-xs bg-surface-container-high text-primary rounded">v1.6.0</span></div><div class="flex items-center gap-space-xs"><span class="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse"></span><span class="font-label-code-sm text-label-code-sm text-on-surface-variant truncate">Workstation Local Node</span></div></div></div></div><div class="flex-1 overflow-y-auto px-space-md py-space-md space-y-space-lg"><nav class="space-y-space-lg" data-active-classes="bg-surface-container-high text-primary font-semibold"><div class="space-y-space-xs"><div class="px-space-md font-label-code-sm text-label-code-sm uppercase tracking-wider text-outline">Workspace</div><a class="flex items-center justify-between px-space-md py-space-sm rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors group" data-path="chat" href="#"><div class="flex items-center gap-space-md min-w-0"><span class="material-symbols-outlined text-[18px]">chat</span><span class="font-body-md text-body-md truncate">Chat</span></div><span class="font-label-code-sm text-label-code-sm px-space-xs bg-tertiary/10 text-tertiary rounded">Active Qwen3.8</span></a><a class="flex items-center justify-between px-space-md py-space-sm rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors group" data-path="models" href="#"><div class="flex items-center gap-space-md min-w-0"><span class="material-symbols-outlined text-[18px]">neurology</span><span class="font-body-md text-body-md truncate">Models</span></div><span class="font-label-code-sm text-label-code-sm text-outline">Library</span></a><a class="flex items-center justify-between px-space-md py-space-sm rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors group" data-path="knowledge" href="#"><div class="flex items-center gap-space-md min-w-0"><span class="material-symbols-outlined text-[18px]">database</span><span class="font-body-md text-body-md truncate">Knowledge</span></div><span class="font-label-code-sm text-label-code-sm text-outline">RAG</span></a></div><div class="space-y-space-xs"><div class="px-space-md font-label-code-sm text-label-code-sm uppercase tracking-wider text-outline">System</div><a class="flex items-center justify-between px-space-md py-space-sm rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors group" data-path="hardware" href="#"><div class="flex items-center gap-space-md min-w-0"><span class="material-symbols-outlined text-[18px]">memory</span><span class="font-body-md text-body-md truncate">Hardware</span></div><span class="font-label-code-sm text-label-code-sm text-on-surface-variant">2 GPU</span></a><a class="flex items-center justify-between px-space-md py-space-sm rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors group" data-path="providers-and-runtimes" href="#"><div class="flex items-center gap-space-md min-w-0"><span class="material-symbols-outlined text-[18px]">hub</span><span class="font-body-md text-body-md truncate">Providers &amp; Runtimes</span></div></a><a class="flex items-center justify-between px-space-md py-space-sm rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors group" data-path="downloads" href="#"><div class="flex items-center gap-space-md min-w-0"><span class="material-symbols-outlined text-[18px]">download</span><span class="font-body-md text-body-md truncate">Downloads</span></div></a></div><div class="space-y-space-xs"><div class="px-space-md font-label-code-sm text-label-code-sm uppercase tracking-wider text-outline">Developer</div><a aria-current="page" class="flex items-center justify-between px-space-md py-space-sm rounded transition-colors group bg-surface-container-high text-primary font-semibold" data-path="local-api" href="#"><div class="flex items-center gap-space-md min-w-0"><span class="material-symbols-outlined text-[18px]">terminal</span><span class="font-body-md text-body-md truncate">Local API</span></div><span class="font-label-code-sm text-label-code-sm text-primary">/v1</span></a><a class="flex items-center justify-between px-space-md py-space-sm rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors group" data-path="tools-and-permissions" href="#"><div class="flex items-center gap-space-md min-w-0"><span class="material-symbols-outlined text-[18px]">shield</span><span class="font-body-md text-body-md truncate">Tools &amp; Permissions</span></div></a><a class="flex items-center justify-between px-space-md py-space-sm rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors group" data-path="logs-and-traces" href="#"><div class="flex items-center gap-space-md min-w-0"><span class="material-symbols-outlined text-[18px]">monitoring</span><span class="font-body-md text-body-md truncate">Logs &amp; Traces</span></div></a></div></nav></div></div><div class="p-space-md bg-surface-container-low space-y-space-md"><div class="p-space-sm rounded bg-surface-container-lowest space-y-space-xs"><div class="flex items-center justify-between"><span class="font-label-code-sm text-label-code-sm text-outline">DAEMON STACK</span><span class="font-label-code-sm text-label-code-sm text-tertiary">ONLINE</span></div><p class="font-label-code-sm text-label-code-sm text-on-surface-variant truncate">llama-server • API Server • Vector DB</p></div><div class="p-space-sm rounded bg-surface-container-lowest space-y-space-sm"><div class="space-y-space-xs"><div class="flex justify-between items-center font-label-code-sm text-label-code-sm"><span class="text-on-surface">GPU 0 (RX 9070)</span><span class="text-primary">14.2 / 16 GB</span></div><div class="h-1.5 w-full bg-surface-container-high rounded overflow-hidden"><div class="h-full bg-primary rounded" style="width: 88.75%"></div></div></div><div class="space-y-space-xs"><div class="flex justify-between items-center font-label-code-sm text-label-code-sm"><span class="text-on-surface">GPU 1 (RX 9070)</span><span class="text-primary">7.8 / 16 GB</span></div><div class="h-1.5 w-full bg-surface-container-high rounded overflow-hidden"><div class="h-full bg-primary rounded" style="width: 48.75%"></div></div></div><div class="space-y-space-xs"><div class="flex justify-between items-center font-label-code-sm text-label-code-sm"><span class="text-on-surface">HOST RAM</span><span class="text-on-surface-variant">28.4 / 64 GB</span></div><div class="h-1.5 w-full bg-surface-container-high rounded overflow-hidden"><div class="h-full bg-on-surface-variant rounded" style="width: 44.37%"></div></div></div></div><div class="flex items-center justify-between pt-space-xs"><a class="flex items-center gap-space-xs font-body-sm text-body-sm text-on-surface-variant hover:text-on-surface transition-colors" data-path="settings" href="#"><span class="material-symbols-outlined text-[18px]">settings</span><span>Settings</span></a><a class="flex items-center gap-space-xs font-body-sm text-body-sm text-on-surface-variant hover:text-on-surface transition-colors" data-path="profiles" href="#"><span class="material-symbols-outlined text-[18px]">manage_accounts</span><span>Profiles</span></a></div></div></aside><div class="pl-72"><header class="fixed top-0 left-72 right-0 h-14 bg-surface/90 backdrop-blur-xl z-40 px-margin flex items-center justify-between gap-space-md shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="flex items-center gap-space-lg min-w-0"><div class="flex items-center gap-space-xs text-on-surface-variant font-label-code-md text-label-code-md"><span class="text-outline">LOCAL_NODE</span><span class="text-outline">/</span><span class="text-primary font-semibold truncate">WORKSPACE</span></div><div class="relative flex items-center"><span class="material-symbols-outlined absolute left-space-sm text-[16px] text-outline pointer-events-none">search</span><input class="w-60 h-8 pl-8 pr- space-lg bg-surface-container-lowest text-on-surface font-body-sm text-body-sm placeholder:text-outline rounded focus:outline-none focus:ring-1 focus:ring-primary" placeholder="Command palette (Ctrl+K)" readonly="" type="text"/><div class="absolute right-space-sm px-space-xs py-space-xs bg-surface-container-high rounded font-label-code-sm text-label-code-sm text-outline">Ctrl+K</div></div></div><div class="flex items-center gap-space-md"><div class="flex items-center gap-space-sm px-space-md h-8 bg-surface-container-low rounded cursor-pointer hover:bg-surface-container transition-colors"><span class="material-symbols-outlined text-[16px] text-primary">smart_toy</span><span class="font-label-code-md text-label-code-md text-on-surface font-semibold">Qwen3.8-27B</span><span class="font-label-code-sm text-label-code-sm text-outline hidden md:inline">(Local · llama.cpp Vulkan)</span><span class="font-label-code-sm text-label-code-sm px-space-xs py-space-xs bg-surface-container-highest text-tertiary rounded">[LOCAL - Machine Only]</span><span class="material-symbols-outlined text-[14px] text-outline">expand_more</span></div><div class="flex items-center gap-space-xs px-space-sm h-8 bg-surface-container-low rounded"><span class="w-2 h-2 rounded-full bg-tertiary"></span><span class="font-label-code-sm text-label-code-sm text-on-surface font-mono">API :5200 Active</span></div><button class="flex items-center gap-space-xs px-space-md h-8 bg-primary text-on-primary font-body-sm text-body-sm font-semibold rounded hover:bg-primary/90 transition-colors"><span class="material-symbols-outlined text-[16px]">add</span><span>Load Model</span></button><button class="flex items-center justify-center w-8 h-8 rounded bg-surface-container-low text-on-surface-variant hover:text-on-surface transition-colors" title="System Status Drawer"><span class="material-symbols-outlined text-[18px]">tune</span></button><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div></div></header><main class="relative pt-14 pb-8 bg-surface min-h-[calc(100vh-2rem)]"><div class="flex flex-col w-full px-margin py-space-lg space-y-space-lg">
+<!-- Top Hero Header & Key Operational Metas -->
+<div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-space-md p-space-lg rounded-xl bg-surface-container shadow-md relative overflow-hidden">
+<div class="absolute -right-16 -top-16 w-64 h-64 rounded-full bg-primary/5 blur-3xl pointer-events-none"></div>
+<div class="absolute -left-12 -bottom-12 w-48 h-48 rounded-full bg-tertiary/5 blur-2xl pointer-events-none"></div>
+<div class="flex flex-col space-y-space-xs relative z-10">
+<div class="flex items-center gap-space-sm flex-wrap">
+<span class="font-headline-lg text-headline-lg text-on-surface tracking-tight">Local API Server</span>
+<span class="px-space-sm py-space-xs rounded bg-surface-container-high font-label-code-sm text-label-code-sm text-primary font-semibold">OpenAI Compatible</span>
+<div class="flex items-center gap-space-xs px-space-md py-space-xs rounded-full bg-tertiary-container/20 text-tertiary">
+<span class="w-2 h-2 rounded-full bg-tertiary animate-pulse"></span>
+<span class="font-label-code-sm text-label-code-sm font-semibold tracking-wide">RUNNING · http://127.0.0.1:5200/v1</span>
+</div>
+</div>
+<p class="font-body-md text-body-md text-on-surface-variant max-w-2xl">
+        High-performance local inference gateway mapping native <span class="font-label-code-sm text-label-code-sm text-on-surface font-mono">llama.cpp</span> runtime to standard OpenAI endpoints. Compatible with Cursor, VS Code, Continue.dev, LangChain, and OpenAI SDKs.
+      </p>
+</div>
+<!-- Telemetry Badges & Throughput Matrix -->
+<div class="flex items-center gap-space-md flex-shrink-0 relative z-10">
+<div class="p-space-md rounded bg-surface-container-low flex flex-col items-end min-w-[130px] shadow-sm">
+<span class="font-label-code-sm text-label-code-sm text-outline uppercase tracking-wider">Throughput</span>
+<div class="flex items-baseline gap-space-xs">
+<span class="font-metric-display text-metric-display text-tertiary" id="tokCounter">42.4</span>
+<span class="font-label-code-sm text-label-code-sm text-tertiary-fixed-dim">tok/s</span>
+</div>
+<div class="w-full h-1 bg-surface-container-high rounded overflow-hidden mt-space-xs">
+<div class="h-full bg-tertiary rounded transition-all duration-500" style="width: 71%"></div>
+</div>
+</div>
+<div class="p-space-md rounded bg-surface-container-low flex flex-col items-end min-w-[110px] shadow-sm">
+<span class="font-label-code-sm text-label-code-sm text-outline uppercase tracking-wider">Queue Latency</span>
+<div class="flex items-baseline gap-space-xs">
+<span class="font-metric-display text-metric-display text-primary">18.2</span>
+<span class="font-label-code-sm text-label-code-sm text-primary-fixed-dim">ms</span>
+</div>
+<span class="font-label-code-sm text-label-code-sm text-tertiary mt-space-xs">0 pending</span>
+</div>
+<div class="p-space-md rounded bg-surface-container-low flex flex-col items-end min-w-[110px] shadow-sm">
+<span class="font-label-code-sm text-label-code-sm text-outline uppercase tracking-wider">Concur. Streams</span>
+<div class="flex items-baseline gap-space-xs">
+<span class="font-metric-display text-metric-display text-on-surface">3</span>
+<span class="font-label-code-sm text-label-code-sm text-outline">/ 8 max</span>
+</div>
+<span class="font-label-code-sm text-label-code-sm text-on-surface-variant mt-space-xs">PagedKV active</span>
+</div>
+</div>
+</div>
+<!-- Server Control Bar & Runtime Status Ribbons -->
+<div class="flex flex-wrap items-center justify-between gap-space-md p-space-md rounded bg-surface-container-low shadow-sm">
+<div class="flex items-center gap-space-sm flex-wrap">
+<button class="flex items-center gap-space-xs px-space-md py-space-xs rounded bg-surface-container-high text-error hover:bg-error-container hover:text-on-error-container font-label-code-sm text-label-code-sm font-semibold transition-colors shadow-sm" id="btnStop">
+<span class="material-symbols-outlined text-[16px]">power_settings_new</span>
+<span>Stop Server</span>
+</button>
+<button class="flex items-center gap-space-xs px-space-md py-space-xs rounded bg-surface-container-high text-on-surface hover:bg-surface-container hover:text-primary font-label-code-sm text-label-code-sm font-semibold transition-colors shadow-sm" id="btnRestart">
+<span class="material-symbols-outlined text-[16px]">replay</span>
+<span>Restart</span>
+</button>
+<button class="flex items-center gap-space-xs px-space-md py-space-xs rounded bg-surface-container-high text-on-surface hover:bg-surface-container hover:text-primary font-label-code-sm text-label-code-sm font-semibold transition-colors shadow-sm" id="btnReloadWeights">
+<span class="material-symbols-outlined text-[16px]">sync_saved_locally</span>
+<span>Reload Weights</span>
+</button>
+</div>
+<!-- Compact Instrumentation Chips -->
+<div class="flex items-center gap-space-xs flex-wrap font-label-code-sm text-label-code-sm">
+<div class="flex items-center gap-space-xs px-space-sm py-space-xs rounded bg-surface-container-highest text-on-surface shadow-sm">
+<span class="text-outline">PORT:</span>
+<span class="text-primary font-semibold">5200</span>
+</div>
+<div class="flex items-center gap-space-xs px-space-sm py-space-xs rounded bg-surface-container-highest text-on-surface shadow-sm">
+<span class="text-outline">MODEL:</span>
+<span class="text-on-surface font-semibold truncate max-w-[190px]">Qwen3.8-27B-Instruct (Q4_K_M)</span>
+</div>
+<div class="flex items-center gap-space-xs px-space-sm py-space-xs rounded bg-surface-container-highest text-on-surface shadow-sm">
+<span class="text-outline">BACKEND:</span>
+<span class="text-tertiary">llama.cpp Vulkan (2 GPUs)</span>
+</div>
+<div class="flex items-center gap-space-xs px-space-sm py-space-xs rounded bg-surface-container-highest text-on-surface-variant shadow-sm" id="lanStatusChip">
+<span class="w-1.5 h-1.5 rounded-full bg-outline"></span>
+<span id="lanStatusText">LAN: Localhost Only</span>
+</div>
+</div>
+</div>
+<!-- Asymmetric Split Grid: Configuration & Security (Left) vs Connectivity & Sessions (Right) -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-space-lg">
+<!-- LEFT COLUMN: Server Topology & Security Parameters (5 Cols) -->
+<div class="lg:col-span-5 flex flex-col space-y-space-lg">
+<!-- Configuration Card -->
+<div class="p-space-lg rounded bg-surface-container space-y-space-lg shadow-sm">
+<div class="flex items-center justify-between pb-space-xs">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-primary text-[20px]">tune</span>
+<h2 class="font-headline-sm text-headline-sm text-on-surface">Configuration &amp; Security</h2>
+</div>
+<span class="font-label-code-sm text-label-code-sm px-space-xs py-space-xs rounded bg-surface-container-high text-outline">v1.6 Config</span>
+</div>
+<!-- Binding Setting & LAN Toggle -->
+<div class="space-y-space-sm p-space-md rounded bg-surface-container-low">
+<div class="flex items-center justify-between">
+<div class="flex flex-col">
+<span class="font-body-md text-body-md text-on-surface font-semibold">Network Interface Binding</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">Restricts host ingress sockets</span>
+</div>
+<span class="font-label-code-sm text-label-code-sm px-space-sm py-space-xs rounded bg-surface-container text-primary font-mono" id="bindingBadge">127.0.0.1</span>
+</div>
+<div class="pt-space-xs flex items-center justify-between">
+<label class="flex items-center gap-space-sm cursor-pointer select-none">
+<input class="sr-only peer" id="lanToggle" type="checkbox"/>
+<div class="w-9 h-5 bg-surface-container-high peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-on-surface after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
+<span class="font-body-sm text-body-sm text-on-surface">Expose to Local Network (LAN)</span>
+</label>
+<span class="font-label-code-sm text-label-code-sm text-outline font-mono">192.168.1.140</span>
+</div>
+<!-- Interactive Security Warning for LAN -->
+<div class="hidden mt-space-sm p-space-sm rounded bg-error-container/20 text-on-error-container space-y-space-xs transition-all" id="lanSecurityWarning">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-error text-[18px]">warning</span>
+<span class="font-label-code-sm text-label-code-sm font-semibold text-error">LAN Ingress Exposure Active</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant leading-tight">
+              Other devices on subnet <span class="font-mono text-on-surface">192.168.1.0/24</span> can trigger compute jobs and consume local GPU VRAM. Ensure API Key enforcement is activated.
+            </p>
+</div>
+</div>
+<!-- Port Setting & Fast Presets -->
+<div class="grid grid-cols-2 gap-space-md">
+<div class="space-y-space-xs">
+<label class="font-label-code-sm text-label-code-sm text-outline uppercase tracking-wider block">Port Setting</label>
+<div class="relative">
+<input class="w-full h-9 px-space-md bg-surface-container-low font-label-code-sm text-label-code-sm text-on-surface rounded focus:outline-none focus:bg-surface-container-high focus:text-primary" type="number" value="5200"/>
+<span class="absolute right-space-sm top-2 text-outline font-label-code-sm text-label-code-sm">TCP</span>
+</div>
+</div>
+<div class="space-y-space-xs">
+<label class="font-label-code-sm text-label-code-sm text-outline uppercase tracking-wider block">Max Batch Tokens</label>
+<div class="relative">
+<input class="w-full h-9 px-space-md bg-surface-container-low font-label-code-sm text-label-code-sm text-on-surface-variant rounded" readonly="" type="text" value="4096 ctx"/>
+<span class="material-symbols-outlined absolute right-space-sm top-2 text-outline text-[16px]">lock</span>
+</div>
+</div>
+</div>
+<!-- Authentication & Key Management -->
+<div class="space-y-space-sm p-space-md rounded bg-surface-container-low">
+<div class="flex items-center justify-between">
+<div class="flex flex-col">
+<span class="font-body-md text-body-md text-on-surface font-semibold">Require API Key</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">Inspects 'Authorization: Bearer' headers</span>
+</div>
+<label class="flex items-center cursor-pointer select-none">
+<input checked="" class="sr-only peer" id="authToggle" type="checkbox"/>
+<div class="w-9 h-5 bg-surface-container-high peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-on-surface after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
+</label>
+</div>
+<div class="space-y-space-xs pt-space-xs">
+<span class="font-label-code-sm text-label-code-sm text-outline">Master Secret Key</span>
+<div class="flex items-center gap-space-xs">
+<div class="flex-1 h-9 px-space-md bg-surface-container flex items-center justify-between rounded font-label-code-sm text-label-code-sm text-primary font-mono overflow-hidden">
+<span id="apiKeyDisplay">sk-local-ai-studio-9f82d1ab</span>
+<span class="text-tertiary text-[10px] uppercase font-bold tracking-wider">Valid</span>
+</div>
+<button class="h-9 px-space-md rounded bg-surface-container-high text-on-surface hover:text-primary transition-colors flex items-center justify-center shadow-sm" id="copyKeyBtn" title="Copy to Clipboard">
+<span class="material-symbols-outlined text-[16px]" id="copyKeyIcon">content_copy</span>
+</button>
+<button class="h-9 px-space-md rounded bg-surface-container-high text-on-surface hover:text-primary transition-colors flex items-center justify-center shadow-sm" id="regenKeyBtn" title="Regenerate Token">
+<span class="material-symbols-outlined text-[16px]">autorenew</span>
+</button>
+</div>
+</div>
+</div>
+<!-- CORS Origins Matrix -->
+<div class="space-y-space-xs">
+<div class="flex items-center justify-between">
+<label class="font-label-code-sm text-label-code-sm text-outline uppercase tracking-wider">Allowed CORS Origins</label>
+<span class="font-label-code-sm text-label-code-sm text-primary cursor-pointer hover:underline" id="resetCorsBtn">Reset Default</span>
+</div>
+<textarea class="w-full p-space-sm bg-surface-container-low font-label-code-sm text-label-code-sm text-on-surface rounded resize-none focus:outline-none focus:bg-surface-container-high" id="corsOriginsInput" rows="2">http://localhost:3000, vscode-webview://*, http://127.0.0.1:8080</textarea>
+<div class="flex items-center gap-space-xs text-outline font-label-code-sm text-label-code-sm">
+<span class="material-symbols-outlined text-[14px]">shield</span>
+<span>Allows local web IDE sandboxes and containerized frontends</span>
+</div>
+</div>
+</div>
+<!-- Supported Endpoints Spec Table -->
+<div class="p-space-lg rounded bg-surface-container space-y-space-md shadow-sm">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-secondary text-[20px]">hub</span>
+<h3 class="font-headline-sm text-headline-sm text-on-surface">Supported Endpoints</h3>
+</div>
+<span class="font-label-code-sm text-label-code-sm text-tertiary">4 Live Endpoints</span>
+</div>
+<div class="space-y-space-xs">
+<!-- Endpoint Item 1 -->
+<div class="p-space-sm rounded bg-surface-container-low flex items-center justify-between hover:bg-surface-container-high transition-colors">
+<div class="flex items-center gap-space-sm min-w-0">
+<span class="px-space-xs py-space-xs rounded bg-secondary-container/20 text-secondary font-label-code-sm text-label-code-sm font-bold">GET</span>
+<span class="font-label-code-md text-label-code-md text-on-surface font-mono truncate">/v1/models</span>
+</div>
+<div class="flex items-center gap-space-sm flex-shrink-0">
+<span class="font-label-code-sm text-label-code-sm text-outline">OpenAI JSON</span>
+<span class="font-label-code-sm text-label-code-sm px-space-xs py-space-xs rounded bg-tertiary/10 text-tertiary font-semibold">200 OK</span>
+</div>
+</div>
+<!-- Endpoint Item 2 -->
+<div class="p-space-sm rounded bg-surface-container-low flex items-center justify-between hover:bg-surface-container-high transition-colors">
+<div class="flex items-center gap-space-sm min-w-0">
+<span class="px-space-xs py-space-xs rounded bg-primary-container/20 text-primary font-label-code-sm text-label-code-sm font-bold">POST</span>
+<span class="font-label-code-md text-label-code-md text-on-surface font-mono truncate">/v1/chat/completions</span>
+</div>
+<div class="flex items-center gap-space-sm flex-shrink-0">
+<span class="font-label-code-sm text-label-code-sm text-primary font-mono">SSE Stream</span>
+<span class="font-label-code-sm text-label-code-sm px-space-xs py-space-xs rounded bg-tertiary/10 text-tertiary font-semibold">Ready</span>
+</div>
+</div>
+<!-- Endpoint Item 3 -->
+<div class="p-space-sm rounded bg-surface-container-low flex items-center justify-between hover:bg-surface-container-high transition-colors">
+<div class="flex items-center gap-space-sm min-w-0">
+<span class="px-space-xs py-space-xs rounded bg-primary-container/20 text-primary font-label-code-sm text-label-code-sm font-bold">POST</span>
+<span class="font-label-code-md text-label-code-md text-on-surface font-mono truncate">/v1/completions</span>
+</div>
+<div class="flex items-center gap-space-sm flex-shrink-0">
+<span class="font-label-code-sm text-label-code-sm text-outline">Legacy SDK</span>
+<span class="font-label-code-sm text-label-code-sm px-space-xs py-space-xs rounded bg-surface-container text-on-surface-variant">Active</span>
+</div>
+</div>
+<!-- Endpoint Item 4 -->
+<div class="p-space-sm rounded bg-surface-container-low flex items-center justify-between hover:bg-surface-container-high transition-colors">
+<div class="flex items-center gap-space-sm min-w-0">
+<span class="px-space-xs py-space-xs rounded bg-primary-container/20 text-primary font-label-code-sm text-label-code-sm font-bold">POST</span>
+<span class="font-label-code-md text-label-code-md text-on-surface font-mono truncate">/v1/embeddings</span>
+</div>
+<div class="flex items-center gap-space-sm flex-shrink-0">
+<span class="font-label-code-sm text-label-code-sm text-outline truncate max-w-[110px]">e5-large (1024d)</span>
+<span class="font-label-code-sm text-label-code-sm px-space-xs py-space-xs rounded bg-tertiary/10 text-tertiary font-semibold">Bound</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- RIGHT COLUMN: Integration Code Snippets & Active Connected Clients (7 Cols) -->
+<div class="lg:col-span-7 flex flex-col space-y-space-lg">
+<!-- Code Snippet & Client Integration Deck -->
+<div class="p-space-lg rounded bg-surface-container space-y-space-md shadow-sm">
+<div class="flex items-center justify-between flex-wrap gap-space-sm">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-primary text-[20px]">code</span>
+<h2 class="font-headline-sm text-headline-sm text-on-surface">Client Connection Recipes</h2>
+</div>
+<!-- Snippet Tabs -->
+<div class="flex items-center bg-surface-container-lowest p-space-xs rounded font-label-code-sm text-label-code-sm">
+<button class="snippet-tab px-space-md py-space-xs rounded bg-surface-container text-primary font-semibold transition-colors" data-lang="python">Python (OpenAI SDK)</button>
+<button class="snippet-tab px-space-md py-space-xs rounded text-outline hover:text-on-surface transition-colors" data-lang="curl">cURL</button>
+<button class="snippet-tab px-space-md py-space-xs rounded text-outline hover:text-on-surface transition-colors" data-lang="node">JavaScript / TS</button>
+<button class="snippet-tab px-space-md py-space-xs rounded text-outline hover:text-on-surface transition-colors" data-lang="continue">Continue / Cursor</button>
+</div>
+</div>
+<!-- Code View Box -->
+<div class="relative rounded bg-surface-container-lowest p-space-md overflow-hidden font-label-code-sm text-label-code-sm">
+<div class="flex items-center justify-between pb-space-sm text-outline">
+<span class="font-mono text-on-surface-variant" id="snippetDesc">Python Official SDK — Zero modification required</span>
+<button class="flex items-center gap-space-xs px-space-sm py-space-xs rounded bg-surface-container text-on-surface hover:text-primary transition-colors text-label-code-sm" id="copySnippetBtn">
+<span class="material-symbols-outlined text-[14px]">file_copy</span>
+<span>Copy snippet</span>
+</button>
+</div>
+<!-- Python Block -->
+<pre class="overflow-x-auto text-on-surface font-mono leading-relaxed py-space-xs" id="codePython"><code><span class="text-secondary font-semibold">from</span> openai <span class="text-secondary font-semibold">import</span> OpenAI
+
+client = OpenAI(
+    base_url=<span class="text-tertiary">"http://127.0.0.1:5200/v1"</span>,
+    api_key=<span class="text-tertiary">"sk-local-ai-studio-9f82d1ab"</span>
+)
+
+stream = client.chat.completions.create(
+    model=<span class="text-tertiary">"Qwen3.8-27B-Instruct"</span>,
+    messages=[{<span class="text-primary">"role"</span>: <span class="text-tertiary">"user"</span>, <span class="text-primary">"content"</span>: <span class="text-tertiary">"Optimize ROCm kernel for dual GPU"</span>}],
+    temperature=<span class="text-primary-container">0.3</span>,
+    stream=<span class="text-secondary">True</span>
+)
+
+<span class="text-secondary font-semibold">for</span> chunk <span class="text-secondary font-semibold">in</span> stream:
+    print(chunk.choices[<span class="text-primary-container">0</span>].delta.content <span class="text-secondary font-semibold">or</span> <span class="text-tertiary">""</span>, end=<span class="text-tertiary">""</span>, flush=<span class="text-secondary">True</span>)</code></pre>
+<!-- cURL Block (Hidden default) -->
+<pre class="hidden overflow-x-auto text-on-surface font-mono leading-relaxed py-space-xs" id="codeCurl"><code>curl http://127.0.0.1:5200/v1/chat/completions \
+  -H <span class="text-tertiary">"Content-Type: application/json"</span> \
+  -H <span class="text-tertiary">"Authorization: Bearer sk-local-ai-studio-9f82d1ab"</span> \
+  -d <span class="text-tertiary">'{
+    "model": "Qwen3.8-27B-Instruct",
+    "messages": [{"role": "user", "content": "Explain KV cache quantization"}],
+    "stream": true,
+    "max_tokens": 512
+  }'</span></code></pre>
+<!-- Node / TS Block (Hidden default) -->
+<pre class="hidden overflow-x-auto text-on-surface font-mono leading-relaxed py-space-xs" id="codeNode"><code><span class="text-secondary font-semibold">import</span> OpenAI <span class="text-secondary font-semibold">from</span> <span class="text-tertiary">'openai'</span>;
+
+<span class="text-secondary font-semibold">const</span> openai = <span class="text-secondary font-semibold">new</span> OpenAI({
+  baseURL: <span class="text-tertiary">'http://127.0.0.1:5200/v1'</span>,
+  apiKey: <span class="text-tertiary">'sk-local-ai-studio-9f82d1ab'</span>,
+});
+
+<span class="text-secondary font-semibold">const</span> response = <span class="text-secondary font-semibold">await</span> openai.chat.completions.create({
+  model: <span class="text-tertiary">'Qwen3.8-27B-Instruct'</span>,
+  messages: [{ role: <span class="text-tertiary">'user'</span>, content: <span class="text-tertiary">'Generate TS typings for API schema'</span> }],
+});
+console.log(response.choices[<span class="text-primary-container">0</span>].message.content);</code></pre>
+<!-- Continue / Cursor Block (Hidden default) -->
+<pre class="hidden overflow-x-auto text-on-surface font-mono leading-relaxed py-space-xs" id="codeContinue"><code><span class="text-outline">// ~/.continue/config.json or Cursor Local AI settings</span>
+{
+  <span class="text-primary">"models"</span>: [
+    {
+      <span class="text-primary">"title"</span>: <span class="text-tertiary">"Local AI Studio (Qwen3.8-27B)"</span>,
+      <span class="text-primary">"provider"</span>: <span class="text-tertiary">"openai"</span>,
+      <span class="text-primary">"model"</span>: <span class="text-tertiary">"Qwen3.8-27B-Instruct"</span>,
+      <span class="text-primary">"apiBase"</span>: <span class="text-tertiary">"http://127.0.0.1:5200/v1"</span>,
+      <span class="text-primary">"apiKey"</span>: <span class="text-tertiary">"sk-local-ai-studio-9f82d1ab"</span>
+    }
+  ]
+}</code></pre>
+</div>
+</div>
+<!-- Connected Clients Monitor (Active Sessions) -->
+<div class="p-space-lg rounded bg-surface-container space-y-space-md shadow-sm">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-tertiary text-[20px]">devices</span>
+<h3 class="font-headline-sm text-headline-sm text-on-surface">Connected Clients &amp; Sessions</h3>
+</div>
+<div class="flex items-center gap-space-xs font-label-code-sm text-label-code-sm text-outline">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>
+<span>3 Inbound Peers</span>
+</div>
+</div>
+<div class="space-y-space-xs">
+<!-- Client Card 1 -->
+<div class="p-space-md rounded bg-surface-container-low flex flex-col sm:flex-row sm:items-center justify-between gap-space-sm hover:bg-surface-container-high transition-colors">
+<div class="flex items-center gap-space-md min-w-0">
+<div class="w-9 h-9 rounded bg-surface-container flex items-center justify-center text-primary flex-shrink-0">
+<span class="material-symbols-outlined text-[20px]">terminal</span>
+</div>
+<div class="flex flex-col min-w-0">
+<div class="flex items-center gap-space-xs">
+<span class="font-body-md text-body-md text-on-surface font-semibold truncate">VS Code Continue Extension</span>
+<span class="px-space-xs py-space-xs rounded bg-tertiary/10 text-tertiary font-label-code-sm text-label-code-sm font-bold">STREAMING</span>
+</div>
+<span class="font-label-code-sm text-label-code-sm text-outline font-mono">127.0.0.1 · Agent ID: continue-worker-01 · Last req: 2s ago</span>
+</div>
+</div>
+<div class="flex items-center gap-space-lg self-end sm:self-center font-label-code-sm text-label-code-sm">
+<div class="flex flex-col items-end">
+<span class="text-tertiary font-bold">18.4 tok/s</span>
+<span class="text-outline">Active Chunking</span>
+</div>
+<button class="p-space-xs text-outline hover:text-error transition-colors" title="Disconnect Client Session">
+<span class="material-symbols-outlined text-[18px]">close</span>
+</button>
+</div>
+</div>
+<!-- Client Card 2 -->
+<div class="p-space-md rounded bg-surface-container-low flex flex-col sm:flex-row sm:items-center justify-between gap-space-sm hover:bg-surface-container-high transition-colors">
+<div class="flex items-center gap-space-md min-w-0">
+<div class="w-9 h-9 rounded bg-surface-container flex items-center justify-center text-secondary flex-shrink-0">
+<span class="material-symbols-outlined text-[20px]">web</span>
+</div>
+<div class="flex flex-col min-w-0">
+<div class="flex items-center gap-space-xs">
+<span class="font-body-md text-body-md text-on-surface font-semibold truncate">Open WebUI (Docker Bridge)</span>
+<span class="px-space-xs py-space-xs rounded bg-surface-container-highest text-on-surface-variant font-label-code-sm text-label-code-sm">IDLE</span>
+</div>
+<span class="font-label-code-sm text-label-code-sm text-outline font-mono">172.17.0.2:48992 · Keepalive Ping · Last req: 4m ago</span>
+</div>
+</div>
+<div class="flex items-center gap-space-lg self-end sm:self-center font-label-code-sm text-label-code-sm">
+<div class="flex flex-col items-end">
+<span class="text-on-surface">0 tok/s</span>
+<span class="text-outline">Session Standby</span>
+</div>
+<button class="p-space-xs text-outline hover:text-error transition-colors" title="Disconnect Client Session">
+<span class="material-symbols-outlined text-[18px]">close</span>
+</button>
+</div>
+</div>
+<!-- Client Card 3 -->
+<div class="p-space-md rounded bg-surface-container-low flex flex-col sm:flex-row sm:items-center justify-between gap-space-sm hover:bg-surface-container-high transition-colors">
+<div class="flex items-center gap-space-md min-w-0">
+<div class="w-9 h-9 rounded bg-surface-container flex items-center justify-center text-tertiary flex-shrink-0">
+<span class="material-symbols-outlined text-[20px]">code_blocks</span>
+</div>
+<div class="flex flex-col min-w-0">
+<div class="flex items-center gap-space-xs">
+<span class="font-body-md text-body-md text-on-surface font-semibold truncate">Python Script bench.py</span>
+<span class="px-space-xs py-space-xs rounded bg-surface-container-highest text-outline font-label-code-sm text-label-code-sm">COMPLETED</span>
+</div>
+<span class="font-label-code-sm text-label-code-sm text-outline font-mono">127.0.0.1:54120 · Process PID: 8812 · Last req: 8m ago</span>
+</div>
+</div>
+<div class="flex items-center gap-space-lg self-end sm:self-center font-label-code-sm text-label-code-sm">
+<div class="flex flex-col items-end">
+<span class="text-on-surface font-mono">2,410 tokens</span>
+<span class="text-tertiary">avg 44.1 tok/s</span>
+</div>
+<button class="p-space-xs text-outline hover:text-error transition-colors" title="Disconnect Client Session">
+<span class="material-symbols-outlined text-[18px]">close</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- BOTTOM: Live Request Trace Stream (Instrument Console) -->
+<div class="p-space-lg rounded bg-surface-container space-y-space-md shadow-md">
+<div class="flex items-center justify-between flex-wrap gap-space-sm">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-primary text-[20px]">monitoring</span>
+<h3 class="font-headline-sm text-headline-sm text-on-surface">Live Ingress Request Trace Stream</h3>
+<span class="px-space-xs py-space-xs rounded bg-surface-container-high text-tertiary font-label-code-sm text-label-code-sm">100ms Sampling</span>
+</div>
+<div class="flex items-center gap-space-sm">
+<button class="flex items-center gap-space-xs px-space-sm py-space-xs rounded bg-surface-container-high text-on-surface-variant hover:text-on-surface font-label-code-sm text-label-code-sm transition-colors" id="clearLogsBtn">
+<span class="material-symbols-outlined text-[14px]">delete_sweep</span>
+<span>Clear Buffer</span>
+</button>
+<button class="flex items-center gap-space-xs px-space-sm py-space-xs rounded bg-surface-container-high text-on-surface-variant hover:text-on-surface font-label-code-sm text-label-code-sm transition-colors" id="pauseLogsBtn">
+<span class="material-symbols-outlined text-[14px]" id="pauseLogsIcon">pause</span>
+<span id="pauseLogsText">Live Stream</span>
+</button>
+</div>
+</div>
+<!-- Trace Terminal Log Window -->
+<div class="rounded bg-surface-container-lowest p-space-md font-label-code-sm text-label-code-sm overflow-x-auto shadow-inner">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="text-outline uppercase text-[10px] tracking-wider pb-space-xs">
+<th class="py-space-xs px-space-xs font-semibold">Timestamp</th>
+<th class="py-space-xs px-space-xs font-semibold">Verb</th>
+<th class="py-space-xs px-space-xs font-semibold">Path Endpoint</th>
+<th class="py-space-xs px-space-xs font-semibold">Status</th>
+<th class="py-space-xs px-space-xs font-semibold text-right">TTFT</th>
+<th class="py-space-xs px-space-xs font-semibold text-right">Prompt Tok</th>
+<th class="py-space-xs px-space-xs font-semibold text-right">Comp Tok</th>
+<th class="py-space-xs px-space-xs font-semibold text-right">Speed</th>
+<th class="py-space-xs px-space-xs font-semibold text-right">Client IP</th>
+</tr>
+</thead>
+<tbody class="font-mono divide-y-0 text-on-surface" id="traceTableBody">
+<!-- Row 1 -->
+<tr class="hover:bg-surface-container-high/50 transition-colors">
+<td class="py-space-xs px-space-xs text-outline">15:42:01.428</td>
+<td class="py-space-xs px-space-xs"><span class="text-primary font-bold">POST</span></td>
+<td class="py-space-xs px-space-xs text-on-surface font-semibold">/v1/chat/completions</td>
+<td class="py-space-xs px-space-xs"><span class="text-tertiary">200 SSE</span></td>
+<td class="py-space-xs px-space-xs text-right text-primary">38ms</td>
+<td class="py-space-xs px-space-xs text-right text-on-surface-variant">1,248</td>
+<td class="py-space-xs px-space-xs text-right text-tertiary">412</td>
+<td class="py-space-xs px-space-xs text-right text-tertiary font-bold">42.4 tok/s</td>
+<td class="py-space-xs px-space-xs text-right text-outline">127.0.0.1:58432</td>
+</tr>
+<!-- Row 2 -->
+<tr class="hover:bg-surface-container-high/50 transition-colors">
+<td class="py-space-xs px-space-xs text-outline">15:41:58.112</td>
+<td class="py-space-xs px-space-xs"><span class="text-secondary font-bold">GET</span></td>
+<td class="py-space-xs px-space-xs text-on-surface">/v1/models</td>
+<td class="py-space-xs px-space-xs"><span class="text-tertiary">200 OK</span></td>
+<td class="py-space-xs px-space-xs text-right text-on-surface-variant">4ms</td>
+<td class="py-space-xs px-space-xs text-right text-outline">—</td>
+<td class="py-space-xs px-space-xs text-right text-outline">—</td>
+<td class="py-space-xs px-space-xs text-right text-outline">—</td>
+<td class="py-space-xs px-space-xs text-right text-outline">172.17.0.2:48992</td>
+</tr>
+<!-- Row 3 -->
+<tr class="hover:bg-surface-container-high/50 transition-colors">
+<td class="py-space-xs px-space-xs text-outline">15:41:30.984</td>
+<td class="py-space-xs px-space-xs"><span class="text-primary font-bold">POST</span></td>
+<td class="py-space-xs px-space-xs text-on-surface font-semibold">/v1/embeddings</td>
+<td class="py-space-xs px-space-xs"><span class="text-tertiary">200 OK</span></td>
+<td class="py-space-xs px-space-xs text-right text-primary">12ms</td>
+<td class="py-space-xs px-space-xs text-right text-on-surface-variant">64</td>
+<td class="py-space-xs px-space-xs text-right text-outline">[1024d]</td>
+<td class="py-space-xs px-space-xs text-right text-tertiary font-bold">890 tok/s</td>
+<td class="py-space-xs px-space-xs text-right text-outline">127.0.0.1:58432</td>
+</tr>
+<!-- Row 4 -->
+<tr class="hover:bg-surface-container-high/50 transition-colors">
+<td class="py-space-xs px-space-xs text-outline">15:40:12.605</td>
+<td class="py-space-xs px-space-xs"><span class="text-primary font-bold">POST</span></td>
+<td class="py-space-xs px-space-xs text-on-surface font-semibold">/v1/chat/completions</td>
+<td class="py-space-xs px-space-xs"><span class="text-tertiary">200 SSE</span></td>
+<td class="py-space-xs px-space-xs text-right text-primary">42ms</td>
+<td class="py-space-xs px-space-xs text-right text-on-surface-variant">3,890</td>
+<td class="py-space-xs px-space-xs text-right text-tertiary">1,820</td>
+<td class="py-space-xs px-space-xs text-right text-tertiary font-bold">41.8 tok/s</td>
+<td class="py-space-xs px-space-xs text-right text-outline">127.0.0.1:54120</td>
+</tr>
+<!-- Row 5 -->
+<tr class="hover:bg-surface-container-high/50 transition-colors">
+<td class="py-space-xs px-space-xs text-outline">15:39:44.219</td>
+<td class="py-space-xs px-space-xs"><span class="text-primary font-bold">POST</span></td>
+<td class="py-space-xs px-space-xs text-on-surface">/v1/completions</td>
+<td class="py-space-xs px-space-xs"><span class="text-tertiary">200 OK</span></td>
+<td class="py-space-xs px-space-xs text-right text-primary">31ms</td>
+<td class="py-space-xs px-space-xs text-right text-on-surface-variant">128</td>
+<td class="py-space-xs px-space-xs text-right text-tertiary">64</td>
+<td class="py-space-xs px-space-xs text-right text-tertiary font-bold">43.2 tok/s</td>
+<td class="py-space-xs px-space-xs text-right text-outline">127.0.0.1:54120</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+<script>
+  (function initApiServerStudio() {
+    // Snippet Tab Switcher
+    const tabs = document.querySelectorAll('.snippet-tab');
+    const snippets = {
+      python: { el: document.getElementById('codePython'), desc: 'Python Official SDK — Zero modification required' },
+      curl: { el: document.getElementById('codeCurl'), desc: 'Direct terminal cURL query with streaming headers' },
+      node: { el: document.getElementById('codeNode'), desc: 'TypeScript / Node OpenAI npm package' },
+      continue: { el: document.getElementById('codeContinue'), desc: 'Drop-in JSON stanza for Cursor or Continue.dev' }
+    };
+    const descEl = document.getElementById('snippetDesc');
+
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        tabs.forEach(t => {
+          t.classList.remove('bg-surface-container', 'text-primary', 'font-semibold');
+          t.classList.add('text-outline');
+        });
+        tab.classList.add('bg-surface-container', 'text-primary', 'font-semibold');
+        tab.classList.remove('text-outline');
+
+        const lang = tab.getAttribute('data-lang');
+        Object.keys(snippets).forEach(key => {
+          if (snippets[key].el) {
+            snippets[key].el.classList.add('hidden');
+          }
+        });
+        if (snippets[lang] && snippets[lang].el) {
+          snippets[lang].el.classList.remove('hidden');
+          descEl.textContent = snippets[lang].desc;
+        }
+      });
+    });
+
+    // Copy Snippet Action
+    const copySnippetBtn = document.getElementById('copySnippetBtn');
+    if (copySnippetBtn) {
+      copySnippetBtn.addEventListener('click', () => {
+        const activeTab = document.querySelector('.snippet-tab.bg-surface-container');
+        const lang = activeTab ? activeTab.getAttribute('data-lang') : 'python';
+        const targetPre = snippets[lang].el;
+        if (targetPre) {
+          navigator.clipboard.writeText(targetPre.innerText).then(() => {
+            const originalHTML = copySnippetBtn.innerHTML;
+            copySnippetBtn.innerHTML = '<span class="material-symbols-outlined text-[14px] text-tertiary">check</span><span class="text-tertiary">Copied!</span>';
+            setTimeout(() => {
+              copySnippetBtn.innerHTML = originalHTML;
+            }, 1800);
+          });
+        }
+      });
+    }
+
+    // Copy API Key Action
+    const copyKeyBtn = document.getElementById('copyKeyBtn');
+    const copyKeyIcon = document.getElementById('copyKeyIcon');
+    const apiKeyDisplay = document.getElementById('apiKeyDisplay');
+    if (copyKeyBtn && apiKeyDisplay) {
+      copyKeyBtn.addEventListener('click', () => {
+        navigator.clipboard.writeText(apiKeyDisplay.textContent.trim()).then(() => {
+          copyKeyIcon.textContent = 'check';
+          copyKeyIcon.classList.add('text-tertiary');
+          setTimeout(() => {
+            copyKeyIcon.textContent = 'content_copy';
+            copyKeyIcon.classList.remove('text-tertiary');
+          }, 1800);
+        });
+      });
+    }
+
+    // Regenerate Key Simulation
+    const regenKeyBtn = document.getElementById('regenKeyBtn');
+    if (regenKeyBtn && apiKeyDisplay) {
+      regenKeyBtn.addEventListener('click', () => {
+        const randomHex = Math.random().toString(16).substring(2, 10);
+        apiKeyDisplay.textContent = 'sk-local-ai-studio-' + randomHex;
+      });
+    }
+
+    // LAN Ingress Exposure Toggle
+    const lanToggle = document.getElementById('lanToggle');
+    const lanSecurityWarning = document.getElementById('lanSecurityWarning');
+    const lanStatusChip = document.getElementById('lanStatusChip');
+    const lanStatusText = document.getElementById('lanStatusText');
+    const bindingBadge = document.getElementById('bindingBadge');
+
+    if (lanToggle) {
+      lanToggle.addEventListener('change', (e) => {
+        if (e.target.checked) {
+          lanSecurityWarning.classList.remove('hidden');
+          lanStatusText.textContent = 'LAN: 192.168.1.140:5200';
+          lanStatusChip.classList.add('text-error', 'bg-error-container/20');
+          lanStatusChip.classList.remove('text-on-surface-variant', 'bg-surface-container-highest');
+          bindingBadge.textContent = '0.0.0.0 (LAN exposed)';
+          bindingBadge.classList.add('text-error');
+          bindingBadge.classList.remove('text-primary');
+        } else {
+          lanSecurityWarning.classList.add('hidden');
+          lanStatusText.textContent = 'LAN: Localhost Only';
+          lanStatusChip.classList.remove('text-error', 'bg-error-container/20');
+          lanStatusChip.classList.add('text-on-surface-variant', 'bg-surface-container-highest');
+          bindingBadge.textContent = '127.0.0.1';
+          bindingBadge.classList.remove('text-error');
+          bindingBadge.classList.add('text-primary');
+        }
+      });
+    }
+
+    // CORS Reset Action
+    const resetCorsBtn = document.getElementById('resetCorsBtn');
+    const corsOriginsInput = document.getElementById('corsOriginsInput');
+    if (resetCorsBtn && corsOriginsInput) {
+      resetCorsBtn.addEventListener('click', () => {
+        corsOriginsInput.value = 'http://localhost:3000, vscode-webview://*, http://127.0.0.1:8080';
+      });
+    }
+
+    // Trace Logs Terminal: Clear & Pause/Resume
+    const clearLogsBtn = document.getElementById('clearLogsBtn');
+    const traceTableBody = document.getElementById('traceTableBody');
+    if (clearLogsBtn && traceTableBody) {
+      clearLogsBtn.addEventListener('click', () => {
+        traceTableBody.innerHTML = '<tr class="text-outline italic"><td colspan="9" class="py-space-sm text-center">Trace buffer cleared. Waiting for inbound sockets...</td></tr>';
+      });
+    }
+
+    const pauseLogsBtn = document.getElementById('pauseLogsBtn');
+    const pauseLogsIcon = document.getElementById('pauseLogsIcon');
+    const pauseLogsText = document.getElementById('pauseLogsText');
+    let isLive = true;
+
+    if (pauseLogsBtn) {
+      pauseLogsBtn.addEventListener('click', () => {
+        isLive = !isLive;
+        if (isLive) {
+          pauseLogsIcon.textContent = 'pause';
+          pauseLogsText.textContent = 'Live Stream';
+          pauseLogsBtn.classList.remove('text-tertiary');
+        } else {
+          pauseLogsIcon.textContent = 'play_arrow';
+          pauseLogsText.textContent = 'Paused';
+          pauseLogsBtn.classList.add('text-tertiary');
+        }
+      });
+    }
+
+    // Dynamic Throughput Fluctuation Simulation (Subtle micro-interaction)
+    const tokCounter = document.getElementById('tokCounter');
+    setInterval(() => {
+      if (isLive && tokCounter) {
+        const jitter = (Math.random() * 2.8 - 1.4);
+        const nextVal = (42.4 + jitter).toFixed(1);
+        tokCounter.textContent = nextVal;
+      }
+    }, 2400);
+
+    // Server Action Buttons Feedback
+    const btnReload = document.getElementById('btnReloadWeights');
+    if (btnReload) {
+      btnReload.addEventListener('click', () => {
+        btnReload.innerHTML = '<span class="material-symbols-outlined text-[16px] animate-spin text-tertiary">sync</span><span>Reloading...</span>';
+        setTimeout(() => {
+          btnReload.innerHTML = '<span class="material-symbols-outlined text-[16px] text-tertiary">check</span><span>Weights Ready</span>';
+          setTimeout(() => {
+            btnReload.innerHTML = '<span class="material-symbols-outlined text-[16px]">sync_saved_locally</span><span>Reload Weights</span>';
+          }, 2000);
+        }, 1200);
+      });
+    }
+  })();
+</script></main><footer class="fixed bottom-0 left-72 right-0 h-8 bg-surface-container-lowest z-40 px-margin flex items-center justify-between font-label-code-sm text-label-code-sm text-on-surface-variant shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="flex items-center gap-space-lg truncate"><div class="flex items-center gap-space-xs"><span class="text-outline">RUNTIME:</span><span class="text-on-surface">llama.cpp b6821 (Vulkan)</span></div><div class="hidden lg:flex items-center gap-space-xs"><span class="text-outline">MODEL:</span><span class="text-on-surface font-semibold">Qwen3.8-27B-Instruct</span></div><div class="flex items-center gap-space-xs"><span class="text-outline">SPEED:</span><span class="text-tertiary font-bold">42.4 tok/s</span></div><div class="flex items-center gap-space-xs"><span class="text-outline">CONTEXT:</span><span class="text-on-surface">14.2k / 32k</span></div></div><div class="flex items-center gap-space-lg"><div class="hidden sm:flex items-center gap-space-xs"><span class="text-outline">LOCAL API:</span><span class="text-primary hover:underline cursor-pointer">http://127.0.0.1:5200/v1</span></div><div class="flex items-center gap-space-xs"><span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span><span class="text-tertiary font-medium">STRICT LOCAL</span><span class="text-outline hidden md:inline">(Zero Cloud Telemetry)</span></div></div></footer></div></body></html>

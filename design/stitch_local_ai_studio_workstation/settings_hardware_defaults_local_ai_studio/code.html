@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><meta content="web_dashboard" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/><link href="https://fonts.googleapis.com" rel="preconnect"/><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config={darkMode:"class",theme:{extend:{colors:{"on-error-container":"#ffdad6","inverse-on-surface":"#2b303b","on-secondary-container":"#b0b2ff","surface-container-high":"#252a35","surface-container-low":"#171c26","on-tertiary-fixed":"#002113","on-background":"#dee2f1","on-secondary-fixed":"#07006c","tertiary-fixed-dim":"#4edea3","tertiary-container":"#00a572","surface-dim":"#0e131d","on-tertiary":"#003824","surface-tint":"#adc6ff","on-tertiary-fixed-variant":"#005236","tertiary-fixed":"#6ffbbe","inverse-surface":"#dee2f1","inverse-primary":"#005ac2","on-primary":"#002e6a","on-surface-variant":"#c2c6d6","on-primary-fixed":"#001a42","secondary-fixed-dim":"#c0c1ff","error-container":"#93000a","background":"#0e131d","on-secondary-fixed-variant":"#2f2ebe","surface-container":"#1b202a","on-primary-fixed-variant":"#004395","error":"#ffb4ab","on-tertiary-container":"#00311f","on-error":"#690005","primary-fixed":"#d8e2ff","surface-container-highest":"#303540","surface":"#0e131d","surface-bright":"#343944","surface-variant":"#303540","secondary-fixed":"#e1e0ff","surface-container-lowest":"#090e18","on-primary-container":"#00285d","secondary-container":"#3131c0","outline-variant":"#424754","primary":"#adc6ff","tertiary":"#4edea3","primary-container":"#4d8eff","outline":"#8c909f","on-secondary":"#1000a9","secondary":"#c0c1ff","on-surface":"#dee2f1","primary-fixed-dim":"#adc6ff"},borderRadius:{"DEFAULT":"0.125rem","lg":"0.25rem","xl":"0.5rem","full":"0.75rem"},spacing:{"space-lg":"0.75rem","margin":"0.75rem","space-xl":"1rem","gutter":"0.5rem","gutter-compact":"0.25rem","margin-dense":"0.5rem","space-md":"0.5rem","space-xs":"0.125rem","space-sm":"0.25rem"},fontFamily:{"label-code-sm":["JetBrains Mono"],"label-code-lg":["JetBrains Mono"],"body-sm":["Inter"],"headline-sm":["Inter"],"metric-display":["JetBrains Mono"],"headline-lg":["Inter"],"body-md":["Inter"],"body-lg":["Inter"],"label-code-md":["JetBrains Mono"],"headline-md":["Inter"]},fontSize:{"label-code-sm":["0.6875rem",{"lineHeight":"0.875rem","letterSpacing":"0.01em","fontWeight":"500"}],"label-code-lg":["0.875rem",{"lineHeight":"1.25rem","letterSpacing":"-0.01em","fontWeight":"500"}],"body-sm":["0.75rem",{"lineHeight":"1.125rem","letterSpacing":"0.005em","fontWeight":"400"}],"headline-sm":["1rem",{"lineHeight":"1.375rem","letterSpacing":"-0.01em","fontWeight":"600"}],"metric-display":["1.125rem",{"lineHeight":"1.25rem","letterSpacing":"-0.03em","fontWeight":"700"}],"headline-lg":["1.5rem",{"lineHeight":"1.875rem","letterSpacing":"-0.02em","fontWeight":"600"}],"body-md":["0.8125rem",{"lineHeight":"1.25rem","letterSpacing":"0em","fontWeight":"400"}],"body-lg":["0.875rem",{"lineHeight":"1.375rem","letterSpacing":"0em","fontWeight":"400"}],"label-code-md":["0.75rem",{"lineHeight":"1rem","letterSpacing":"0em","fontWeight":"500"}],"headline-md":["1.25rem",{"lineHeight":"1.625rem","letterSpacing":"-0.015em","fontWeight":"600"}]}}}};</script></head><body class="bg-surface font-body-md text-on-surface antialiased selection:bg-primary selection:text-on-primary"><aside class="fixed left-0 top-0 h-full w-72 bg-surface-container-lowest z-50 flex flex-col justify-between overflow-hidden shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="flex flex-col flex-1 min-h-0"><div class="h-14 px-margin flex items-center justify-between bg-surface-container-low"><div class="flex items-center gap-space-md min-w-0"><img alt="Brand logo. - Primary color: #3b82f6
+- Font: inter
+- Mode: dark
+- Roundness: rounded-sm
+" class="h-8 w-auto object-contain" src="https://lh3.googleusercontent.com/aida/AEtjO1VAfHH7GfreRXb-FAFlD5GjgYrHHMJ020NFfjZKTCMCY5TAQt3wxzxcZa9fC5VFHtRVp6jBx65O4AJSiq00zqSR0o3hdMG2B-BhddcS0i5JmafhurXKcS7gwNUpGoGCG7jW1aaOfto9ScTnFDJfiqVJDJgNZmrm1KYNz7CIzHQxNbb0AkOLA5GfqkfxqnFhiQyTM-lej87JFVErGtkVPMcptpKE-DbJIHECTt8BiR1ODPPccYb5bvbmUztB"/><div class="flex flex-col min-w-0"><div class="flex items-center gap-space-xs"><span class="font-headline-sm text-headline-sm text-on-surface tracking-tight truncate">Local AI Studio</span><span class="font-label-code-sm text-label-code-sm px-space-xs py-space-xs bg-surface-container-high text-primary rounded">v1.6.0</span></div><div class="flex items-center gap-space-xs"><span class="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse"></span><span class="font-label-code-sm text-label-code-sm text-on-surface-variant truncate">Workstation Local Node</span></div></div></div></div><div class="flex-1 overflow-y-auto px-space-md py-space-md space-y-space-lg"><nav class="space-y-space-lg" data-active-classes="bg-surface-container-high text-primary font-semibold"><div class="space-y-space-xs"><div class="px-space-md font-label-code-sm text-label-code-sm uppercase tracking-wider text-outline">Workspace</div><a class="flex items-center justify-between px-space-md py-space-sm rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors group" data-path="chat" href="#"><div class="flex items-center gap-space-md min-w-0"><span class="material-symbols-outlined text-[18px]">chat</span><span class="font-body-md text-body-md truncate">Chat</span></div><span class="font-label-code-sm text-label-code-sm px-space-xs bg-tertiary/10 text-tertiary rounded">Active Qwen3.8</span></a><a class="flex items-center justify-between px-space-md py-space-sm rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors group" data-path="models" href="#"><div class="flex items-center gap-space-md min-w-0"><span class="material-symbols-outlined text-[18px]">neurology</span><span class="font-body-md text-body-md truncate">Models</span></div><span class="font-label-code-sm text-label-code-sm text-outline">Library</span></a><a class="flex items-center justify-between px-space-md py-space-sm rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors group" data-path="knowledge" href="#"><div class="flex items-center gap-space-md min-w-0"><span class="material-symbols-outlined text-[18px]">database</span><span class="font-body-md text-body-md truncate">Knowledge</span></div><span class="font-label-code-sm text-label-code-sm text-outline">RAG</span></a></div><div class="space-y-space-xs"><div class="px-space-md font-label-code-sm text-label-code-sm uppercase tracking-wider text-outline">System</div><a class="flex items-center justify-between px-space-md py-space-sm rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors group" data-path="hardware" href="#"><div class="flex items-center gap-space-md min-w-0"><span class="material-symbols-outlined text-[18px]">memory</span><span class="font-body-md text-body-md truncate">Hardware</span></div><span class="font-label-code-sm text-label-code-sm text-on-surface-variant">2 GPU</span></a><a class="flex items-center justify-between px-space-md py-space-sm rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors group" data-path="providers-and-runtimes" href="#"><div class="flex items-center gap-space-md min-w-0"><span class="material-symbols-outlined text-[18px]">hub</span><span class="font-body-md text-body-md truncate">Providers &amp; Runtimes</span></div></a><a class="flex items-center justify-between px-space-md py-space-sm rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors group" data-path="downloads" href="#"><div class="flex items-center gap-space-md min-w-0"><span class="material-symbols-outlined text-[18px]">download</span><span class="font-body-md text-body-md truncate">Downloads</span></div></a></div><div class="space-y-space-xs"><div class="px-space-md font-label-code-sm text-label-code-sm uppercase tracking-wider text-outline">Developer</div><a class="flex items-center justify-between px-space-md py-space-sm rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors group" data-path="local-api" href="#"><div class="flex items-center gap-space-md min-w-0"><span class="material-symbols-outlined text-[18px]">terminal</span><span class="font-body-md text-body-md truncate">Local API</span></div><span class="font-label-code-sm text-label-code-sm text-primary">/v1</span></a><a class="flex items-center justify-between px-space-md py-space-sm rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors group" data-path="tools-and-permissions" href="#"><div class="flex items-center gap-space-md min-w-0"><span class="material-symbols-outlined text-[18px]">shield</span><span class="font-body-md text-body-md truncate">Tools &amp; Permissions</span></div></a><a class="flex items-center justify-between px-space-md py-space-sm rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors group" data-path="logs-and-traces" href="#"><div class="flex items-center gap-space-md min-w-0"><span class="material-symbols-outlined text-[18px]">monitoring</span><span class="font-body-md text-body-md truncate">Logs &amp; Traces</span></div></a></div></nav></div></div><div class="p-space-md bg-surface-container-low space-y-space-md"><div class="p-space-sm rounded bg-surface-container-lowest space-y-space-xs"><div class="flex items-center justify-between"><span class="font-label-code-sm text-label-code-sm text-outline">DAEMON STACK</span><span class="font-label-code-sm text-label-code-sm text-tertiary">ONLINE</span></div><p class="font-label-code-sm text-label-code-sm text-on-surface-variant truncate">llama-server • API Server • Vector DB</p></div><div class="p-space-sm rounded bg-surface-container-lowest space-y-space-sm"><div class="space-y-space-xs"><div class="flex justify-between items-center font-label-code-sm text-label-code-sm"><span class="text-on-surface">GPU 0 (RX 9070)</span><span class="text-primary">14.2 / 16 GB</span></div><div class="h-1.5 w-full bg-surface-container-high rounded overflow-hidden"><div class="h-full bg-primary rounded" style="width: 88.75%"></div></div></div><div class="space-y-space-xs"><div class="flex justify-between items-center font-label-code-sm text-label-code-sm"><span class="text-on-surface">GPU 1 (RX 9070)</span><span class="text-primary">7.8 / 16 GB</span></div><div class="h-1.5 w-full bg-surface-container-high rounded overflow-hidden"><div class="h-full bg-primary rounded" style="width: 48.75%"></div></div></div><div class="space-y-space-xs"><div class="flex justify-between items-center font-label-code-sm text-label-code-sm"><span class="text-on-surface">HOST RAM</span><span class="text-on-surface-variant">28.4 / 64 GB</span></div><div class="h-1.5 w-full bg-surface-container-high rounded overflow-hidden"><div class="h-full bg-on-surface-variant rounded" style="width: 44.37%"></div></div></div></div><div class="flex items-center justify-between pt-space-xs"><a class="flex items-center gap-space-xs font-body-sm text-body-sm text-on-surface-variant hover:text-on-surface transition-colors" data-path="settings" href="#"><span class="material-symbols-outlined text-[18px]">settings</span><span>Settings</span></a><a class="flex items-center gap-space-xs font-body-sm text-body-sm text-on-surface-variant hover:text-on-surface transition-colors" data-path="profiles" href="#"><span class="material-symbols-outlined text-[18px]">manage_accounts</span><span>Profiles</span></a></div></div></aside><div class="pl-72"><header class="fixed top-0 left-72 right-0 h-14 bg-surface/90 backdrop-blur-xl z-40 px-margin flex items-center justify-between gap-space-md shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="flex items-center gap-space-lg min-w-0"><div class="flex items-center gap-space-xs text-on-surface-variant font-label-code-md text-label-code-md"><span class="text-outline">LOCAL_NODE</span><span class="text-outline">/</span><span class="text-primary font-semibold truncate">WORKSPACE</span></div><div class="relative flex items-center"><span class="material-symbols-outlined absolute left-space-sm text-[16px] text-outline pointer-events-none">search</span><input class="w-60 h-8 pl-8 pr- space-lg bg-surface-container-lowest text-on-surface font-body-sm text-body-sm placeholder:text-outline rounded focus:outline-none focus:ring-1 focus:ring-primary" placeholder="Command palette (Ctrl+K)" readonly="" type="text"/><div class="absolute right-space-sm px-space-xs py-space-xs bg-surface-container-high rounded font-label-code-sm text-label-code-sm text-outline">Ctrl+K</div></div></div><div class="flex items-center gap-space-md"><div class="flex items-center gap-space-sm px-space-md h-8 bg-surface-container-low rounded cursor-pointer hover:bg-surface-container transition-colors"><span class="material-symbols-outlined text-[16px] text-primary">smart_toy</span><span class="font-label-code-md text-label-code-md text-on-surface font-semibold">Qwen3.8-27B</span><span class="font-label-code-sm text-label-code-sm text-outline hidden md:inline">(Local · llama.cpp Vulkan)</span><span class="font-label-code-sm text-label-code-sm px-space-xs py-space-xs bg-surface-container-highest text-tertiary rounded">[LOCAL - Machine Only]</span><span class="material-symbols-outlined text-[14px] text-outline">expand_more</span></div><div class="flex items-center gap-space-xs px-space-sm h-8 bg-surface-container-low rounded"><span class="w-2 h-2 rounded-full bg-tertiary"></span><span class="font-label-code-sm text-label-code-sm text-on-surface font-mono">API :5200 Active</span></div><button class="flex items-center gap-space-xs px-space-md h-8 bg-primary text-on-primary font-body-sm text-body-sm font-semibold rounded hover:bg-primary/90 transition-colors"><span class="material-symbols-outlined text-[16px]">add</span><span>Load Model</span></button><button class="flex items-center justify-center w-8 h-8 rounded bg-surface-container-low text-on-surface-variant hover:text-on-surface transition-colors" title="System Status Drawer"><span class="material-symbols-outlined text-[18px]">tune</span></button><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div></div></header><main class="relative pt-14 pb-8 bg-surface min-h-[calc(100vh-2rem)]"><div class="flex flex-col w-full">
+<div class="p-space-xl space-y-space-xl max-w-7xl mx-auto w-full">
+<!-- Top Command & Settings Header -->
+<div class="flex flex-col lg:flex-row lg:items-end justify-between gap-space-lg pb-space-lg bg-surface-container-lowest/60 p-space-lg rounded-xl shadow-sm">
+<div class="space-y-space-xs min-w-0">
+<div class="flex items-center gap-space-sm font-label-code-sm text-label-code-sm text-outline tracking-wider uppercase">
+<span class="text-primary font-bold">Preferences</span>
+<span>//</span>
+<span>Engine Defaults &amp; Runtime Configuration</span>
+<span class="px-space-xs py-0.5 rounded bg-surface-container-high text-tertiary font-mono text-[10px] tracking-normal">LOCAL HOST ONLY</span>
+</div>
+<h1 class="font-headline-lg text-headline-lg text-on-surface tracking-tight font-bold">Studio Settings</h1>
+<p class="font-body-md text-body-md text-on-surface-variant max-w-3xl">
+          Set global hardware defaults, local API endpoints, inference parameters, and filesystem mounts used when resolving model configurations.
+        </p>
+</div>
+<div class="flex flex-wrap items-center gap-space-md shrink-0">
+<div class="flex items-center gap-space-xs px-space-md py-space-xs rounded bg-surface-container-low text-on-surface-variant font-label-code-sm text-label-code-sm">
+<span class="material-symbols-outlined text-[15px] text-outline">description</span>
+<span class="text-outline truncate max-w-[200px]" title="~/.config/ai-dream/settings.json">~/.config/ai-dream/settings.json</span>
+</div>
+<button class="flex items-center gap-space-xs px-space-md py-space-sm bg-surface-container-high hover:bg-surface-container-highest text-on-surface font-body-sm text-body-sm font-medium rounded transition-colors" id="reset-defaults-btn">
+<span class="material-symbols-outlined text-[16px]">restart_alt</span>
+<span>Reset Defaults</span>
+</button>
+<button class="flex items-center gap-space-xs px-space-lg py-space-sm bg-primary text-on-primary font-body-sm text-body-sm font-semibold rounded hover:bg-primary/90 transition-all shadow-sm active:scale-95" id="save-main-btn">
+<span class="material-symbols-outlined text-[16px]">save</span>
+<span>Save Changes</span>
+</button>
+</div>
+</div>
+<!-- Section 1: Local API & Daemon Connectivity -->
+<div class="bg-surface-container-low rounded-xl p-space-lg shadow-sm space-y-space-md">
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-space-md pb-space-xs">
+<div class="flex items-center gap-space-md">
+<div class="w-9 h-9 rounded bg-surface-container flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[20px]">lan</span>
+</div>
+<div>
+<div class="flex items-center gap-space-sm">
+<span class="font-headline-sm text-headline-sm text-on-surface font-semibold">Local API Daemon</span>
+<span class="inline-flex items-center gap-1 px-space-sm py-0.5 rounded-full bg-tertiary/10 text-tertiary font-label-code-sm text-label-code-sm font-medium">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse"></span>
+                Connected • Active Loopback
+              </span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Inference socket connection and health heartbeat probe</p>
+</div>
+</div>
+<div class="flex items-center gap-space-lg text-right font-label-code-sm text-label-code-sm">
+<div>
+<div class="text-outline">PING LATENCY</div>
+<div class="text-tertiary font-bold font-mono">0.8 ms</div>
+</div>
+<div>
+<div class="text-outline">TCP PROTOCOL</div>
+<div class="text-on-surface font-mono">HTTP/1.1 REST</div>
+</div>
+</div>
+</div>
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-space-md items-center pt-space-xs">
+<div class="lg:col-span-8 flex flex-col sm:flex-row items-stretch sm:items-center gap-space-sm">
+<div class="flex-1 flex items-center bg-surface-container-lowest rounded px-space-md h-10 shadow-inner">
+<span class="font-label-code-sm text-label-code-sm text-outline select-none shrink-0 pr-space-xs">BASE URL:</span>
+<input class="w-full bg-transparent font-label-code-md text-label-code-md text-on-surface focus:outline-none placeholder:text-outline" id="api-base-url" placeholder="http://127.0.0.1:8765" type="text" value="http://127.0.0.1:8765"/>
+</div>
+<button class="px-space-md h-10 bg-surface-container-high hover:bg-surface-container-highest text-primary font-body-sm text-body-sm font-medium rounded flex items-center justify-center gap-space-xs transition-colors shrink-0" id="ping-btn">
+<span class="material-symbols-outlined text-[16px]">sync_saved_locally</span>
+<span>Check Health &amp; Ping</span>
+</button>
+</div>
+<div class="lg:col-span-4 flex items-center justify-start lg:justify-end gap-space-lg pt-space-xs lg:pt-0">
+<label class="flex items-center gap-space-sm cursor-pointer select-none">
+<input checked="" class="w-4 h-4 rounded bg-surface-container text-primary focus:ring-0 focus:ring-offset-0 cursor-pointer accent-primary" type="checkbox"/>
+<span class="font-body-sm text-body-sm text-on-surface">Auto-connect on boot</span>
+</label>
+<label class="flex items-center gap-space-sm cursor-pointer select-none">
+<input class="w-4 h-4 rounded bg-surface-container text-primary focus:ring-0 focus:ring-offset-0 cursor-pointer accent-primary" type="checkbox"/>
+<span class="font-body-sm text-body-sm text-on-surface-variant hover:text-on-surface">Allow LAN bind</span>
+</label>
+</div>
+</div>
+<div class="p-space-sm rounded bg-surface-container-lowest flex items-center justify-between text-outline font-label-code-sm text-label-code-sm">
+<div class="flex items-center gap-space-xs truncate">
+<span class="material-symbols-outlined text-[14px] text-tertiary shrink-0">verified_user</span>
+<span class="truncate">Probe target: <span class="text-on-surface-variant font-mono">GET http://127.0.0.1:8765/api/health</span> • Kept in system state &amp; desktop session keyring.</span>
+</div>
+<span class="hidden sm:inline text-outline shrink-0 ml-space-md">ZERO_TELEMETRY_POLICY: ENFORCED</span>
+</div>
+</div>
+<!-- Section 2: Runtime & Inference Defaults Master Bento Grid -->
+<div class="bg-surface-container-low rounded-xl p-space-lg shadow-sm space-y-space-lg">
+<div class="flex flex-col md:flex-row md:items-center justify-between gap-space-md pb-space-xs">
+<div class="flex items-center gap-space-md">
+<div class="w-9 h-9 rounded bg-surface-container flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[20px]">tune</span>
+</div>
+<div>
+<h2 class="font-headline-sm text-headline-sm text-on-surface font-semibold">Engine Defaults &amp; Inference Pipeline</h2>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Default execution backend, layer offloading, context buffers, and acceleration flags</p>
+</div>
+</div>
+<div class="flex items-center gap-space-sm">
+<span class="font-label-code-sm text-label-code-sm text-outline">PROFILE RESOLUTION:</span>
+<select class="h-8 px-space-sm bg-surface-container-lowest font-label-code-sm text-label-code-sm text-on-surface rounded focus:outline-none cursor-pointer">
+<option selected="">Model profile overrides default</option>
+<option>Strict studio default (enforce global)</option>
+<option>Hardware optimized auto-clamp</option>
+</select>
+</div>
+</div>
+<!-- 3-Column Structured Tuning Matrix -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-space-lg">
+<!-- Column A: Execution Backend & Hardware Placement -->
+<div class="bg-surface-container rounded-lg p-space-md space-y-space-md flex flex-col justify-between">
+<div class="space-y-space-md">
+<div class="flex items-center justify-between pb-space-xs">
+<span class="font-headline-sm text-[0.875rem] text-primary font-semibold flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-[16px]">memory</span>
+                Backend &amp; Placement
+              </span>
+<span class="font-label-code-sm text-label-code-sm px-space-xs py-0.5 rounded bg-surface-container-high text-outline">EXEC_ENV</span>
+</div>
+<!-- Default Backend -->
+<div class="space-y-space-xs">
+<label class="font-label-code-sm text-label-code-sm text-on-surface-variant flex justify-between">
+<span>Default Backend</span>
+<span class="text-tertiary">Vulkan / ROCm</span>
+</label>
+<select class="w-full h-8 px-space-sm bg-surface-container-lowest text-on-surface font-label-code-md text-label-code-md rounded focus:outline-none">
+<option selected="">llama.cpp (Native Vulkan / ROCm)</option>
+<option>llama.cpp (CPU Only AVX-512)</option>
+<option>ExLlamaV2 (AMD ROCm native)</option>
+<option>vLLM Worker Daemon</option>
+</select>
+</div>
+<!-- Default Runtime ID -->
+<div class="space-y-space-xs">
+<label class="font-label-code-sm text-label-code-sm text-on-surface-variant">Default Runtime ID</label>
+<input class="w-full h-8 px-space-sm bg-surface-container-lowest text-on-surface font-label-code-md text-label-code-md rounded focus:outline-none" type="text" value="b6821-vulkan-native-x86_64"/>
+</div>
+<!-- GPU Layers Offload -->
+<div class="space-y-space-xs">
+<div class="flex justify-between items-center">
+<label class="font-label-code-sm text-label-code-sm text-on-surface-variant">GPU Offload Layers</label>
+<span class="font-label-code-sm text-label-code-sm text-primary font-bold" id="gpu-layers-val">48 / 48 (All)</span>
+</div>
+<input class="w-full h-1.5 bg-surface-container-lowest rounded appearance-none cursor-pointer accent-primary" id="gpu-layers-slider" max="64" min="0" type="range" value="48"/>
+<div class="flex justify-between font-label-code-sm text-[10px] text-outline">
+<span>0 (Pure CPU)</span>
+<span>32 (Partial)</span>
+<span>Full Offload</span>
+</div>
+</div>
+<!-- Device Selection -->
+<div class="space-y-space-xs">
+<label class="font-label-code-sm text-label-code-sm text-on-surface-variant">Device Selection</label>
+<select class="w-full h-8 px-space-sm bg-surface-container-lowest text-on-surface font-label-code-md text-label-code-md rounded focus:outline-none">
+<option selected="">Dual GPU Balanced (RX 9070 #0 + #1)</option>
+<option>Discrete Primary Only (GPU 0 - RX 9070)</option>
+<option>Discrete Secondary Only (GPU 1 - RX 9070)</option>
+<option>System Host RAM + CPU Cores</option>
+</select>
+</div>
+<!-- Main GPU & Split Mode -->
+<div class="grid grid-cols-2 gap-space-sm">
+<div class="space-y-space-xs">
+<label class="font-label-code-sm text-label-code-sm text-on-surface-variant">Main GPU</label>
+<select class="w-full h-8 px-space-xs bg-surface-container-lowest text-on-surface font-label-code-md text-label-code-md rounded focus:outline-none">
+<option selected="">GPU 0 (PCIe 4.0 x16)</option>
+<option>GPU 1 (PCIe 4.0 x8)</option>
+</select>
+</div>
+<div class="space-y-space-xs">
+<label class="font-label-code-sm text-label-code-sm text-on-surface-variant">Split Mode</label>
+<select class="w-full h-8 px-space-xs bg-surface-container-lowest text-on-surface font-label-code-md text-label-code-md rounded focus:outline-none">
+<option selected="">Layer Split</option>
+<option>Tensor Parallel</option>
+<option>Row Split</option>
+</select>
+</div>
+</div>
+<!-- Tensor Split Ratio -->
+<div class="space-y-space-xs">
+<label class="font-label-code-sm text-label-code-sm text-on-surface-variant flex justify-between">
+<span>Tensor Split Ratio (GPU 0, GPU 1)</span>
+<span class="text-outline">60% / 40%</span>
+</label>
+<input class="w-full h-8 px-space-sm bg-surface-container-lowest text-on-surface font-label-code-md text-label-code-md rounded focus:outline-none" type="text" value="0.60, 0.40"/>
+</div>
+</div>
+<div class="p-space-xs rounded bg-surface-container-lowest text-outline font-label-code-sm text-[11px] flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-[14px] text-tertiary">check_circle</span>
+<span>Vulkan runtime detects 32.0 GB combined VRAM</span>
+</div>
+</div>
+<!-- Column B: Batching & Compute Settings -->
+<div class="bg-surface-container rounded-lg p-space-md space-y-space-md flex flex-col justify-between">
+<div class="space-y-space-md">
+<div class="flex items-center justify-between pb-space-xs">
+<span class="font-headline-sm text-[0.875rem] text-primary font-semibold flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-[16px]">bolt</span>
+                Batching &amp; Compute
+              </span>
+<span class="font-label-code-sm text-label-code-sm px-space-xs py-0.5 rounded bg-surface-container-high text-outline">PERF_MATRICES</span>
+</div>
+<!-- Context Size -->
+<div class="space-y-space-xs">
+<div class="flex justify-between items-center">
+<label class="font-label-code-sm text-label-code-sm text-on-surface-variant">Default Context Size (Tokens)</label>
+<span class="font-label-code-sm text-label-code-sm text-primary font-bold">32,768</span>
+</div>
+<select class="w-full h-8 px-space-sm bg-surface-container-lowest text-on-surface font-label-code-md text-label-code-md rounded focus:outline-none">
+<option>4,096 tokens (Fast minimal)</option>
+<option>8,192 tokens (Balanced)</option>
+<option>16,384 tokens (High)</option>
+<option selected="">32,768 tokens (Standard Studio)</option>
+<option>65,536 tokens (Ultra Long-form)</option>
+<option>131,072 tokens (Full Window)</option>
+</select>
+</div>
+<!-- Compute Threads & Batch Threads -->
+<div class="grid grid-cols-2 gap-space-sm">
+<div class="space-y-space-xs">
+<label class="font-label-code-sm text-label-code-sm text-on-surface-variant">CPU Threads</label>
+<input class="w-full h-8 px-space-sm bg-surface-container-lowest text-on-surface font-label-code-md text-label-code-md rounded focus:outline-none" max="64" min="1" type="number" value="16"/>
+</div>
+<div class="space-y-space-xs">
+<label class="font-label-code-sm text-label-code-sm text-on-surface-variant">Batch Threads</label>
+<input class="w-full h-8 px-space-sm bg-surface-container-lowest text-on-surface font-label-code-md text-label-code-md rounded focus:outline-none" max="64" min="1" type="number" value="8"/>
+</div>
+</div>
+<!-- Batch size & Micro-Batch (uBatch) -->
+<div class="grid grid-cols-2 gap-space-sm">
+<div class="space-y-space-xs">
+<label class="font-label-code-sm text-label-code-sm text-on-surface-variant">Batch Size</label>
+<input class="w-full h-8 px-space-sm bg-surface-container-lowest text-on-surface font-label-code-md text-label-code-md rounded focus:outline-none" step="64" type="number" value="512"/>
+</div>
+<div class="space-y-space-xs">
+<label class="font-label-code-sm text-label-code-sm text-on-surface-variant">Physical uBatch</label>
+<input class="w-full h-8 px-space-sm bg-surface-container-lowest text-on-surface font-label-code-md text-label-code-md rounded focus:outline-none" step="32" type="number" value="128"/>
+</div>
+</div>
+<!-- KV Cache Types (K & V) -->
+<div class="grid grid-cols-2 gap-space-sm">
+<div class="space-y-space-xs">
+<label class="font-label-code-sm text-label-code-sm text-on-surface-variant">KV Cache Type K</label>
+<select class="w-full h-8 px-space-xs bg-surface-container-lowest text-on-surface font-label-code-md text-label-code-md rounded focus:outline-none">
+<option>f16 (Full Precision)</option>
+<option selected="">q8_0 (Recommended)</option>
+<option>q4_0 (Aggressive Save)</option>
+</select>
+</div>
+<div class="space-y-space-xs">
+<label class="font-label-code-sm text-label-code-sm text-on-surface-variant">KV Cache Type V</label>
+<select class="w-full h-8 px-space-xs bg-surface-container-lowest text-on-surface font-label-code-md text-label-code-md rounded focus:outline-none">
+<option>f16 (Full Precision)</option>
+<option selected="">q8_0 (Recommended)</option>
+<option>q4_0 (Aggressive Save)</option>
+</select>
+</div>
+</div>
+<!-- NUMA Node Binding & Max Concurrent -->
+<div class="grid grid-cols-2 gap-space-sm">
+<div class="space-y-space-xs">
+<label class="font-label-code-sm text-label-code-sm text-on-surface-variant">NUMA Binding</label>
+<select class="w-full h-8 px-space-xs bg-surface-container-lowest text-on-surface font-label-code-md text-label-code-md rounded focus:outline-none">
+<option selected="">Distribute All</option>
+<option>Node 0 Isolated</option>
+<option>Disabled</option>
+</select>
+</div>
+<div class="space-y-space-xs">
+<label class="font-label-code-sm text-label-code-sm text-on-surface-variant">Max Concurrent</label>
+<input class="w-full h-8 px-space-sm bg-surface-container-lowest text-on-surface font-label-code-md text-label-code-md rounded focus:outline-none" max="16" min="1" type="number" value="4"/>
+</div>
+</div>
+</div>
+<div class="p-space-xs rounded bg-surface-container-lowest text-outline font-label-code-sm text-[11px] flex items-center justify-between">
+<span>KV Cache Footprint (32k):</span>
+<span class="text-tertiary font-mono font-bold">~2.14 GB / session</span>
+</div>
+</div>
+<!-- Column C: Acceleration & Memory Feature Flags -->
+<div class="bg-surface-container rounded-lg p-space-md space-y-space-md flex flex-col justify-between">
+<div class="space-y-space-sm">
+<div class="flex items-center justify-between pb-space-xs">
+<span class="font-headline-sm text-[0.875rem] text-primary font-semibold flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-[16px]">tune</span>
+                Acceleration Flags
+              </span>
+<span class="font-label-code-sm text-label-code-sm px-space-xs py-0.5 rounded bg-surface-container-high text-outline">KERNEL_OPTS</span>
+</div>
+<!-- Toggles List -->
+<div class="space-y-space-xs pt-space-xs">
+<!-- Continuous Batching -->
+<div class="flex items-center justify-between p-space-sm rounded bg-surface-container-lowest hover:bg-surface-container-high/50 transition-colors">
+<div class="space-y-0.5 pr-space-sm">
+<div class="font-body-sm text-body-sm text-on-surface font-medium">Continuous Batching</div>
+<div class="font-label-code-sm text-[11px] text-outline">Pipeline parallel requests concurrently</div>
+</div>
+<input checked="" class="w-4 h-4 rounded bg-surface-container text-primary cursor-pointer accent-primary" type="checkbox"/>
+</div>
+<!-- Flash Attention 2 -->
+<div class="flex items-center justify-between p-space-sm rounded bg-surface-container-lowest hover:bg-surface-container-high/50 transition-colors">
+<div class="space-y-0.5 pr-space-sm">
+<div class="font-body-sm text-body-sm text-on-surface font-medium flex items-center gap-space-xs">
+<span>Flash Attention 2</span>
+<span class="px-1 py-0.2 bg-tertiary/10 text-tertiary font-mono text-[9px] rounded">FAST</span>
+</div>
+<div class="font-label-code-sm text-[11px] text-outline">O(1) memory IO fused attention kernel</div>
+</div>
+<input checked="" class="w-4 h-4 rounded bg-surface-container text-primary cursor-pointer accent-primary" type="checkbox"/>
+</div>
+<!-- Unified KV Cache -->
+<div class="flex items-center justify-between p-space-sm rounded bg-surface-container-lowest hover:bg-surface-container-high/50 transition-colors">
+<div class="space-y-0.5 pr-space-sm">
+<div class="font-body-sm text-body-sm text-on-surface font-medium">Unified KV Cache</div>
+<div class="font-label-code-sm text-[11px] text-outline">Pool memory across model instances</div>
+</div>
+<input class="w-4 h-4 rounded bg-surface-container text-primary cursor-pointer accent-primary" type="checkbox"/>
+</div>
+<!-- Offload KV Cache to VRAM -->
+<div class="flex items-center justify-between p-space-sm rounded bg-surface-container-lowest hover:bg-surface-container-high/50 transition-colors">
+<div class="space-y-0.5 pr-space-sm">
+<div class="font-body-sm text-body-sm text-on-surface font-medium">Offload KV Cache</div>
+<div class="font-label-code-sm text-[11px] text-outline">Store key/values inside GPU VRAM</div>
+</div>
+<input checked="" class="w-4 h-4 rounded bg-surface-container text-primary cursor-pointer accent-primary" type="checkbox"/>
+</div>
+<!-- Memory Map (mmap) -->
+<div class="flex items-center justify-between p-space-sm rounded bg-surface-container-lowest hover:bg-surface-container-high/50 transition-colors">
+<div class="space-y-0.5 pr-space-sm">
+<div class="font-body-sm text-body-sm text-on-surface font-medium">Memory Map (mmap)</div>
+<div class="font-label-code-sm text-[11px] text-outline">Direct OS paging for instant weight load</div>
+</div>
+<input checked="" class="w-4 h-4 rounded bg-surface-container text-primary cursor-pointer accent-primary" type="checkbox"/>
+</div>
+<!-- Keep model in memory (mlock) -->
+<div class="flex items-center justify-between p-space-sm rounded bg-surface-container-lowest hover:bg-surface-container-high/50 transition-colors">
+<div class="space-y-0.5 pr-space-sm">
+<div class="font-body-sm text-body-sm text-on-surface font-medium">Lock Weights (mlock)</div>
+<div class="font-label-code-sm text-[11px] text-outline">Prevent host swap under heavy workload</div>
+</div>
+<input checked="" class="w-4 h-4 rounded bg-surface-container text-primary cursor-pointer accent-primary" type="checkbox"/>
+</div>
+<!-- Fit to Available Memory -->
+<div class="flex items-center justify-between p-space-sm rounded bg-surface-container-lowest hover:bg-surface-container-high/50 transition-colors">
+<div class="space-y-0.5 pr-space-sm">
+<div class="font-body-sm text-body-sm text-on-surface font-medium">Fit to Available VRAM</div>
+<div class="font-label-code-sm text-[11px] text-outline">Auto-clamp context window if low memory</div>
+</div>
+<input class="w-4 h-4 rounded bg-surface-container text-primary cursor-pointer accent-primary" type="checkbox"/>
+</div>
+<!-- Keep last model loaded -->
+<div class="flex items-center justify-between p-space-sm rounded bg-surface-container-lowest hover:bg-surface-container-high/50 transition-colors">
+<div class="space-y-0.5 pr-space-sm">
+<div class="font-body-sm text-body-sm text-on-surface font-medium">Keep Model Loaded</div>
+<div class="font-label-code-sm text-[11px] text-outline">Warm standby (instant subsequent chats)</div>
+</div>
+<input checked="" class="w-4 h-4 rounded bg-surface-container text-primary cursor-pointer accent-primary" type="checkbox"/>
+</div>
+</div>
+</div>
+<div class="p-space-xs rounded bg-surface-container-lowest text-outline font-label-code-sm text-[11px] flex items-center justify-between">
+<span>Kernel Safety:</span>
+<span class="text-tertiary">STRICT ISOLATION</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Section 3: Filesystem & Storage Paths -->
+<div class="bg-surface-container-low rounded-xl p-space-lg shadow-sm space-y-space-md">
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-space-md pb-space-xs">
+<div class="flex items-center gap-space-md">
+<div class="w-9 h-9 rounded bg-surface-container flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[20px]">folder_special</span>
+</div>
+<div>
+<h2 class="font-headline-sm text-headline-sm text-on-surface font-semibold">Local Storage &amp; Directory Paths</h2>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Diagnostics and mount targets. Read-only path resolution ensuring zero unauthorized root mutations.</p>
+</div>
+</div>
+<button class="flex items-center gap-space-xs px-space-md py-space-sm bg-surface-container-high hover:bg-surface-container-highest text-primary font-body-sm text-body-sm font-medium rounded transition-colors self-start sm:self-auto" id="verify-paths-btn">
+<span class="material-symbols-outlined text-[16px]">folder_check</span>
+<span>Verify Mounts &amp; Permissions</span>
+</button>
+</div>
+<!-- 3 Path Inspector Cards -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-space-md">
+<!-- Path 1: Managed Models -->
+<div class="bg-surface-container rounded-lg p-space-md space-y-space-sm flex flex-col justify-between">
+<div class="space-y-space-xs">
+<div class="flex items-center justify-between">
+<span class="font-label-code-sm text-label-code-sm text-outline uppercase tracking-wider">Models Directory</span>
+<span class="px-space-xs py-0.5 rounded bg-surface-container-highest text-tertiary font-label-code-sm text-[10px]">READ / WRITE</span>
+</div>
+<div class="flex items-center justify-between bg-surface-container-lowest p-space-sm rounded font-label-code-sm text-label-code-sm text-on-surface overflow-hidden">
+<span class="font-mono truncate select-all" title="/home/edward/.local/share/ai-dream/models">/home/edward/.local/share/ai-dream/models</span>
+<button class="copy-path-btn text-outline hover:text-primary transition-colors p-1 shrink-0" data-path="/home/edward/.local/share/ai-dream/models" title="Copy Path">
+<span class="material-symbols-outlined text-[15px]">content_copy</span>
+</button>
+</div>
+</div>
+<div class="space-y-space-xs pt-space-xs">
+<div class="flex justify-between font-label-code-sm text-label-code-sm">
+<span class="text-on-surface-variant">NVMe Storage:</span>
+<span class="text-primary font-mono font-semibold">412 GB / 1.8 TB</span>
+</div>
+<div class="h-1.5 w-full bg-surface-container-lowest rounded overflow-hidden">
+<div class="h-full bg-primary rounded" style="width: 22.8%;"></div>
+</div>
+<div class="flex justify-between font-label-code-sm text-[10px] text-outline">
+<span>ext4 filesystem</span>
+<span>18 GGUF weights indexed</span>
+</div>
+</div>
+</div>
+<!-- Path 2: Configuration Directory -->
+<div class="bg-surface-container rounded-lg p-space-md space-y-space-sm flex flex-col justify-between">
+<div class="space-y-space-xs">
+<div class="flex items-center justify-between">
+<span class="font-label-code-sm text-label-code-sm text-outline uppercase tracking-wider">Configuration Tree</span>
+<span class="px-space-xs py-0.5 rounded bg-surface-container-highest text-tertiary font-label-code-sm text-[10px]">READ / WRITE</span>
+</div>
+<div class="flex items-center justify-between bg-surface-container-lowest p-space-sm rounded font-label-code-sm text-label-code-sm text-on-surface overflow-hidden">
+<span class="font-mono truncate select-all" title="/home/edward/.config/ai-dream">/home/edward/.config/ai-dream</span>
+<button class="copy-path-btn text-outline hover:text-primary transition-colors p-1 shrink-0" data-path="/home/edward/.config/ai-dream" title="Copy Path">
+<span class="material-symbols-outlined text-[15px]">content_copy</span>
+</button>
+</div>
+</div>
+<div class="space-y-space-xs pt-space-xs">
+<div class="flex justify-between font-label-code-sm text-label-code-sm">
+<span class="text-on-surface-variant">Schema Manifest:</span>
+<span class="text-tertiary font-mono font-semibold">v1.6.0 (Valid)</span>
+</div>
+<div class="h-1.5 w-full bg-surface-container-lowest rounded overflow-hidden">
+<div class="h-full bg-tertiary rounded" style="width: 100%;"></div>
+</div>
+<div class="flex justify-between font-label-code-sm text-[10px] text-outline">
+<span>settings.json • profiles.db</span>
+<span>Posix mode 0700</span>
+</div>
+</div>
+</div>
+<!-- Path 3: Data & Vector Storage -->
+<div class="bg-surface-container rounded-lg p-space-md space-y-space-sm flex flex-col justify-between">
+<div class="space-y-space-xs">
+<div class="flex items-center justify-between">
+<span class="font-label-code-sm text-label-code-sm text-outline uppercase tracking-wider">Data &amp; Vector Embeddings</span>
+<span class="px-space-xs py-0.5 rounded bg-surface-container-highest text-tertiary font-label-code-sm text-[10px]">READ / WRITE</span>
+</div>
+<div class="flex items-center justify-between bg-surface-container-lowest p-space-sm rounded font-label-code-sm text-label-code-sm text-on-surface overflow-hidden">
+<span class="font-mono truncate select-all" title="/home/edward/.local/share/ai-dream/data">/home/edward/.local/share/ai-dream/data</span>
+<button class="copy-path-btn text-outline hover:text-primary transition-colors p-1 shrink-0" data-path="/home/edward/.local/share/ai-dream/data" title="Copy Path">
+<span class="material-symbols-outlined text-[15px]">content_copy</span>
+</button>
+</div>
+</div>
+<div class="space-y-space-xs pt-space-xs">
+<div class="flex justify-between font-label-code-sm text-label-code-sm">
+<span class="text-on-surface-variant">Embedded Collections:</span>
+<span class="text-primary font-mono font-semibold">3 Vector DBs</span>
+</div>
+<div class="h-1.5 w-full bg-surface-container-lowest rounded overflow-hidden">
+<div class="h-full bg-secondary-container rounded" style="width: 44.5%;"></div>
+</div>
+<div class="flex justify-between font-label-code-sm text-[10px] text-outline">
+<span>Chroma SQLite • HNSW index</span>
+<span>1.24 GB cached</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Toast Notification Container (Fixed floating preview) -->
+<div class="fixed bottom-12 right-6 bg-surface-container-highest text-on-surface px-space-md py-space-sm rounded-lg shadow-xl font-label-code-sm text-label-code-sm flex items-center gap-space-sm transition-all duration-300 opacity-0 pointer-events-none translate-y-2 z-50" id="toast">
+<span class="material-symbols-outlined text-[16px] text-tertiary">check_circle</span>
+<span id="toast-text">Configuration saved successfully.</span>
+</div>
+</div>
+</div>
+<script>
+  (function() {
+    const slider = document.getElementById('gpu-layers-slider');
+    const layersVal = document.getElementById('gpu-layers-val');
+    const toast = document.getElementById('toast');
+    const toastText = document.getElementById('toast-text');
+    let toastTimeout;
+
+    function showToast(message) {
+      if (toastTimeout) clearTimeout(toastTimeout);
+      toastText.textContent = message;
+      toast.classList.remove('opacity-0', 'pointer-events-none', 'translate-y-2');
+      toast.classList.add('opacity-100', 'translate-y-0');
+      toastTimeout = setTimeout(() => {
+        toast.classList.remove('opacity-100', 'translate-y-0');
+        toast.classList.add('opacity-0', 'pointer-events-none', 'translate-y-2');
+      }, 2500);
+    }
+
+    if (slider && layersVal) {
+      slider.addEventListener('input', (e) => {
+        const val = e.target.value;
+        if (val == 48) {
+          layersVal.textContent = '48 / 48 (All)';
+        } else if (val == 0) {
+          layersVal.textContent = '0 (Pure CPU)';
+        } else {
+          layersVal.textContent = val + ' layers offloaded';
+        }
+      });
+    }
+
+    document.querySelectorAll('.copy-path-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const path = btn.getAttribute('data-path');
+        if (navigator.clipboard) {
+          navigator.clipboard.writeText(path);
+          showToast('Copied path to clipboard: ' + path);
+        } else {
+          showToast('Path copied: ' + path);
+        }
+      });
+    });
+
+    const pingBtn = document.getElementById('ping-btn');
+    if (pingBtn) {
+      pingBtn.addEventListener('click', () => {
+        const originalText = pingBtn.innerHTML;
+        pingBtn.innerHTML = '<span class="material-symbols-outlined text-[16px] animate-spin">refresh</span><span>Pinging...</span>';
+        setTimeout(() => {
+          pingBtn.innerHTML = originalText;
+          showToast('Local API probe returned HTTP 200 OK (0.7ms latency)');
+        }, 400);
+      });
+    }
+
+    const saveBtn = document.getElementById('save-main-btn');
+    if (saveBtn) {
+      saveBtn.addEventListener('click', () => {
+        saveBtn.classList.add('scale-95');
+        setTimeout(() => saveBtn.classList.remove('scale-95'), 150);
+        showToast('Runtime preferences written to settings.json');
+      });
+    }
+
+    const resetBtn = document.getElementById('reset-defaults-btn');
+    if (resetBtn) {
+      resetBtn.addEventListener('click', () => {
+        if (slider) {
+          slider.value = 48;
+          layersVal.textContent = '48 / 48 (All)';
+        }
+        showToast('Restored default workstation parameters');
+      });
+    }
+
+    const verifyBtn = document.getElementById('verify-paths-btn');
+    if (verifyBtn) {
+      verifyBtn.addEventListener('click', () => {
+        showToast('All 3 filesystem mounts verified: POSIX permissions valid');
+      });
+    }
+  })();
+</script></main><footer class="fixed bottom-0 left-72 right-0 h-8 bg-surface-container-lowest z-40 px-margin flex items-center justify-between font-label-code-sm text-label-code-sm text-on-surface-variant shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="flex items-center gap-space-lg truncate"><div class="flex items-center gap-space-xs"><span class="text-outline">RUNTIME:</span><span class="text-on-surface">llama.cpp b6821 (Vulkan)</span></div><div class="hidden lg:flex items-center gap-space-xs"><span class="text-outline">MODEL:</span><span class="text-on-surface font-semibold">Qwen3.8-27B-Instruct</span></div><div class="flex items-center gap-space-xs"><span class="text-outline">SPEED:</span><span class="text-tertiary font-bold">42.4 tok/s</span></div><div class="flex items-center gap-space-xs"><span class="text-outline">CONTEXT:</span><span class="text-on-surface">14.2k / 32k</span></div></div><div class="flex items-center gap-space-lg"><div class="hidden sm:flex items-center gap-space-xs"><span class="text-outline">LOCAL API:</span><span class="text-primary hover:underline cursor-pointer">http://127.0.0.1:5200/v1</span></div><div class="flex items-center gap-space-xs"><span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span><span class="text-tertiary font-medium">STRICT LOCAL</span><span class="text-outline hidden md:inline">(Zero Cloud Telemetry)</span></div></div></footer></div></body></html>

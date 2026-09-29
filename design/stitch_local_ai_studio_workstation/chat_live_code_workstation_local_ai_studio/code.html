@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><meta content="web_dashboard" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/><link href="https://fonts.googleapis.com" rel="preconnect"/><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config={darkMode:"class",theme:{extend:{colors:{"on-error-container":"#ffdad6","inverse-on-surface":"#2b303b","on-secondary-container":"#b0b2ff","surface-container-high":"#252a35","surface-container-low":"#171c26","on-tertiary-fixed":"#002113","on-background":"#dee2f1","on-secondary-fixed":"#07006c","tertiary-fixed-dim":"#4edea3","tertiary-container":"#00a572","surface-dim":"#0e131d","on-tertiary":"#003824","surface-tint":"#adc6ff","on-tertiary-fixed-variant":"#005236","tertiary-fixed":"#6ffbbe","inverse-surface":"#dee2f1","inverse-primary":"#005ac2","on-primary":"#002e6a","on-surface-variant":"#c2c6d6","on-primary-fixed":"#001a42","secondary-fixed-dim":"#c0c1ff","error-container":"#93000a","background":"#0e131d","on-secondary-fixed-variant":"#2f2ebe","surface-container":"#1b202a","on-primary-fixed-variant":"#004395","error":"#ffb4ab","on-tertiary-container":"#00311f","on-error":"#690005","primary-fixed":"#d8e2ff","surface-container-highest":"#303540","surface":"#0e131d","surface-bright":"#343944","surface-variant":"#303540","secondary-fixed":"#e1e0ff","surface-container-lowest":"#090e18","on-primary-container":"#00285d","secondary-container":"#3131c0","outline-variant":"#424754","primary":"#adc6ff","tertiary":"#4edea3","primary-container":"#4d8eff","outline":"#8c909f","on-secondary":"#1000a9","secondary":"#c0c1ff","on-surface":"#dee2f1","primary-fixed-dim":"#adc6ff"},borderRadius:{"DEFAULT":"0.125rem","lg":"0.25rem","xl":"0.5rem","full":"0.75rem"},spacing:{"space-lg":"0.75rem","margin":"0.75rem","space-xl":"1rem","gutter":"0.5rem","gutter-compact":"0.25rem","margin-dense":"0.5rem","space-md":"0.5rem","space-xs":"0.125rem","space-sm":"0.25rem"},fontFamily:{"label-code-sm":["JetBrains Mono"],"label-code-lg":["JetBrains Mono"],"body-sm":["Inter"],"headline-sm":["Inter"],"metric-display":["JetBrains Mono"],"headline-lg":["Inter"],"body-md":["Inter"],"body-lg":["Inter"],"label-code-md":["JetBrains Mono"],"headline-md":["Inter"]},fontSize:{"label-code-sm":["0.6875rem",{"lineHeight":"0.875rem","letterSpacing":"0.01em","fontWeight":"500"}],"label-code-lg":["0.875rem",{"lineHeight":"1.25rem","letterSpacing":"-0.01em","fontWeight":"500"}],"body-sm":["0.75rem",{"lineHeight":"1.125rem","letterSpacing":"0.005em","fontWeight":"400"}],"headline-sm":["1rem",{"lineHeight":"1.375rem","letterSpacing":"-0.01em","fontWeight":"600"}],"metric-display":["1.125rem",{"lineHeight":"1.25rem","letterSpacing":"-0.03em","fontWeight":"700"}],"headline-lg":["1.5rem",{"lineHeight":"1.875rem","letterSpacing":"-0.02em","fontWeight":"600"}],"body-md":["0.8125rem",{"lineHeight":"1.25rem","letterSpacing":"0em","fontWeight":"400"}],"body-lg":["0.875rem",{"lineHeight":"1.375rem","letterSpacing":"0em","fontWeight":"400"}],"label-code-md":["0.75rem",{"lineHeight":"1rem","letterSpacing":"0em","fontWeight":"500"}],"headline-md":["1.25rem",{"lineHeight":"1.625rem","letterSpacing":"-0.015em","fontWeight":"600"}]}}}};</script></head><body class="bg-surface font-body-md text-on-surface antialiased selection:bg-primary selection:text-on-primary"><aside class="fixed left-0 top-0 h-full w-72 bg-surface-container-lowest z-50 flex flex-col justify-between overflow-hidden shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="flex flex-col flex-1 min-h-0"><div class="h-14 px-margin flex items-center justify-between bg-surface-container-low"><div class="flex items-center gap-space-md min-w-0"><img alt="Brand logo. - Primary color: #3b82f6
+- Font: inter
+- Mode: dark
+- Roundness: rounded-sm
+" class="h-8 w-auto object-contain" src="https://lh3.googleusercontent.com/aida/AEtjO1VAfHH7GfreRXb-FAFlD5GjgYrHHMJ020NFfjZKTCMCY5TAQt3wxzxcZa9fC5VFHtRVp6jBx65O4AJSiq00zqSR0o3hdMG2B-BhddcS0i5JmafhurXKcS7gwNUpGoGCG7jW1aaOfto9ScTnFDJfiqVJDJgNZmrm1KYNz7CIzHQxNbb0AkOLA5GfqkfxqnFhiQyTM-lej87JFVErGtkVPMcptpKE-DbJIHECTt8BiR1ODPPccYb5bvbmUztB"/><div class="flex flex-col min-w-0"><div class="flex items-center gap-space-xs"><span class="font-headline-sm text-headline-sm text-on-surface tracking-tight truncate">Local AI Studio</span><span class="font-label-code-sm text-label-code-sm px-space-xs py-space-xs bg-surface-container-high text-primary rounded">v1.6.0</span></div><div class="flex items-center gap-space-xs"><span class="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse"></span><span class="font-label-code-sm text-label-code-sm text-on-surface-variant truncate">Workstation Local Node</span></div></div></div></div><div class="flex-1 overflow-y-auto px-space-md py-space-md space-y-space-lg"><nav class="space-y-space-lg" data-active-classes="bg-surface-container-high text-primary font-semibold"><div class="space-y-space-xs"><div class="px-space-md font-label-code-sm text-label-code-sm uppercase tracking-wider text-outline">Workspace</div><a aria-current="page" class="flex items-center justify-between px-space-md py-space-sm rounded transition-colors group bg-surface-container-high text-primary font-semibold" data-path="chat" href="#"><div class="flex items-center gap-space-md min-w-0"><span class="material-symbols-outlined text-[18px]">chat</span><span class="font-body-md text-body-md truncate">Chat</span></div><span class="font-label-code-sm text-label-code-sm px-space-xs bg-tertiary/10 text-tertiary rounded">Active Qwen3.8</span></a><a class="flex items-center justify-between px-space-md py-space-sm rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors group" data-path="models" href="#"><div class="flex items-center gap-space-md min-w-0"><span class="material-symbols-outlined text-[18px]">neurology</span><span class="font-body-md text-body-md truncate">Models</span></div><span class="font-label-code-sm text-label-code-sm text-outline">Library</span></a><a class="flex items-center justify-between px-space-md py-space-sm rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors group" data-path="knowledge" href="#"><div class="flex items-center gap-space-md min-w-0"><span class="material-symbols-outlined text-[18px]">database</span><span class="font-body-md text-body-md truncate">Knowledge</span></div><span class="font-label-code-sm text-label-code-sm text-outline">RAG</span></a></div><div class="space-y-space-xs"><div class="px-space-md font-label-code-sm text-label-code-sm uppercase tracking-wider text-outline">System</div><a class="flex items-center justify-between px-space-md py-space-sm rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors group" data-path="hardware" href="#"><div class="flex items-center gap-space-md min-w-0"><span class="material-symbols-outlined text-[18px]">memory</span><span class="font-body-md text-body-md truncate">Hardware</span></div><span class="font-label-code-sm text-label-code-sm text-on-surface-variant">2 GPU</span></a><a class="flex items-center justify-between px-space-md py-space-sm rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors group" data-path="providers-and-runtimes" href="#"><div class="flex items-center gap-space-md min-w-0"><span class="material-symbols-outlined text-[18px]">hub</span><span class="font-body-md text-body-md truncate">Providers &amp; Runtimes</span></div></a><a class="flex items-center justify-between px-space-md py-space-sm rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors group" data-path="downloads" href="#"><div class="flex items-center gap-space-md min-w-0"><span class="material-symbols-outlined text-[18px]">download</span><span class="font-body-md text-body-md truncate">Downloads</span></div></a></div><div class="space-y-space-xs"><div class="px-space-md font-label-code-sm text-label-code-sm uppercase tracking-wider text-outline">Developer</div><a class="flex items-center justify-between px-space-md py-space-sm rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors group" data-path="local-api" href="#"><div class="flex items-center gap-space-md min-w-0"><span class="material-symbols-outlined text-[18px]">terminal</span><span class="font-body-md text-body-md truncate">Local API</span></div><span class="font-label-code-sm text-label-code-sm text-primary">/v1</span></a><a class="flex items-center justify-between px-space-md py-space-sm rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors group" data-path="tools-and-permissions" href="#"><div class="flex items-center gap-space-md min-w-0"><span class="material-symbols-outlined text-[18px]">shield</span><span class="font-body-md text-body-md truncate">Tools &amp; Permissions</span></div></a><a class="flex items-center justify-between px-space-md py-space-sm rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors group" data-path="logs-and-traces" href="#"><div class="flex items-center gap-space-md min-w-0"><span class="material-symbols-outlined text-[18px]">monitoring</span><span class="font-body-md text-body-md truncate">Logs &amp; Traces</span></div></a></div></nav></div></div><div class="p-space-md bg-surface-container-low space-y-space-md"><div class="p-space-sm rounded bg-surface-container-lowest space-y-space-xs"><div class="flex items-center justify-between"><span class="font-label-code-sm text-label-code-sm text-outline">DAEMON STACK</span><span class="font-label-code-sm text-label-code-sm text-tertiary">ONLINE</span></div><p class="font-label-code-sm text-label-code-sm text-on-surface-variant truncate">llama-server • API Server • Vector DB</p></div><div class="p-space-sm rounded bg-surface-container-lowest space-y-space-sm"><div class="space-y-space-xs"><div class="flex justify-between items-center font-label-code-sm text-label-code-sm"><span class="text-on-surface">GPU 0 (RX 9070)</span><span class="text-primary">14.2 / 16 GB</span></div><div class="h-1.5 w-full bg-surface-container-high rounded overflow-hidden"><div class="h-full bg-primary rounded" style="width: 88.75%"></div></div></div><div class="space-y-space-xs"><div class="flex justify-between items-center font-label-code-sm text-label-code-sm"><span class="text-on-surface">GPU 1 (RX 9070)</span><span class="text-primary">7.8 / 16 GB</span></div><div class="h-1.5 w-full bg-surface-container-high rounded overflow-hidden"><div class="h-full bg-primary rounded" style="width: 48.75%"></div></div></div><div class="space-y-space-xs"><div class="flex justify-between items-center font-label-code-sm text-label-code-sm"><span class="text-on-surface">HOST RAM</span><span class="text-on-surface-variant">28.4 / 64 GB</span></div><div class="h-1.5 w-full bg-surface-container-high rounded overflow-hidden"><div class="h-full bg-on-surface-variant rounded" style="width: 44.37%"></div></div></div></div><div class="flex items-center justify-between pt-space-xs"><a class="flex items-center gap-space-xs font-body-sm text-body-sm text-on-surface-variant hover:text-on-surface transition-colors" data-path="settings" href="#"><span class="material-symbols-outlined text-[18px]">settings</span><span>Settings</span></a><a class="flex items-center gap-space-xs font-body-sm text-body-sm text-on-surface-variant hover:text-on-surface transition-colors" data-path="profiles" href="#"><span class="material-symbols-outlined text-[18px]">manage_accounts</span><span>Profiles</span></a></div></div></aside><div class="pl-72"><header class="fixed top-0 left-72 right-0 h-14 bg-surface/90 backdrop-blur-xl z-40 px-margin flex items-center justify-between gap-space-md shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="flex items-center gap-space-lg min-w-0"><div class="flex items-center gap-space-xs text-on-surface-variant font-label-code-md text-label-code-md"><span class="text-outline">LOCAL_NODE</span><span class="text-outline">/</span><span class="text-primary font-semibold truncate">WORKSPACE</span></div><div class="relative flex items-center"><span class="material-symbols-outlined absolute left-space-sm text-[16px] text-outline pointer-events-none">search</span><input class="w-60 h-8 pl-8 pr- space-lg bg-surface-container-lowest text-on-surface font-body-sm text-body-sm placeholder:text-outline rounded focus:outline-none focus:ring-1 focus:ring-primary" placeholder="Command palette (Ctrl+K)" readonly="" type="text"/><div class="absolute right-space-sm px-space-xs py-space-xs bg-surface-container-high rounded font-label-code-sm text-label-code-sm text-outline">Ctrl+K</div></div></div><div class="flex items-center gap-space-md"><div class="flex items-center gap-space-sm px-space-md h-8 bg-surface-container-low rounded cursor-pointer hover:bg-surface-container transition-colors"><span class="material-symbols-outlined text-[16px] text-primary">smart_toy</span><span class="font-label-code-md text-label-code-md text-on-surface font-semibold">Qwen3.8-27B</span><span class="font-label-code-sm text-label-code-sm text-outline hidden md:inline">(Local · llama.cpp Vulkan)</span><span class="font-label-code-sm text-label-code-sm px-space-xs py-space-xs bg-surface-container-highest text-tertiary rounded">[LOCAL - Machine Only]</span><span class="material-symbols-outlined text-[14px] text-outline">expand_more</span></div><div class="flex items-center gap-space-xs px-space-sm h-8 bg-surface-container-low rounded"><span class="w-2 h-2 rounded-full bg-tertiary"></span><span class="font-label-code-sm text-label-code-sm text-on-surface font-mono">API :5200 Active</span></div><button class="flex items-center gap-space-xs px-space-md h-8 bg-primary text-on-primary font-body-sm text-body-sm font-semibold rounded hover:bg-primary/90 transition-colors"><span class="material-symbols-outlined text-[16px]">add</span><span>Load Model</span></button><button class="flex items-center justify-center w-8 h-8 rounded bg-surface-container-low text-on-surface-variant hover:text-on-surface transition-colors" title="System Status Drawer"><span class="material-symbols-outlined text-[18px]">tune</span></button><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div></div></header><main class="relative pt-14 pb-8 bg-surface min-h-[calc(100vh-2rem)]"><div class="flex flex-col w-full">
+<!-- Dynamic Grid Master Layout (Conversations, Unified Chat Stream, Split Canvas/Live Code) -->
+<div class="grid grid-cols-12 h-[calc(100vh-5.5rem)] overflow-hidden bg-surface">
+<!-- Column 1: Conversations History Drawer (Collapsible) -->
+<aside class="col-span-12 md:col-span-3 xl:col-span-2 bg-surface-container-lowest flex flex-col justify-between overflow-hidden shadow-md" id="chatHistoryPanel">
+<!-- Search & New Chat -->
+<div class="p-space-md space-y-space-md bg-surface-container-low">
+<div class="flex items-center justify-between">
+<span class="font-label-code-sm text-label-code-sm uppercase tracking-wider text-outline">Thread Ledger</span>
+<div class="flex items-center gap-space-xs text-on-surface-variant">
+<span class="font-label-code-sm text-label-code-sm">4 Threads</span>
+<button class="hover:text-primary transition-colors" title="Settings"><span class="material-symbols-outlined text-[16px]">tune</span></button>
+</div>
+</div>
+<button class="w-full flex items-center justify-center gap-space-sm h-8 bg-primary-container text-on-primary-container font-headline-sm text-body-sm font-semibold rounded hover:bg-primary transition-colors shadow-sm">
+<span class="material-symbols-outlined text-[16px]">add_comment</span>
+<span>New Thread</span>
+</button>
+<div class="relative flex items-center">
+<span class="material-symbols-outlined absolute left-space-sm text-[16px] text-outline pointer-events-none">search</span>
+<input class="w-full h-7 pl-7 pr-space-md bg-surface-container-high text-on-surface font-body-sm text-body-sm placeholder:text-outline rounded focus:outline-none focus:ring-1 focus:ring-primary" placeholder="Filter chats..." type="text"/>
+</div>
+</div>
+<!-- Conversations Scrollable Area -->
+<div class="flex-1 overflow-y-auto p-space-sm space-y-space-xs">
+<!-- Active Chat -->
+<div class="p-space-sm rounded bg-surface-container-high shadow-sm group cursor-pointer transition-all">
+<div class="flex items-start justify-between gap-space-xs">
+<span class="font-headline-sm text-body-sm text-primary font-semibold line-clamp-1">Vulkan Shader Benchmark &amp; Multi-GPU</span>
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary flex-shrink-0 mt-1.5 animate-pulse"></span>
+</div>
+<div class="flex items-center gap-space-xs mt-space-xs">
+<span class="font-label-code-sm text-label-code-sm px-space-xs bg-surface-container-lowest text-primary rounded truncate">Qwen3.8-27B</span>
+<span class="font-label-code-sm text-label-code-sm text-outline">· Today 10:42</span>
+</div>
+<!-- Thread Actions Bar -->
+<div class="flex items-center gap-space-xs mt-space-sm pt-space-xs opacity-90 group-hover:opacity-100 transition-opacity">
+<button class="px-space-xs py-space-xs text-on-surface-variant hover:text-primary rounded font-label-code-sm text-label-code-sm flex items-center gap-space-xs" title="Rename"><span class="material-symbols-outlined text-[14px]">edit</span><span>Rename</span></button>
+<button class="px-space-xs py-space-xs text-on-surface-variant hover:text-tertiary rounded font-label-code-sm text-label-code-sm flex items-center gap-space-xs" title="Export Markdown"><span class="material-symbols-outlined text-[14px]">download</span><span>MD</span></button>
+<button class="px-space-xs py-space-xs text-error hover:bg-error-container/20 rounded font-label-code-sm text-label-code-sm flex items-center gap-space-xs ml-auto" onclick="confirm('Delete thread?')"><span class="material-symbols-outlined text-[14px]">delete</span></button>
+</div>
+</div>
+<!-- Chat Item 2 -->
+<div class="p-space-sm rounded bg-surface-container-low hover:bg-surface-container transition-all group cursor-pointer">
+<div class="flex items-start justify-between gap-space-xs">
+<span class="font-headline-sm text-body-sm text-on-surface line-clamp-1">RAG Query: ROCm 6.2 Kernel Optimization</span>
+</div>
+<div class="flex items-center gap-space-xs mt-space-xs">
+<span class="font-label-code-sm text-label-code-sm px-space-xs bg-surface-container-lowest text-outline rounded">DeepSeek-Coder</span>
+<span class="font-label-code-sm text-label-code-sm text-outline">· Yesterday</span>
+</div>
+</div>
+<!-- Chat Item 3 -->
+<div class="p-space-sm rounded bg-surface-container-low hover:bg-surface-container transition-all group cursor-pointer">
+<div class="flex items-start justify-between gap-space-xs">
+<span class="font-headline-sm text-body-sm text-on-surface line-clamp-1">Local API Integration in VS Code</span>
+</div>
+<div class="flex items-center gap-space-xs mt-space-xs">
+<span class="font-label-code-sm text-label-code-sm px-space-xs bg-surface-container-lowest text-secondary rounded">Claude-3.5 Router</span>
+<span class="font-label-code-sm text-label-code-sm text-outline">· 2d ago</span>
+</div>
+</div>
+<!-- Chat Item 4 -->
+<div class="p-space-sm rounded bg-surface-container-low hover:bg-surface-container transition-all group cursor-pointer">
+<div class="flex items-start justify-between gap-space-xs">
+<span class="font-headline-sm text-body-sm text-on-surface line-clamp-1">LLaMA 3 70B Quantization Fitting</span>
+</div>
+<div class="flex items-center gap-space-xs mt-space-xs">
+<span class="font-label-code-sm text-label-code-sm px-space-xs bg-surface-container-lowest text-outline rounded">Llama-3.3-70B</span>
+<span class="font-label-code-sm text-label-code-sm text-outline">· 3d ago</span>
+</div>
+</div>
+</div>
+<!-- Quick Session Hardware Telemetry -->
+<div class="p-space-md bg-surface-container-low flex flex-col gap-space-xs">
+<div class="flex items-center justify-between">
+<span class="font-label-code-sm text-label-code-sm text-outline">INFERENCE CACHE</span>
+<span class="font-label-code-sm text-label-code-sm text-tertiary">WARM</span>
+</div>
+<div class="h-1 w-full bg-surface-container-highest rounded overflow-hidden">
+<div class="h-full bg-tertiary rounded" style="width: 68%;"></div>
+</div>
+<span class="font-label-code-sm text-label-code-sm text-on-surface-variant">L1 KV-Cache: 8,420 tokens / 32k</span>
+</div>
+</aside>
+<!-- Column 2: Center Main Chat Stream & Interactive Prompt Canvas -->
+<section class="col-span-12 md:col-span-9 xl:col-span-5 bg-surface flex flex-col h-full overflow-hidden shadow-inner">
+<!-- Unified Model Selector & Orchestration Banner -->
+<div class="p-space-md bg-surface-container-low flex flex-col gap-space-sm shadow-sm z-20">
+<!-- Top Selector Bar -->
+<div class="flex flex-wrap items-center justify-between gap-space-sm">
+<!-- Dropdown Model Hierarchy Trigger -->
+<div class="relative">
+<button class="flex items-center gap-space-sm px-space-md h-8 bg-surface-container-highest rounded text-on-surface hover:bg-surface-bright transition-colors shadow-sm text-left" id="modelDropdownBtn">
+<span class="w-2 h-2 rounded-full bg-tertiary"></span>
+<span class="font-label-code-md text-label-code-md font-semibold text-primary">Qwen3.8-27B-Instruct</span>
+<span class="font-label-code-sm text-label-code-sm px-space-xs bg-surface-container-lowest text-tertiary rounded">17.4 GB · Vulkan</span>
+<span class="material-symbols-outlined text-[16px] text-outline">arrow_drop_down</span>
+</button>
+<!-- Unified Model Hierarchy Dropdown Popover (Interactive Layer) -->
+<div class="hidden absolute top-9 left-0 w-80 bg-surface-container-high rounded shadow-xl p-space-sm space-y-space-sm z-50" id="modelDropdownMenu">
+<div class="px-space-sm font-label-code-sm text-label-code-sm text-outline uppercase tracking-wider">Local Workstation (Zero-Cloud)</div>
+<div class="p-space-xs rounded bg-surface-container flex items-center justify-between cursor-pointer">
+<div>
+<div class="font-label-code-md text-label-code-md text-primary font-semibold">Qwen3.8-27B-Instruct</div>
+<div class="font-label-code-sm text-label-code-sm text-outline">llama.cpp Vulkan · 17.4 GB VRAM</div>
+</div>
+<span class="material-symbols-outlined text-primary text-[18px]">check_circle</span>
+</div>
+<div class="p-space-xs rounded hover:bg-surface-container flex items-center justify-between cursor-pointer">
+<div>
+<div class="font-label-code-md text-label-code-md text-on-surface">Gemma-2-27B</div>
+<div class="font-label-code-sm text-label-code-sm text-outline">llama.cpp ROCm · 16.1 GB VRAM</div>
+</div>
+</div>
+<div class="px-space-sm pt-space-xs font-label-code-sm text-label-code-sm text-outline uppercase tracking-wider">Local Deployed Daemons</div>
+<div class="p-space-xs rounded hover:bg-surface-container flex items-center justify-between cursor-pointer">
+<span class="font-label-code-md text-label-code-md text-on-surface">Ollama: qwen3:14b</span>
+<span class="font-label-code-sm text-label-code-sm px-space-xs bg-surface-container-lowest text-tertiary rounded">:11434</span>
+</div>
+<div class="p-space-xs rounded hover:bg-surface-container flex items-center justify-between cursor-pointer">
+<span class="font-label-code-md text-label-code-md text-on-surface">LM Studio: mistral-small</span>
+<span class="font-label-code-sm text-label-code-sm px-space-xs bg-surface-container-lowest text-outline rounded">:1234</span>
+</div>
+<div class="px-space-sm pt-space-xs font-label-code-sm text-label-code-sm text-outline uppercase tracking-wider">Remote Proxy (Encrypted Token)</div>
+<div class="p-space-xs rounded hover:bg-surface-container flex items-center justify-between cursor-pointer">
+<span class="font-label-code-md text-label-code-md text-secondary">Claude 3.5 Sonnet (OpenRouter)</span>
+<span class="font-label-code-sm text-label-code-sm text-outline">Cloud</span>
+</div>
+</div>
+</div>
+<!-- Knowledge Selector -->
+<div class="flex items-center gap-space-xs px-space-md h-8 bg-surface-container rounded cursor-pointer hover:bg-surface-container-highest transition-colors">
+<span class="material-symbols-outlined text-[16px] text-tertiary">library_books</span>
+<span class="font-label-code-sm text-label-code-sm text-on-surface font-semibold truncate">RAG: Development Docs</span>
+<span class="font-label-code-sm text-label-code-sm text-tertiary">(Active)</span>
+<span class="material-symbols-outlined text-[14px] text-outline">expand_more</span>
+</div>
+<!-- Privacy Pill -->
+<div class="flex items-center gap-space-xs px-space-sm h-8 bg-tertiary/10 text-tertiary rounded">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>
+<span class="font-label-code-sm text-label-code-sm font-semibold uppercase">LOCAL · Zero Cloud Egress</span>
+</div>
+</div>
+<!-- Capability Badges & Mode Switcher -->
+<div class="flex flex-wrap items-center justify-between gap-space-sm pt-space-xs">
+<!-- Capabilities matrix -->
+<div class="flex items-center gap-space-xs flex-wrap">
+<span class="px-space-xs py-space-xs rounded bg-surface-container font-label-code-sm text-label-code-sm text-tertiary">Streaming ✓</span>
+<span class="px-space-xs py-space-xs rounded bg-surface-container font-label-code-sm text-label-code-sm text-tertiary">Tools ✓</span>
+<span class="px-space-xs py-space-xs rounded bg-surface-container-highest font-label-code-sm text-label-code-sm text-outline">Vision ×</span>
+<span class="px-space-xs py-space-xs rounded bg-surface-container font-label-code-sm text-label-code-sm text-tertiary">RAG ✓</span>
+<span class="px-space-xs py-space-xs rounded bg-surface-container font-label-code-sm text-label-code-sm text-tertiary">Reasoning ✓</span>
+</div>
+<!-- Mode Selector Toggle -->
+<div class="flex items-center bg-surface-container-lowest p-space-xs rounded">
+<button class="px-space-sm py-space-xs rounded bg-surface-container-high text-on-surface font-body-sm text-body-sm font-medium shadow-sm">Standard Chat</button>
+<button class="px-space-sm py-space-xs rounded text-outline hover:text-on-surface font-body-sm text-body-sm flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-[14px]">smart_toy</span>
+<span>Agent Mode (3 Tools)</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Chat Feed / Stream -->
+<div class="flex-1 overflow-y-auto p-space-md space-y-space-lg">
+<!-- User Query Bubble -->
+<div class="flex items-start gap-space-md max-w-3xl ml-auto flex-row-reverse">
+<div class="w-7 h-7 rounded bg-primary-container text-on-primary-container flex items-center justify-center font-label-code-md text-label-code-md font-bold flex-shrink-0">
+            ME
+          </div>
+<div class="flex flex-col items-end gap-space-xs">
+<div class="p-space-md rounded-xl bg-surface-container-high text-on-surface shadow-sm">
+<p class="font-body-md text-body-md leading-relaxed">
+                Write an optimized Vulkan compute shader to benchmark matrix multiplication across heterogeneous AMD GPUs and check my local development docs for ROCm memory mapping.
+              </p>
+</div>
+<span class="font-label-code-sm text-label-code-sm text-outline">Today 10:42:01 AM · 28 tokens</span>
+</div>
+</div>
+<!-- Assistant Generation Stream with RAG Source Attribution -->
+<div class="flex items-start gap-space-md max-w-4xl">
+<div class="w-7 h-7 rounded bg-tertiary-container text-on-tertiary-container flex items-center justify-center font-label-code-md text-label-code-md font-bold flex-shrink-0">
+<span class="material-symbols-outlined text-[16px]">neurology</span>
+</div>
+<div class="flex flex-col gap-space-md w-full">
+<!-- Expandable RAG Sources Block -->
+<div class="rounded bg-surface-container-low p-space-sm space-y-space-xs shadow-sm">
+<div class="flex items-center justify-between cursor-pointer" onclick="document.getElementById('ragSourcesDetails').classList.toggle('hidden')">
+<div class="flex items-center gap-space-xs text-tertiary">
+<span class="material-symbols-outlined text-[18px]">auto_stories</span>
+<span class="font-label-code-sm text-label-code-sm font-semibold">3 Knowledge Sources Used (Development Docs)</span>
+</div>
+<div class="flex items-center gap-space-xs text-outline font-label-code-sm text-label-code-sm">
+<span>Cosine Sim &gt; 0.89</span>
+<span class="material-symbols-outlined text-[16px]">expand_more</span>
+</div>
+</div>
+<!-- Expanded RAG Content -->
+<div class="space-y-space-xs pt-space-xs" id="ragSourcesDetails">
+<div class="p-space-sm rounded bg-surface-container text-on-surface-variant flex items-start justify-between gap-space-md">
+<div class="space-y-space-xs">
+<div class="flex items-center gap-space-xs font-label-code-sm text-label-code-sm text-primary">
+<span class="material-symbols-outlined text-[14px]">picture_as_pdf</span>
+<span class="font-semibold">rocm_orchestration.pdf</span>
+<span class="text-outline">· Page 42 · Paragraph 3</span>
+</div>
+<p class="font-label-code-sm text-label-code-sm text-on-surface italic">
+                      "...P2P BAR1 aperture mapping requires continuous 64-bit coherent memory addressing when pinning host staging buffers to dual RDNA3 accelerators..."
+                    </p>
+</div>
+<span class="font-label-code-sm text-label-code-sm px-space-xs bg-tertiary/10 text-tertiary rounded flex-shrink-0">94.2% match</span>
+</div>
+<div class="p-space-sm rounded bg-surface-container text-on-surface-variant flex items-start justify-between gap-space-md">
+<div class="space-y-space-xs">
+<div class="flex items-center gap-space-xs font-label-code-sm text-label-code-sm text-primary">
+<span class="material-symbols-outlined text-[14px]">description</span>
+<span class="font-semibold">vulkan_compute_notes.md</span>
+<span class="text-outline">· Chunk #14</span>
+</div>
+<p class="font-label-code-sm text-label-code-sm text-on-surface italic">
+                      "...Workgroup local shared memory size MUST match the subgroup size of 32/64 to avoid wave stall across asynchronous compute queues..."
+                    </p>
+</div>
+<span class="font-label-code-sm text-label-code-sm px-space-xs bg-tertiary/10 text-tertiary rounded flex-shrink-0">91.8% match</span>
+</div>
+</div>
+</div>
+<!-- Assistant Analytical Text -->
+<div class="space-y-space-sm text-on-surface font-body-md text-body-md leading-relaxed">
+<p>
+                Based on your workstation's dual RX 9070 layout and the ROCm memory mapping notes, here is the dedicated GLSL compute shader designed for Vulkan compute dispatch. It utilizes cooperative subgroup operations and workgroup shared tiles to maximize memory throughput on RDNA3 architecture:
+              </p>
+</div>
+<!-- Interactive Code Artifact Card in Stream -->
+<div class="rounded-lg bg-surface-container-lowest overflow-hidden shadow-md">
+<div class="h-9 px-space-md bg-surface-container-high flex items-center justify-between">
+<div class="flex items-center gap-space-xs font-label-code-sm text-label-code-sm text-on-surface">
+<span class="material-symbols-outlined text-[16px] text-primary">code_blocks</span>
+<span class="font-semibold text-primary">vulkan_gemm.comp</span>
+<span class="text-outline">(GLSL 450 • Subgroup GEMM)</span>
+</div>
+<div class="flex items-center gap-space-xs">
+<button class="px-space-sm py-space-xs rounded bg-surface-container hover:bg-surface-bright font-label-code-sm text-label-code-sm text-on-surface flex items-center gap-space-xs transition-colors">
+<span class="material-symbols-outlined text-[14px]">content_copy</span>
+<span>Copy Code</span>
+</button>
+<button class="px-space-sm py-space-xs rounded bg-surface-container hover:bg-surface-bright font-label-code-sm text-label-code-sm text-on-surface flex items-center gap-space-xs transition-colors">
+<span class="material-symbols-outlined text-[14px]">save</span>
+<span>Save to File</span>
+</button>
+<button class="px-space-sm py-space-xs rounded bg-primary text-on-primary font-label-code-sm text-label-code-sm flex items-center gap-space-xs hover:bg-primary/90 transition-colors shadow-sm">
+<span class="material-symbols-outlined text-[14px]">open_in_new</span>
+<span>Focus in Canvas</span>
+</button>
+</div>
+</div>
+<!-- Streamed Code Preview (Shortened) -->
+<pre class="p-space-md text-on-surface font-label-code-sm text-label-code-sm overflow-x-auto leading-5 bg-surface-container-lowest"><code><span class="text-outline">1</span>  <span class="text-primary">#version</span> 450
+<span class="text-outline">2</span>  <span class="text-primary">#extension</span> GL_KHR_shader_subgroup_arithmetic : enable
+<span class="text-outline">3</span>  
+<span class="text-outline">4</span>  <span class="text-secondary">layout</span>(local_size_x = 16, local_size_y = 16) <span class="text-primary">in</span>;
+<span class="text-outline">5</span>  
+<span class="text-outline">6</span>  <span class="text-secondary">layout</span>(binding = 0) <span class="text-tertiary">readonly buffer</span> BufA { <span class="text-on-surface">float</span> A[]; };
+<span class="text-outline">7</span>  <span class="text-secondary">layout</span>(binding = 1) <span class="text-tertiary">readonly buffer</span> BufB { <span class="text-on-surface">float</span> B[]; };
+<span class="text-outline">8</span>  <span class="text-secondary">layout</span>(binding = 2) <span class="text-tertiary">writeonly buffer</span> BufC { <span class="text-on-surface">float</span> C[]; };
+<span class="text-outline">9</span>  
+<span class="text-outline">10</span> <span class="text-secondary">shared float</span> tileA[16][16];
+<span class="text-outline">11</span> <span class="text-secondary">shared float</span> tileB[16][16];</code></pre>
+</div>
+<!-- Message Action Toolbar -->
+<div class="flex items-center gap-space-sm pt-space-xs text-on-surface-variant font-label-code-sm text-label-code-sm">
+<button class="flex items-center gap-space-xs hover:text-on-surface transition-colors"><span class="material-symbols-outlined text-[16px]">content_copy</span><span>Copy</span></button>
+<button class="flex items-center gap-space-xs hover:text-primary transition-colors"><span class="material-symbols-outlined text-[16px]">refresh</span><span>Regenerate</span></button>
+<button class="flex items-center gap-space-xs hover:text-tertiary transition-colors"><span class="material-symbols-outlined text-[16px]">volume_up</span><span>Speak (Piper TTS)</span></button>
+<button class="flex items-center gap-space-xs hover:text-secondary transition-colors"><span class="material-symbols-outlined text-[16px]">splitscreen_right</span><span>Export to Canvas</span></button>
+<div class="ml-auto flex items-center gap-space-xs text-outline">
+<span>Completed in 11.3s · 42.4 tok/s</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Live Execution Controls & Prompt Composer (Bottom Sticky) -->
+<div class="p-space-md bg-surface-container-low shadow-lg flex flex-col gap-space-sm z-30">
+<!-- Live Generation Alert / Stop Bar -->
+<div class="flex items-center justify-between px-space-md py-space-xs bg-surface-container-high rounded">
+<div class="flex items-center gap-space-sm">
+<span class="w-2 h-2 rounded-full bg-primary animate-ping"></span>
+<span class="font-label-code-sm text-label-code-sm text-on-surface">Streaming: <strong class="text-primary">42.4 tok/s</strong></span>
+<span class="font-label-code-sm text-label-code-sm text-outline">· 482 tokens generated</span>
+</div>
+<button class="flex items-center gap-space-xs px-space-md py-space-xs bg-error text-on-error rounded font-label-code-sm text-label-code-sm font-semibold hover:bg-error/90 transition-colors">
+<span class="material-symbols-outlined text-[14px]">stop</span>
+<span>Stop Generation</span>
+</button>
+</div>
+<!-- Input Shell with Multi-line Support and Context Badges -->
+<div class="flex flex-col rounded-lg bg-surface-container-lowest p-space-sm gap-space-xs">
+<!-- Top Tool Indicator Badges inside prompt -->
+<div class="flex items-center gap-space-xs flex-wrap">
+<div class="flex items-center gap-space-xs px-space-xs py-space-xs bg-surface-container text-tertiary rounded font-label-code-sm text-label-code-sm">
+<span class="material-symbols-outlined text-[14px]">build</span>
+<span>Tools: Inspect Hardware, Local Knowledge RAG</span>
+</div>
+<div class="flex items-center gap-space-xs px-space-xs py-space-xs bg-surface-container text-outline rounded font-label-code-sm text-label-code-sm group relative cursor-help">
+<span class="material-symbols-outlined text-[14px]">image_not_supported</span>
+<span class="line-through">Attach Vision</span>
+<!-- Tooltip -->
+<span class="hidden group-hover:block absolute bottom-6 left-0 w-64 bg-surface-container-highest text-on-surface p-space-xs rounded shadow-lg text-[10px] z-50">
+                Qwen3.8-27B does not support vision. Switch to a vision model (e.g., LLaVA/Pixtral) to attach images.
+              </span>
+</div>
+</div>
+<!-- Textarea Buffer -->
+<textarea class="w-full bg-transparent text-on-surface font-body-md text-body-md placeholder:text-outline focus:outline-none resize-none" placeholder="Send a message or execution command (e.g. /benchmark, /rag, /compile)..." rows="2"></textarea>
+<!-- Input Footer Actions -->
+<div class="flex items-center justify-between pt-space-xs">
+<div class="flex items-center gap-space-xs">
+<button class="flex items-center gap-space-xs px-space-sm h-7 rounded hover:bg-surface-container text-outline hover:text-on-surface transition-colors font-label-code-sm text-label-code-sm">
+<span class="material-symbols-outlined text-[16px]">mic</span>
+<span>Ready (Whisper V3)</span>
+</button>
+<button class="flex items-center gap-space-xs px-space-sm h-7 rounded hover:bg-surface-container text-outline hover:text-on-surface transition-colors font-label-code-sm text-label-code-sm">
+<span class="material-symbols-outlined text-[16px]">terminal</span>
+<span>Bash Sandbox</span>
+</button>
+</div>
+<div class="flex items-center gap-space-sm">
+<span class="font-label-code-sm text-label-code-sm text-outline hidden sm:inline">Ctrl + Enter to send</span>
+<button class="w-7 h-7 rounded bg-primary text-on-primary flex items-center justify-center hover:bg-primary/90 transition-colors">
+<span class="material-symbols-outlined text-[16px]">send</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Column 3: Split Canvas / Live Code View & Inspector Panel (Right 5 cols) -->
+<aside class="col-span-12 xl:col-span-5 bg-surface-container-lowest flex flex-col h-full overflow-hidden shadow-lg">
+<!-- Split Pane Head / Multi-Deck Tabs -->
+<div class="h-10 px-space-md bg-surface-container-low flex items-center justify-between shadow-sm">
+<div class="flex items-center h-full">
+<button class="h-full px-space-md flex items-center gap-space-xs bg-surface-container-lowest text-primary font-headline-sm text-body-sm font-semibold shadow-sm">
+<span class="material-symbols-outlined text-[16px]">code</span>
+<span>Canvas / Code View</span>
+<span class="w-1.5 h-1.5 rounded-full bg-primary ml-1"></span>
+</button>
+<button class="h-full px-space-md flex items-center gap-space-xs text-outline hover:text-on-surface font-body-sm text-body-sm transition-colors">
+<span class="material-symbols-outlined text-[16px]">analytics</span>
+<span>Runtime Inspector</span>
+</button>
+</div>
+<div class="flex items-center gap-space-xs">
+<button class="p-space-xs text-on-surface-variant hover:text-on-surface rounded" title="Pop Out Window"><span class="material-symbols-outlined text-[18px]">open_in_new</span></button>
+<button class="p-space-xs text-on-surface-variant hover:text-on-surface rounded" title="Split Horizontal"><span class="material-symbols-outlined text-[18px]">splitscreen</span></button>
+</div>
+</div>
+<!-- File Meta & Sub-Deck Tabs -->
+<div class="px-space-md py-space-sm bg-surface-container flex flex-wrap items-center justify-between gap-space-sm shadow-sm">
+<div class="flex items-center gap-space-sm min-w-0">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-[16px] text-tertiary">memory</span>
+<span class="font-label-code-md text-label-code-md text-on-surface font-bold truncate">vulkan_gemm.comp</span>
+</div>
+<span class="font-label-code-sm text-label-code-sm px-space-xs bg-surface-container-highest text-tertiary rounded flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-[12px]">done_all</span>
+<span>SPIR-V 1.3 Target Verified</span>
+</span>
+</div>
+<div class="flex items-center gap-space-xs">
+<button class="px-space-xs py-space-xs bg-surface-container-high text-primary font-label-code-sm text-label-code-sm rounded">Editor</button>
+<button class="px-space-xs py-space-xs text-outline hover:text-on-surface font-label-code-sm text-label-code-sm rounded">Diagnostics (0)</button>
+<button class="px-space-xs py-space-xs text-outline hover:text-on-surface font-label-code-sm text-label-code-sm rounded">Dual-GPU Assembly</button>
+</div>
+</div>
+<!-- Live Code Editor Pane with Gutter & Modern Syntax Layout -->
+<div class="flex-1 overflow-auto bg-surface-container-lowest font-label-code-sm text-label-code-sm flex">
+<!-- Line Numbers Gutter -->
+<div class="py-space-md px-space-sm bg-surface-container-lowest text-outline select-none text-right font-mono flex flex-col gap-0.5 w-12 flex-shrink-0">
+<span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span>
+<span>11</span><span>12</span><span>13</span><span>14</span><span>15</span><span>16</span><span>17</span><span>18</span><span>19</span><span>20</span>
+<span>21</span><span>22</span><span>23</span><span>24</span><span>25</span><span>26</span><span>27</span><span>28</span><span>29</span><span>30</span>
+</div>
+<!-- Code Content -->
+<div class="py-space-md px-space-md text-on-surface overflow-x-auto flex-1 font-mono leading-5 space-y-0.5">
+<div><span class="text-primary">#version</span> <span class="text-secondary">450</span> core</div>
+<div><span class="text-primary">#extension</span> GL_KHR_shader_subgroup_arithmetic : <span class="text-tertiary">enable</span></div>
+<div><span class="text-primary">#extension</span> GL_EXT_shader_explicit_arithmetic_types_float16 : <span class="text-tertiary">enable</span></div>
+<div class="text-outline">// Heterogeneous Vulkan Compute GEMM Kernel for Workstation Dual RX 9070</div>
+<div><span class="text-secondary">layout</span>(local_size_x = 16, local_size_y = 16, local_size_z = 1) <span class="text-primary">in</span>;</div>
+<div class="h-3"></div>
+<div><span class="text-secondary">layout</span>(push_constant) <span class="text-tertiary">uniform</span> PushConsts {</div>
+<div>  <span class="text-on-surface">uint</span> M; <span class="text-outline">// Matrix Rows</span></div>
+<div>  <span class="text-on-surface">uint</span> N; <span class="text-outline">// Matrix Columns</span></div>
+<div>  <span class="text-on-surface">uint</span> K; <span class="text-outline">// Inner Dimension</span></div>
+<div>  <span class="text-on-surface">float</span> alpha;</div>
+<div>} consts;</div>
+<div class="h-3"></div>
+<div><span class="text-secondary">layout</span>(std430, set = 0, binding = 0) <span class="text-tertiary">readonly buffer</span> SMatrixA { <span class="text-on-surface">float</span> dataA[]; };</div>
+<div><span class="text-secondary">layout</span>(std430, set = 0, binding = 1) <span class="text-tertiary">readonly buffer</span> SMatrixB { <span class="text-on-surface">float</span> dataB[]; };</div>
+<div><span class="text-secondary">layout</span>(std430, set = 0, binding = 2) <span class="text-tertiary">writeonly buffer</span> SMatrixC { <span class="text-on-surface">float</span> dataC[]; };</div>
+<div class="h-3"></div>
+<div><span class="text-secondary">shared float</span> tileA[16][16];</div>
+<div><span class="text-secondary">shared float</span> tileB[16][16];</div>
+<div class="h-3"></div>
+<div><span class="text-primary">void</span> <span class="text-primary-container font-semibold">main</span>() {</div>
+<div>  <span class="text-on-surface">uint</span> globalRow = gl_GlobalInvocationID.y;</div>
+<div>  <span class="text-on-surface">uint</span> globalCol = gl_GlobalInvocationID.x;</div>
+<div>  <span class="text-on-surface">float</span> acc = 0.0;</div>
+<div>  <span class="text-on-surface">uint</span> numTiles = (consts.K + 15) / 16;</div>
+<div class="h-3"></div>
+<div>  <span class="text-primary">for</span> (<span class="text-on-surface">uint</span> t = 0; t &lt; numTiles; ++t) {</div>
+<div>    tileA[gl_LocalInvocationID.y][gl_LocalInvocationID.x] = dataA[globalRow * consts.K + (t * 16 + gl_LocalInvocationID.x)];</div>
+<div>    tileB[gl_LocalInvocationID.y][gl_LocalInvocationID.x] = dataB[(t * 16 + gl_LocalInvocationID.y) * consts.N + globalCol];</div>
+<div>    <span class="text-tertiary">memoryBarrierShared</span>(); <span class="text-tertiary">barrier</span>();</div>
+<div>    <span class="text-primary">for</span> (<span class="text-on-surface">int</span> k = 0; k &lt; 16; ++k) acc += tileA[gl_LocalInvocationID.y][k] * tileB[k][gl_LocalInvocationID.x];</div>
+<div>    <span class="text-tertiary">memoryBarrierShared</span>(); <span class="text-tertiary">barrier</span>();</div>
+<div>  }</div>
+<div>  dataC[globalRow * consts.N + globalCol] = acc * consts.alpha;</div>
+<div>}</div>
+</div>
+</div>
+<!-- Action Drawer & Hardware Execution Panel -->
+<div class="p-space-md bg-surface-container-low space-y-space-md shadow-inner">
+<!-- Interactive Actions -->
+<div class="flex flex-wrap items-center justify-between gap-space-sm">
+<div class="flex items-center gap-space-xs">
+<button class="flex items-center gap-space-xs px-space-md h-8 bg-surface-container-high hover:bg-surface-bright rounded text-on-surface font-body-sm text-body-sm font-semibold transition-colors">
+<span class="material-symbols-outlined text-[16px]">save</span>
+<span>Save to Disk</span>
+</button>
+<button class="flex items-center gap-space-xs px-space-md h-8 bg-primary text-on-primary rounded font-body-sm text-body-sm font-semibold hover:bg-primary/90 transition-colors shadow-sm">
+<span class="material-symbols-outlined text-[16px]">speed</span>
+<span>Benchmark on Dual RX 9070</span>
+</button>
+</div>
+<div class="flex items-center gap-space-xs text-outline font-label-code-sm text-label-code-sm">
+<span class="material-symbols-outlined text-[14px] text-tertiary">check</span>
+<span>Zero Validation Errors</span>
+</div>
+</div>
+<!-- Telemetry Gauges / Context Footprint on Machine -->
+<div class="p-space-sm rounded bg-surface-container space-y-space-sm">
+<div class="flex items-center justify-between">
+<span class="font-label-code-sm text-label-code-sm text-outline uppercase tracking-wider">Active Workspace VRAM Allocation</span>
+<span class="font-label-code-sm text-label-code-sm text-primary font-bold">24.2 / 32.0 GB (75.6%)</span>
+</div>
+<div class="h-2 w-full bg-surface-container-highest rounded overflow-hidden flex">
+<div class="h-full bg-primary" style="width: 54%" title="Qwen3.8-27B Weights (17.4 GB)"></div>
+<div class="h-full bg-tertiary" style="width: 21%" title="Context KV Cache &amp; Shaders (6.8 GB)"></div>
+<div class="h-full bg-surface-bright flex-1" title="Remaining Headroom"></div>
+</div>
+<div class="flex items-center justify-between font-label-code-sm text-label-code-sm text-outline">
+<span class="flex items-center gap-1"><span class="w-2 h-2 rounded bg-primary"></span> Weights (17.4 GB)</span>
+<span class="flex items-center gap-1"><span class="w-2 h-2 rounded bg-tertiary"></span> Context KV (6.8 GB)</span>
+<span class="text-on-surface-variant font-medium">Headroom: 7.8 GB</span>
+</div>
+</div>
+</div>
+</aside>
+</div>
+<!-- Interactive Model Switcher Script -->
+<script>
+    const modelBtn = document.getElementById('modelDropdownBtn');
+    const modelMenu = document.getElementById('modelDropdownMenu');
+    if (modelBtn && modelMenu) {
+      modelBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        modelMenu.classList.toggle('hidden');
+      });
+      document.addEventListener('click', (e) => {
+        if (!modelMenu.contains(e.target) && !modelBtn.contains(e.target)) {
+          modelMenu.classList.add('hidden');
+        }
+      });
+    }
+  </script>
+</div></main><footer class="fixed bottom-0 left-72 right-0 h-8 bg-surface-container-lowest z-40 px-margin flex items-center justify-between font-label-code-sm text-label-code-sm text-on-surface-variant shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="flex items-center gap-space-lg truncate"><div class="flex items-center gap-space-xs"><span class="text-outline">RUNTIME:</span><span class="text-on-surface">llama.cpp b6821 (Vulkan)</span></div><div class="hidden lg:flex items-center gap-space-xs"><span class="text-outline">MODEL:</span><span class="text-on-surface font-semibold">Qwen3.8-27B-Instruct</span></div><div class="flex items-center gap-space-xs"><span class="text-outline">SPEED:</span><span class="text-tertiary font-bold">42.4 tok/s</span></div><div class="flex items-center gap-space-xs"><span class="text-outline">CONTEXT:</span><span class="text-on-surface">14.2k / 32k</span></div></div><div class="flex items-center gap-space-lg"><div class="hidden sm:flex items-center gap-space-xs"><span class="text-outline">LOCAL API:</span><span class="text-primary hover:underline cursor-pointer">http://127.0.0.1:5200/v1</span></div><div class="flex items-center gap-space-xs"><span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span><span class="text-tertiary font-medium">STRICT LOCAL</span><span class="text-outline hidden md:inline">(Zero Cloud Telemetry)</span></div></div></footer></div></body></html>

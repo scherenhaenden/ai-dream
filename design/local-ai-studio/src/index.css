@@ -1,0 +1,84 @@
+@import "tailwindcss";
+
+@theme {
+  --color-surface: #0e131d;
+  --color-surface-dim: #0e131d;
+  --color-surface-bright: #343944;
+  --color-surface-container-lowest: #090e18;
+  --color-surface-container-low: #171c26;
+  --color-surface-container: #1b202a;
+  --color-surface-container-high: #252a35;
+  --color-surface-container-highest: #303540;
+  --color-surface-variant: #303540;
+  --color-on-surface: #dee2f1;
+  --color-on-surface-variant: #c2c6d6;
+  --color-outline: #8c909f;
+  --color-outline-variant: #424754;
+  --color-surface-tint: #adc6ff;
+  --color-primary: #adc6ff;
+  --color-on-primary: #002e6a;
+  --color-primary-container: #4d8eff;
+  --color-on-primary-container: #00285d;
+  --color-primary-fixed: #d8e2ff;
+  --color-primary-fixed-dim: #adc6ff;
+  --color-secondary: #c0c1ff;
+  --color-on-secondary: #1000a9;
+  --color-secondary-container: #3131c0;
+  --color-on-secondary-container: #b0b2ff;
+  --color-tertiary: #4edea3;
+  --color-on-tertiary: #003824;
+  --color-tertiary-container: #00a572;
+  --color-on-tertiary-container: #00311f;
+  --color-error: #ffb4ab;
+  --color-on-error: #690005;
+  --color-error-container: #93000a;
+  --color-on-error-container: #ffdad6;
+  --color-background: #0e131d;
+  --color-on-background: #dee2f1;
+
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+@layer base {
+  * {
+    border-color: #424754;
+  }
+  body {
+    background-color: #0e131d;
+    color: #dee2f1;
+    font-family: 'Inter', sans-serif;
+  }
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #090e18;
+}
+::-webkit-scrollbar-thumb {
+  background: #252a35;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #303540;
+}
+
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 18px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+}

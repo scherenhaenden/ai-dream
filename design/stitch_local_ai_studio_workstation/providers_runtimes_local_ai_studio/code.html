@@ -1,0 +1,935 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><meta content="web_dashboard" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/><link href="https://fonts.googleapis.com" rel="preconnect"/><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config={darkMode:"class",theme:{extend:{colors:{"on-error-container":"#ffdad6","inverse-on-surface":"#2b303b","on-secondary-container":"#b0b2ff","surface-container-high":"#252a35","surface-container-low":"#171c26","on-tertiary-fixed":"#002113","on-background":"#dee2f1","on-secondary-fixed":"#07006c","tertiary-fixed-dim":"#4edea3","tertiary-container":"#00a572","surface-dim":"#0e131d","on-tertiary":"#003824","surface-tint":"#adc6ff","on-tertiary-fixed-variant":"#005236","tertiary-fixed":"#6ffbbe","inverse-surface":"#dee2f1","inverse-primary":"#005ac2","on-primary":"#002e6a","on-surface-variant":"#c2c6d6","on-primary-fixed":"#001a42","secondary-fixed-dim":"#c0c1ff","error-container":"#93000a","background":"#0e131d","on-secondary-fixed-variant":"#2f2ebe","surface-container":"#1b202a","on-primary-fixed-variant":"#004395","error":"#ffb4ab","on-tertiary-container":"#00311f","on-error":"#690005","primary-fixed":"#d8e2ff","surface-container-highest":"#303540","surface":"#0e131d","surface-bright":"#343944","surface-variant":"#303540","secondary-fixed":"#e1e0ff","surface-container-lowest":"#090e18","on-primary-container":"#00285d","secondary-container":"#3131c0","outline-variant":"#424754","primary":"#adc6ff","tertiary":"#4edea3","primary-container":"#4d8eff","outline":"#8c909f","on-secondary":"#1000a9","secondary":"#c0c1ff","on-surface":"#dee2f1","primary-fixed-dim":"#adc6ff"},borderRadius:{"DEFAULT":"0.125rem","lg":"0.25rem","xl":"0.5rem","full":"0.75rem"},spacing:{"space-lg":"0.75rem","margin":"0.75rem","space-xl":"1rem","gutter":"0.5rem","gutter-compact":"0.25rem","margin-dense":"0.5rem","space-md":"0.5rem","space-xs":"0.125rem","space-sm":"0.25rem"},fontFamily:{"label-code-sm":["JetBrains Mono"],"label-code-lg":["JetBrains Mono"],"body-sm":["Inter"],"headline-sm":["Inter"],"metric-display":["JetBrains Mono"],"headline-lg":["Inter"],"body-md":["Inter"],"body-lg":["Inter"],"label-code-md":["JetBrains Mono"],"headline-md":["Inter"]},fontSize:{"label-code-sm":["0.6875rem",{"lineHeight":"0.875rem","letterSpacing":"0.01em","fontWeight":"500"}],"label-code-lg":["0.875rem",{"lineHeight":"1.25rem","letterSpacing":"-0.01em","fontWeight":"500"}],"body-sm":["0.75rem",{"lineHeight":"1.125rem","letterSpacing":"0.005em","fontWeight":"400"}],"headline-sm":["1rem",{"lineHeight":"1.375rem","letterSpacing":"-0.01em","fontWeight":"600"}],"metric-display":["1.125rem",{"lineHeight":"1.25rem","letterSpacing":"-0.03em","fontWeight":"700"}],"headline-lg":["1.5rem",{"lineHeight":"1.875rem","letterSpacing":"-0.02em","fontWeight":"600"}],"body-md":["0.8125rem",{"lineHeight":"1.25rem","letterSpacing":"0em","fontWeight":"400"}],"body-lg":["0.875rem",{"lineHeight":"1.375rem","letterSpacing":"0em","fontWeight":"400"}],"label-code-md":["0.75rem",{"lineHeight":"1rem","letterSpacing":"0em","fontWeight":"500"}],"headline-md":["1.25rem",{"lineHeight":"1.625rem","letterSpacing":"-0.015em","fontWeight":"600"}]}}}};</script></head><body class="bg-surface font-body-md text-on-surface antialiased selection:bg-primary selection:text-on-primary"><aside class="fixed left-0 top-0 h-full w-72 bg-surface-container-lowest z-50 flex flex-col justify-between overflow-hidden shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="flex flex-col flex-1 min-h-0"><div class="h-14 px-margin flex items-center justify-between bg-surface-container-low"><div class="flex items-center gap-space-md min-w-0"><img alt="Brand logo. - Primary color: #3b82f6
+- Font: inter
+- Mode: dark
+- Roundness: rounded-sm
+" class="h-8 w-auto object-contain" src="https://lh3.googleusercontent.com/aida/AEtjO1VAfHH7GfreRXb-FAFlD5GjgYrHHMJ020NFfjZKTCMCY5TAQt3wxzxcZa9fC5VFHtRVp6jBx65O4AJSiq00zqSR0o3hdMG2B-BhddcS0i5JmafhurXKcS7gwNUpGoGCG7jW1aaOfto9ScTnFDJfiqVJDJgNZmrm1KYNz7CIzHQxNbb0AkOLA5GfqkfxqnFhiQyTM-lej87JFVErGtkVPMcptpKE-DbJIHECTt8BiR1ODPPccYb5bvbmUztB"/><div class="flex flex-col min-w-0"><div class="flex items-center gap-space-xs"><span class="font-headline-sm text-headline-sm text-on-surface tracking-tight truncate">Local AI Studio</span><span class="font-label-code-sm text-label-code-sm px-space-xs py-space-xs bg-surface-container-high text-primary rounded">v1.6.0</span></div><div class="flex items-center gap-space-xs"><span class="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse"></span><span class="font-label-code-sm text-label-code-sm text-on-surface-variant truncate">Workstation Local Node</span></div></div></div></div><div class="flex-1 overflow-y-auto px-space-md py-space-md space-y-space-lg"><nav class="space-y-space-lg" data-active-classes="bg-surface-container-high text-primary font-semibold"><div class="space-y-space-xs"><div class="px-space-md font-label-code-sm text-label-code-sm uppercase tracking-wider text-outline">Workspace</div><a class="flex items-center justify-between px-space-md py-space-sm rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors group" data-path="chat" href="#"><div class="flex items-center gap-space-md min-w-0"><span class="material-symbols-outlined text-[18px]">chat</span><span class="font-body-md text-body-md truncate">Chat</span></div><span class="font-label-code-sm text-label-code-sm px-space-xs bg-tertiary/10 text-tertiary rounded">Active Qwen3.8</span></a><a class="flex items-center justify-between px-space-md py-space-sm rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors group" data-path="models" href="#"><div class="flex items-center gap-space-md min-w-0"><span class="material-symbols-outlined text-[18px]">neurology</span><span class="font-body-md text-body-md truncate">Models</span></div><span class="font-label-code-sm text-label-code-sm text-outline">Library</span></a><a class="flex items-center justify-between px-space-md py-space-sm rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors group" data-path="knowledge" href="#"><div class="flex items-center gap-space-md min-w-0"><span class="material-symbols-outlined text-[18px]">database</span><span class="font-body-md text-body-md truncate">Knowledge</span></div><span class="font-label-code-sm text-label-code-sm text-outline">RAG</span></a></div><div class="space-y-space-xs"><div class="px-space-md font-label-code-sm text-label-code-sm uppercase tracking-wider text-outline">System</div><a class="flex items-center justify-between px-space-md py-space-sm rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors group" data-path="hardware" href="#"><div class="flex items-center gap-space-md min-w-0"><span class="material-symbols-outlined text-[18px]">memory</span><span class="font-body-md text-body-md truncate">Hardware</span></div><span class="font-label-code-sm text-label-code-sm text-on-surface-variant">2 GPU</span></a><a class="flex items-center justify-between px-space-md py-space-sm rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors group" data-path="providers-and-runtimes" href="#"><div class="flex items-center gap-space-md min-w-0"><span class="material-symbols-outlined text-[18px]">hub</span><span class="font-body-md text-body-md truncate">Providers &amp; Runtimes</span></div></a><a class="flex items-center justify-between px-space-md py-space-sm rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors group" data-path="downloads" href="#"><div class="flex items-center gap-space-md min-w-0"><span class="material-symbols-outlined text-[18px]">download</span><span class="font-body-md text-body-md truncate">Downloads</span></div></a></div><div class="space-y-space-xs"><div class="px-space-md font-label-code-sm text-label-code-sm uppercase tracking-wider text-outline">Developer</div><a class="flex items-center justify-between px-space-md py-space-sm rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors group" data-path="local-api" href="#"><div class="flex items-center gap-space-md min-w-0"><span class="material-symbols-outlined text-[18px]">terminal</span><span class="font-body-md text-body-md truncate">Local API</span></div><span class="font-label-code-sm text-label-code-sm text-primary">/v1</span></a><a class="flex items-center justify-between px-space-md py-space-sm rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors group" data-path="tools-and-permissions" href="#"><div class="flex items-center gap-space-md min-w-0"><span class="material-symbols-outlined text-[18px]">shield</span><span class="font-body-md text-body-md truncate">Tools &amp; Permissions</span></div></a><a class="flex items-center justify-between px-space-md py-space-sm rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors group" data-path="logs-and-traces" href="#"><div class="flex items-center gap-space-md min-w-0"><span class="material-symbols-outlined text-[18px]">monitoring</span><span class="font-body-md text-body-md truncate">Logs &amp; Traces</span></div></a></div></nav></div></div><div class="p-space-md bg-surface-container-low space-y-space-md"><div class="p-space-sm rounded bg-surface-container-lowest space-y-space-xs"><div class="flex items-center justify-between"><span class="font-label-code-sm text-label-code-sm text-outline">DAEMON STACK</span><span class="font-label-code-sm text-label-code-sm text-tertiary">ONLINE</span></div><p class="font-label-code-sm text-label-code-sm text-on-surface-variant truncate">llama-server • API Server • Vector DB</p></div><div class="p-space-sm rounded bg-surface-container-lowest space-y-space-sm"><div class="space-y-space-xs"><div class="flex justify-between items-center font-label-code-sm text-label-code-sm"><span class="text-on-surface">GPU 0 (RX 9070)</span><span class="text-primary">14.2 / 16 GB</span></div><div class="h-1.5 w-full bg-surface-container-high rounded overflow-hidden"><div class="h-full bg-primary rounded" style="width: 88.75%"></div></div></div><div class="space-y-space-xs"><div class="flex justify-between items-center font-label-code-sm text-label-code-sm"><span class="text-on-surface">GPU 1 (RX 9070)</span><span class="text-primary">7.8 / 16 GB</span></div><div class="h-1.5 w-full bg-surface-container-high rounded overflow-hidden"><div class="h-full bg-primary rounded" style="width: 48.75%"></div></div></div><div class="space-y-space-xs"><div class="flex justify-between items-center font-label-code-sm text-label-code-sm"><span class="text-on-surface">HOST RAM</span><span class="text-on-surface-variant">28.4 / 64 GB</span></div><div class="h-1.5 w-full bg-surface-container-high rounded overflow-hidden"><div class="h-full bg-on-surface-variant rounded" style="width: 44.37%"></div></div></div></div><div class="flex items-center justify-between pt-space-xs"><a class="flex items-center gap-space-xs font-body-sm text-body-sm text-on-surface-variant hover:text-on-surface transition-colors" data-path="settings" href="#"><span class="material-symbols-outlined text-[18px]">settings</span><span>Settings</span></a><a class="flex items-center gap-space-xs font-body-sm text-body-sm text-on-surface-variant hover:text-on-surface transition-colors" data-path="profiles" href="#"><span class="material-symbols-outlined text-[18px]">manage_accounts</span><span>Profiles</span></a></div></div></aside><div class="pl-72"><header class="fixed top-0 left-72 right-0 h-14 bg-surface/90 backdrop-blur-xl z-40 px-margin flex items-center justify-between gap-space-md shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="flex items-center gap-space-lg min-w-0"><div class="flex items-center gap-space-xs text-on-surface-variant font-label-code-md text-label-code-md"><span class="text-outline">LOCAL_NODE</span><span class="text-outline">/</span><span class="text-primary font-semibold truncate">WORKSPACE</span></div><div class="relative flex items-center"><span class="material-symbols-outlined absolute left-space-sm text-[16px] text-outline pointer-events-none">search</span><input class="w-60 h-8 pl-8 pr- space-lg bg-surface-container-lowest text-on-surface font-body-sm text-body-sm placeholder:text-outline rounded focus:outline-none focus:ring-1 focus:ring-primary" placeholder="Command palette (Ctrl+K)" readonly="" type="text"/><div class="absolute right-space-sm px-space-xs py-space-xs bg-surface-container-high rounded font-label-code-sm text-label-code-sm text-outline">Ctrl+K</div></div></div><div class="flex items-center gap-space-md"><div class="flex items-center gap-space-sm px-space-md h-8 bg-surface-container-low rounded cursor-pointer hover:bg-surface-container transition-colors"><span class="material-symbols-outlined text-[16px] text-primary">smart_toy</span><span class="font-label-code-md text-label-code-md text-on-surface font-semibold">Qwen3.8-27B</span><span class="font-label-code-sm text-label-code-sm text-outline hidden md:inline">(Local · llama.cpp Vulkan)</span><span class="font-label-code-sm text-label-code-sm px-space-xs py-space-xs bg-surface-container-highest text-tertiary rounded">[LOCAL - Machine Only]</span><span class="material-symbols-outlined text-[14px] text-outline">expand_more</span></div><div class="flex items-center gap-space-xs px-space-sm h-8 bg-surface-container-low rounded"><span class="w-2 h-2 rounded-full bg-tertiary"></span><span class="font-label-code-sm text-label-code-sm text-on-surface font-mono">API :5200 Active</span></div><button class="flex items-center gap-space-xs px-space-md h-8 bg-primary text-on-primary font-body-sm text-body-sm font-semibold rounded hover:bg-primary/90 transition-colors"><span class="material-symbols-outlined text-[16px]">add</span><span>Load Model</span></button><button class="flex items-center justify-center w-8 h-8 rounded bg-surface-container-low text-on-surface-variant hover:text-on-surface transition-colors" title="System Status Drawer"><span class="material-symbols-outlined text-[18px]">tune</span></button><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div></div></header><main class="relative pt-14 pb-8 bg-surface min-h-[calc(100vh-2rem)]"><div class="flex flex-col w-full">
+<div class="p-space-lg max-w-7xl mx-auto w-full space-y-space-xl">
+<div class="flex flex-col md:flex-row md:items-end justify-between gap-space-md">
+<div class="space-y-space-xs min-w-0">
+<div class="flex items-center gap-space-xs font-label-code-sm text-label-code-sm text-primary uppercase tracking-wider">
+<span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
+<span>Engine Subsystem · Compute Bus</span>
+</div>
+<h1 class="font-headline-lg text-headline-lg text-on-surface tracking-tight">AI Providers &amp; Runtimes</h1>
+<p class="font-body-md text-body-md text-on-surface-variant max-w-3xl">
+          Manage local compute backends, OpenAI-compatible local servers, and optional remote cloud connections. Strict local privacy enforcement.
+        </p>
+</div>
+<div class="flex items-center gap-space-sm shrink-0">
+<button class="flex items-center gap-space-xs px-space-md h-8 bg-surface-container-high hover:bg-surface-bright text-on-surface font-body-sm text-body-sm font-semibold rounded transition-colors shadow-sm" id="rescan-btn" onclick="rescanAll()">
+<span class="material-symbols-outlined text-[16px] text-tertiary" id="rescan-icon">refresh</span>
+<span>Rescan Daemons</span>
+</button>
+<button class="flex items-center gap-space-xs px-space-md h-8 bg-primary hover:bg-primary-container text-on-primary font-body-sm text-body-sm font-semibold rounded transition-colors shadow-sm" onclick="openModal('add-server-modal')">
+<span class="material-symbols-outlined text-[16px]">add_link</span>
+<span>Register Endpoint</span>
+</button>
+</div>
+</div>
+<div class="relative overflow-hidden rounded bg-surface-container-lowest p-space-md flex flex-col sm:flex-row sm:items-center justify-between gap-space-md shadow-sm">
+<div class="absolute inset-y-0 left-0 w-1 bg-tertiary"></div>
+<div class="flex items-start sm:items-center gap-space-md min-w-0">
+<div class="w-8 h-8 rounded bg-tertiary/10 text-tertiary flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-[18px]">verified_user</span>
+</div>
+<div class="space-y-space-xs min-w-0">
+<div class="flex items-center gap-space-xs flex-wrap">
+<span class="font-label-code-sm text-label-code-sm font-bold text-tertiary uppercase tracking-wider">PRIVACY MODE: STRICT LOCAL FIRST</span>
+<span class="font-label-code-sm text-label-code-sm px-space-xs bg-surface-container-high text-on-surface-variant rounded">HARDWARE ENFORCED</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant truncate">
+            Cloud providers are disabled from auto-fallback unless explicitly enabled per session. Outbound network traffic is firewalled by node daemon.
+          </p>
+</div>
+</div>
+<div class="flex items-center gap-space-xs shrink-0 self-end sm:self-center font-label-code-sm text-label-code-sm text-tertiary bg-surface-container px-space-sm py-space-xs rounded">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>
+<span>0 Byte Exfiltration</span>
+</div>
+</div>
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-space-md">
+<div class="p-space-md rounded bg-surface-container-low shadow-sm flex items-center justify-between">
+<div class="space-y-space-xs">
+<span class="font-label-code-sm text-label-code-sm uppercase tracking-wider text-outline">Compute Backend</span>
+<div class="flex items-center gap-space-xs">
+<span class="font-metric-display text-metric-display text-on-surface">llama.cpp b6821</span>
+<span class="font-label-code-sm text-label-code-sm px-space-xs bg-tertiary/15 text-tertiary rounded">ACTIVE</span>
+</div>
+<span class="font-label-code-sm text-label-code-sm text-on-surface-variant">ROCm 6.2 + Vulkan Direct</span>
+</div>
+<div class="w-12 h-12 rounded bg-surface-container-highest flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[24px]">terminal</span>
+</div>
+</div>
+<div class="p-space-md rounded bg-surface-container-low shadow-sm flex items-center justify-between">
+<div class="space-y-space-xs">
+<span class="font-label-code-sm text-label-code-sm uppercase tracking-wider text-outline">Loaded Context Engine</span>
+<div class="flex items-center gap-space-xs">
+<span class="font-metric-display text-metric-display text-tertiary">42.4 tok/s</span>
+<span class="font-label-code-sm text-label-code-sm text-outline">Qwen3.8-27B</span>
+</div>
+<span class="font-label-code-sm text-label-code-sm text-on-surface-variant">22.0 / 32 GB VRAM Alloc</span>
+</div>
+<div class="w-12 h-12 rounded bg-surface-container-highest flex items-center justify-center text-tertiary">
+<span class="material-symbols-outlined text-[24px]">speed</span>
+</div>
+</div>
+<div class="p-space-md rounded bg-surface-container-low shadow-sm flex items-center justify-between">
+<div class="space-y-space-xs">
+<span class="font-label-code-sm text-label-code-sm uppercase tracking-wider text-outline">Keyring State</span>
+<div class="flex items-center gap-space-xs">
+<span class="font-metric-display text-metric-display text-on-surface">libsecret: GnuPG</span>
+</div>
+<span class="font-label-code-sm text-label-code-sm text-on-surface-variant">2 Keys Locked · Zero Cloud Sync</span>
+</div>
+<div class="w-12 h-12 rounded bg-surface-container-highest flex items-center justify-center text-secondary">
+<span class="material-symbols-outlined text-[24px]">key</span>
+</div>
+</div>
+</div>
+<section class="space-y-space-md">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-sm">
+<span class="font-label-code-sm text-label-code-sm text-primary font-bold">01/</span>
+<h2 class="font-headline-md text-headline-md text-on-surface">Local Runtimes</h2>
+<span class="font-label-code-sm text-label-code-sm px-space-xs py-space-xs bg-surface-container-high text-on-surface-variant rounded">Core Engine</span>
+</div>
+<span class="font-label-code-sm text-label-code-sm text-outline">Low-latency C++ &amp; Python daemons directly on host hardware</span>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-space-md">
+<div class="p-space-lg rounded bg-surface-container-low shadow-md space-y-space-md relative flex flex-col justify-between">
+<div class="space-y-space-md">
+<div class="flex items-start justify-between">
+<div class="flex items-center gap-space-sm">
+<div class="w-9 h-9 rounded bg-primary/10 text-primary flex items-center justify-center">
+<span class="material-symbols-outlined text-[20px]">neurology</span>
+</div>
+<div>
+<h3 class="font-headline-sm text-headline-sm text-on-surface">llama.cpp</h3>
+<span class="font-label-code-sm text-label-code-sm text-outline">v6821 · Native C/C++</span>
+</div>
+</div>
+<span class="flex items-center gap-space-xs px-space-xs py-space-xs bg-tertiary/15 text-tertiary rounded font-label-code-sm text-label-code-sm font-semibold">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>
+                RUNNING
+              </span>
+</div>
+<div class="p-space-sm rounded bg-surface-container-lowest font-label-code-sm text-label-code-sm space-y-space-xs text-on-surface-variant">
+<div class="flex justify-between">
+<span class="text-outline">Process ID:</span>
+<span class="text-on-surface font-semibold">PID 48201</span>
+</div>
+<div class="flex justify-between">
+<span class="text-outline">Backend:</span>
+<span class="text-primary font-medium">Vulkan &amp; ROCm dual GPU</span>
+</div>
+<div class="flex justify-between">
+<span class="text-outline">Active Model:</span>
+<span class="text-tertiary font-medium truncate max-w-[140px]">Qwen3.8-27B</span>
+</div>
+<div class="flex justify-between">
+<span class="text-outline">Inter-Process:</span>
+<span class="text-on-surface font-mono">IPC Direct / Unix Socket</span>
+</div>
+</div>
+<div class="space-y-space-xs">
+<div class="flex justify-between font-label-code-sm text-label-code-sm">
+<span class="text-outline">GPU Utilization Aggregated</span>
+<span class="text-primary font-mono">68.7%</span>
+</div>
+<div class="h-1.5 w-full bg-surface-container-highest rounded overflow-hidden">
+<div class="h-full bg-primary rounded" style="width: 68.7%"></div>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-space-xs pt-space-sm">
+<button class="flex-1 py-1.5 px-space-sm bg-surface-container-high hover:bg-surface-bright text-on-surface text-center rounded font-label-code-sm text-label-code-sm font-semibold transition-colors" onclick="openModal('configure-llamacpp-modal')">
+              Configure
+            </button>
+<button class="py-1.5 px-space-sm bg-surface-container-high hover:bg-surface-bright text-on-surface-variant hover:text-on-surface rounded font-label-code-sm text-label-code-sm transition-colors" onclick="triggerFeedback('Restarting llama.cpp daemon (PID 48201)...')">
+              Restart
+            </button>
+<button class="py-1.5 px-space-sm bg-surface-container-high hover:bg-surface-bright text-on-surface-variant hover:text-on-surface rounded font-label-code-sm text-label-code-sm transition-colors" onclick="openModal('logs-modal')">
+              Logs
+            </button>
+</div>
+</div>
+<div class="p-space-lg rounded bg-surface-container-low shadow-md space-y-space-md relative flex flex-col justify-between">
+<div class="space-y-space-md">
+<div class="flex items-start justify-between">
+<div class="flex items-center gap-space-sm">
+<div class="w-9 h-9 rounded bg-surface-container-highest text-on-surface flex items-center justify-center">
+<span class="material-symbols-outlined text-[20px]">bolt</span>
+</div>
+<div>
+<h3 class="font-headline-sm text-headline-sm text-on-surface">vLLM</h3>
+<span class="font-label-code-sm text-label-code-sm text-outline">v0.6.2 · PagedAttention</span>
+</div>
+</div>
+<span class="flex items-center gap-space-xs px-space-xs py-space-xs bg-surface-container-highest text-on-surface-variant rounded font-label-code-sm text-label-code-sm">
+<span class="w-1.5 h-1.5 rounded-full bg-outline"></span>
+                STANDBY
+              </span>
+</div>
+<div class="p-space-sm rounded bg-surface-container-lowest font-label-code-sm text-label-code-sm space-y-space-xs text-on-surface-variant">
+<div class="flex justify-between">
+<span class="text-outline">Environment:</span>
+<span class="text-on-surface">Python 3.11 (venv)</span>
+</div>
+<div class="flex justify-between">
+<span class="text-outline">KV Cache Optim:</span>
+<span class="text-primary font-medium">FlashAttention-2 ROCm</span>
+</div>
+<div class="flex justify-between">
+<span class="text-outline">Max Context Slot:</span>
+<span class="text-on-surface">65,536 Tokens</span>
+</div>
+<div class="flex justify-between">
+<span class="text-outline">Instance Status:</span>
+<span class="text-outline">Idle (No Process Bound)</span>
+</div>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">
+              High-throughput continuous batching server optimized for multiple concurrent agent tool calls.
+            </p>
+</div>
+<div class="pt-space-sm">
+<button class="w-full py-1.5 px-space-sm bg-primary hover:bg-primary-container text-on-primary text-center rounded font-label-code-sm text-label-code-sm font-semibold transition-colors flex items-center justify-center gap-space-xs" onclick="triggerFeedback('Spinning up vLLM ROCm container runtime...')">
+<span class="material-symbols-outlined text-[14px]">play_arrow</span>
+<span>Launch Instance</span>
+</button>
+</div>
+</div>
+<div class="p-space-lg rounded bg-surface-container-low/60 shadow-none space-y-space-md relative flex flex-col justify-between opacity-60">
+<div class="space-y-space-md">
+<div class="flex items-start justify-between">
+<div class="flex items-center gap-space-sm">
+<div class="w-9 h-9 rounded bg-surface-container-highest text-outline flex items-center justify-center">
+<span class="material-symbols-outlined text-[20px]">file_download</span>
+</div>
+<div>
+<h3 class="font-headline-sm text-headline-sm text-on-surface">MLX Framework</h3>
+<span class="font-label-code-sm text-label-code-sm text-outline">Apple Silicon Unified</span>
+</div>
+</div>
+<span class="px-space-xs py-space-xs bg-surface-container-highest text-outline rounded font-label-code-sm text-label-code-sm">
+                UNAVAILABLE
+              </span>
+</div>
+<div class="p-space-sm rounded bg-surface-container-lowest font-label-code-sm text-label-code-sm space-y-space-xs text-outline">
+<div class="flex justify-between">
+<span class="text-outline">Detected OS:</span>
+<span class="text-on-surface-variant">Linux 6.10-arch1</span>
+</div>
+<div class="flex justify-between">
+<span class="text-outline">Architecture:</span>
+<span class="text-on-surface-variant">x86_64</span>
+</div>
+<div class="flex justify-between">
+<span class="text-outline">Required HW:</span>
+<span class="text-outline">M1/M2/M3/M4 SoC</span>
+</div>
+</div>
+<p class="font-body-sm text-body-sm text-outline">
+              MLX requires macOS Darwin kernel running on Apple Silicon unified memory hardware. Disabled automatically on x86 hosts.
+            </p>
+</div>
+<div class="pt-space-sm">
+<button class="w-full py-1.5 px-space-sm bg-surface-container-highest text-outline text-center rounded font-label-code-sm text-label-code-sm cursor-not-allowed" disabled="">
+              Platform Incompatible
+            </button>
+</div>
+</div>
+</div>
+</section>
+<section class="space-y-space-md">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-sm">
+<span class="font-label-code-sm text-label-code-sm text-primary font-bold">02/</span>
+<h2 class="font-headline-md text-headline-md text-on-surface">Local Servers</h2>
+<span class="font-label-code-sm text-label-code-sm px-space-xs py-space-xs bg-surface-container-high text-on-surface-variant rounded">Network &amp; Containers</span>
+</div>
+<span class="font-label-code-sm text-label-code-sm text-outline">Standardized loopback endpoints · zero external telemetry</span>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-space-md">
+<div class="p-space-lg rounded bg-surface-container-low shadow-md space-y-space-md flex flex-col justify-between">
+<div class="space-y-space-md">
+<div class="flex items-start justify-between">
+<div class="flex items-center gap-space-sm">
+<div class="w-9 h-9 rounded bg-surface-container-highest text-on-surface flex items-center justify-center font-metric-display text-metric-display">
+<span class="material-symbols-outlined text-[20px]">dns</span>
+</div>
+<div>
+<h3 class="font-headline-sm text-headline-sm text-on-surface">Ollama</h3>
+<span class="font-label-code-sm text-label-code-sm text-outline">v0.5.4 · Go Daemon</span>
+</div>
+</div>
+<span class="flex items-center gap-space-xs px-space-xs py-space-xs bg-tertiary/15 text-tertiary rounded font-label-code-sm text-label-code-sm font-semibold">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>
+                CONNECTED
+              </span>
+</div>
+<div class="p-space-sm rounded bg-surface-container-lowest font-label-code-sm text-label-code-sm space-y-space-xs">
+<div class="flex items-center justify-between">
+<span class="text-outline">Endpoint:</span>
+<span class="text-primary font-mono truncate">http://localhost:11434</span>
+</div>
+<div class="flex items-center justify-between">
+<span class="text-outline">Discovered:</span>
+<span class="text-on-surface font-semibold">12 Models Found</span>
+</div>
+<div class="flex items-center gap-space-xs pt-space-xs flex-wrap">
+<span class="px-space-xs py-0.5 bg-surface-container text-on-surface-variant rounded">qwen3:14b</span>
+<span class="px-space-xs py-0.5 bg-surface-container text-on-surface-variant rounded">deepseek-r1:8b</span>
+<span class="px-space-xs py-0.5 bg-surface-container text-on-surface-variant rounded">nomic-embed:v1.5</span>
+</div>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">
+              Automatic sync enabled. Models downloaded through Ollama CLI are indexed automatically into local Studio catalogs.
+            </p>
+</div>
+<div class="flex items-center gap-space-xs pt-space-sm">
+<button class="flex-1 py-1.5 px-space-sm bg-surface-container-high hover:bg-surface-bright text-on-surface text-center rounded font-label-code-sm text-label-code-sm font-semibold transition-colors flex items-center justify-center gap-space-xs" onclick="triggerFeedback('Syncing Ollama model catalog cache...')">
+<span class="material-symbols-outlined text-[14px]">sync</span>
+<span>Sync Catalog</span>
+</button>
+<button class="py-1.5 px-space-sm bg-surface-container-high hover:bg-surface-bright text-on-surface-variant hover:text-error rounded font-label-code-sm text-label-code-sm transition-colors" onclick="triggerFeedback('Disconnecting Ollama endpoint...')">
+              Disconnect
+            </button>
+</div>
+</div>
+<div class="p-space-lg rounded bg-surface-container-low shadow-md space-y-space-md flex flex-col justify-between">
+<div class="space-y-space-md">
+<div class="flex items-start justify-between">
+<div class="flex items-center gap-space-sm">
+<div class="w-9 h-9 rounded bg-surface-container-highest text-on-surface flex items-center justify-center">
+<span class="material-symbols-outlined text-[20px]">science</span>
+</div>
+<div>
+<h3 class="font-headline-sm text-headline-sm text-on-surface">LM Studio</h3>
+<span class="font-label-code-sm text-label-code-sm text-outline">OpenAI Compatible</span>
+</div>
+</div>
+<span class="flex items-center gap-space-xs px-space-xs py-space-xs bg-surface-container-highest text-outline rounded font-label-code-sm text-label-code-sm">
+<span class="w-1.5 h-1.5 rounded-full bg-outline"></span>
+                OFFLINE
+              </span>
+</div>
+<div class="p-space-sm rounded bg-surface-container-lowest font-label-code-sm text-label-code-sm space-y-space-xs">
+<div class="flex items-center justify-between">
+<span class="text-outline">Endpoint:</span>
+<span class="text-on-surface-variant font-mono">http://localhost:1234/v1</span>
+</div>
+<div class="flex items-center justify-between">
+<span class="text-outline">Diagnostic:</span>
+<span class="text-error font-medium">Connection Refused (ECONNREFUSED)</span>
+</div>
+<div class="text-outline">
+                Server not started in LM Studio Developer tab.
+              </div>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">
+              Launch LM Studio on host and turn on "Start Local Inference Server" on port 1234 to bridge weights.
+            </p>
+</div>
+<div class="flex items-center gap-space-xs pt-space-sm">
+<button class="flex-1 py-1.5 px-space-sm bg-surface-container-high hover:bg-surface-bright text-on-surface text-center rounded font-label-code-sm text-label-code-sm font-semibold transition-colors flex items-center justify-center gap-space-xs" onclick="triggerFeedback('Testing connection to http://localhost:1234/v1... Connection refused.')">
+<span class="material-symbols-outlined text-[14px]">cell_tower</span>
+<span>Test Connection</span>
+</button>
+<button class="py-1.5 px-space-sm bg-surface-container-high hover:bg-surface-bright text-on-surface-variant hover:text-on-surface rounded font-label-code-sm text-label-code-sm transition-colors" onclick="openModal('add-server-modal')">
+              Edit Endpoint
+            </button>
+</div>
+</div>
+<div class="p-space-lg rounded bg-surface-container-lowest hover:bg-surface-container-low transition-colors shadow-sm flex flex-col items-center justify-center text-center gap-space-md cursor-pointer group" onclick="openModal('add-server-modal')">
+<div class="w-12 h-12 rounded-full bg-surface-container-high group-hover:bg-primary/20 group-hover:text-primary text-on-surface-variant flex items-center justify-center transition-colors">
+<span class="material-symbols-outlined text-[24px]">add</span>
+</div>
+<div class="space-y-space-xs">
+<h3 class="font-headline-sm text-headline-sm text-on-surface">Add OpenAI-Compatible Server</h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant max-w-xs">
+              Connect Aphrodite Engine, TabbyAPI, LocalAI, vLLM remote node, or custom Docker container ports.
+            </p>
+</div>
+<span class="font-label-code-sm text-label-code-sm text-primary flex items-center gap-space-xs font-semibold">
+<span>Configure Endpoint</span>
+<span class="material-symbols-outlined text-[14px]">arrow_forward</span>
+</span>
+</div>
+</div>
+</section>
+<section class="space-y-space-md">
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-space-xs">
+<div class="flex items-center gap-space-sm">
+<span class="font-label-code-sm text-label-code-sm text-primary font-bold">03/</span>
+<h2 class="font-headline-md text-headline-md text-on-surface">Cloud Providers</h2>
+<span class="font-label-code-sm text-label-code-sm px-space-xs py-space-xs bg-surface-container-high text-on-surface-variant rounded">Optional Remote</span>
+</div>
+<div class="flex items-center gap-space-xs font-label-code-sm text-label-code-sm text-on-surface-variant">
+<span class="material-symbols-outlined text-[16px] text-tertiary">lock</span>
+<span>Credentials stored securely in local OS keyring (libsecret/keychain). Never sent to analytics.</span>
+</div>
+</div>
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-space-md">
+<div class="p-space-md rounded bg-surface-container-low shadow-sm space-y-space-md flex flex-col justify-between">
+<div class="space-y-space-sm">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-sm">
+<div class="w-8 h-8 rounded bg-surface-container-highest text-primary font-metric-display flex items-center justify-center text-label-code-md">
+                  OR
+                </div>
+<div>
+<h3 class="font-headline-sm text-headline-sm text-on-surface">OpenRouter</h3>
+<span class="font-label-code-sm text-label-code-sm text-tertiary">Multi-vendor Gateway</span>
+</div>
+</div>
+<span class="px-space-xs py-0.5 bg-tertiary/15 text-tertiary rounded font-label-code-sm text-label-code-sm font-semibold">
+                CONFIGURED
+              </span>
+</div>
+<div class="p-space-sm rounded bg-surface-container-lowest font-label-code-sm text-label-code-sm space-y-space-xs">
+<div class="flex justify-between items-center">
+<span class="text-outline">API Key:</span>
+<span class="text-on-surface font-mono">••••••••••••8f3a</span>
+</div>
+<div class="flex justify-between items-center">
+<span class="text-outline">Key Credit Balance:</span>
+<span class="text-tertiary font-bold font-mono">$14.20 USD</span>
+</div>
+</div>
+<div class="flex items-center gap-space-xs flex-wrap">
+<span class="px-space-xs py-0.5 bg-surface-container text-on-surface-variant font-label-code-sm text-label-code-sm rounded">Vision</span>
+<span class="px-space-xs py-0.5 bg-surface-container text-on-surface-variant font-label-code-sm text-label-code-sm rounded">Tools</span>
+<span class="px-space-xs py-0.5 bg-surface-container text-on-surface-variant font-label-code-sm text-label-code-sm rounded">Reasoning</span>
+<span class="px-space-xs py-0.5 bg-surface-container text-on-surface-variant font-label-code-sm text-label-code-sm rounded">400+ Models</span>
+</div>
+</div>
+<div class="flex items-center gap-space-xs pt-space-xs">
+<button class="flex-1 py-1 px-space-sm bg-surface-container-high hover:bg-surface-bright text-on-surface font-label-code-sm text-label-code-sm rounded transition-colors" onclick="triggerFeedback('OpenRouter API test successful (latency 118ms)')">
+              Test Connection
+            </button>
+<button class="py-1 px-space-sm bg-surface-container-high hover:bg-surface-bright text-on-surface-variant hover:text-on-surface font-label-code-sm text-label-code-sm rounded transition-colors" onclick="openKeyModal('OpenRouter', '••••••••••••••••8f3a')">
+              Update Key
+            </button>
+</div>
+</div>
+<div class="p-space-md rounded bg-surface-container-low shadow-sm space-y-space-md flex flex-col justify-between">
+<div class="space-y-space-sm">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-sm">
+<div class="w-8 h-8 rounded bg-surface-container-highest text-on-surface font-metric-display flex items-center justify-center text-label-code-md">
+                  OA
+                </div>
+<div>
+<h3 class="font-headline-sm text-headline-sm text-on-surface">OpenAI</h3>
+<span class="font-label-code-sm text-label-code-sm text-outline">Direct Cloud API</span>
+</div>
+</div>
+<span class="px-space-xs py-0.5 bg-surface-container-highest text-outline rounded font-label-code-sm text-label-code-sm">
+                NOT CONFIGURED
+              </span>
+</div>
+<div class="p-space-sm rounded bg-surface-container-lowest font-label-code-sm text-label-code-sm space-y-space-xs">
+<div class="flex justify-between items-center">
+<span class="text-outline">API Key:</span>
+<span class="text-outline italic">No key registered</span>
+</div>
+<div class="flex justify-between items-center">
+<span class="text-outline">Keyring:</span>
+<span class="text-outline font-mono">Empty slot</span>
+</div>
+</div>
+<div class="flex items-center gap-space-xs flex-wrap">
+<span class="px-space-xs py-0.5 bg-surface-container text-on-surface-variant font-label-code-sm text-label-code-sm rounded">Vision</span>
+<span class="px-space-xs py-0.5 bg-surface-container text-on-surface-variant font-label-code-sm text-label-code-sm rounded">Tools</span>
+<span class="px-space-xs py-0.5 bg-surface-container text-on-surface-variant font-label-code-sm text-label-code-sm rounded">Reasoning (o3)</span>
+<span class="px-space-xs py-0.5 bg-surface-container text-on-surface-variant font-label-code-sm text-label-code-sm rounded">Audio</span>
+</div>
+</div>
+<div class="pt-space-xs">
+<button class="w-full py-1 px-space-sm bg-primary hover:bg-primary-container text-on-primary font-label-code-sm text-label-code-sm font-semibold rounded transition-colors flex items-center justify-center gap-space-xs" onclick="openKeyModal('OpenAI', '')">
+<span class="material-symbols-outlined text-[14px]">key</span>
+<span>Set API Key</span>
+</button>
+</div>
+</div>
+<div class="p-space-md rounded bg-surface-container-low shadow-sm space-y-space-md flex flex-col justify-between">
+<div class="space-y-space-sm">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-sm">
+<div class="w-8 h-8 rounded bg-surface-container-highest text-secondary font-metric-display flex items-center justify-center text-label-code-md">
+                  AN
+                </div>
+<div>
+<h3 class="font-headline-sm text-headline-sm text-on-surface">Anthropic</h3>
+<span class="font-label-code-sm text-label-code-sm text-tertiary">Claude 3.5 &amp; 3.7</span>
+</div>
+</div>
+<span class="px-space-xs py-0.5 bg-tertiary/15 text-tertiary rounded font-label-code-sm text-label-code-sm font-semibold">
+                CONFIGURED
+              </span>
+</div>
+<div class="p-space-sm rounded bg-surface-container-lowest font-label-code-sm text-label-code-sm space-y-space-xs">
+<div class="flex justify-between items-center">
+<span class="text-outline">API Key:</span>
+<span class="text-on-surface font-mono">••••••••••••2b91</span>
+</div>
+<div class="flex justify-between items-center">
+<span class="text-outline">Keyring Status:</span>
+<span class="text-tertiary font-medium">Valid / Secret Locked</span>
+</div>
+</div>
+<div class="flex items-center gap-space-xs flex-wrap">
+<span class="px-space-xs py-0.5 bg-surface-container text-on-surface-variant font-label-code-sm text-label-code-sm rounded">Vision</span>
+<span class="px-space-xs py-0.5 bg-surface-container text-on-surface-variant font-label-code-sm text-label-code-sm rounded">Computer Use</span>
+<span class="px-space-xs py-0.5 bg-surface-container text-on-surface-variant font-label-code-sm text-label-code-sm rounded">Tools</span>
+<span class="px-space-xs py-0.5 bg-surface-container text-on-surface-variant font-label-code-sm text-label-code-sm rounded">Artifacts</span>
+</div>
+</div>
+<div class="flex items-center gap-space-xs pt-space-xs">
+<button class="flex-1 py-1 px-space-sm bg-surface-container-high hover:bg-surface-bright text-on-surface font-label-code-sm text-label-code-sm rounded transition-colors" onclick="triggerFeedback('Anthropic API key authenticated successfully (ping 94ms)')">
+              Test
+            </button>
+<button class="py-1 px-space-sm bg-surface-container-high hover:bg-surface-bright text-on-surface-variant hover:text-on-surface font-label-code-sm text-label-code-sm rounded transition-colors" onclick="openKeyModal('Anthropic', '••••••••••••••••2b91')">
+              Manage
+            </button>
+</div>
+</div>
+<div class="p-space-md rounded bg-surface-container-low shadow-sm space-y-space-md flex flex-col justify-between">
+<div class="space-y-space-sm">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-sm">
+<div class="w-8 h-8 rounded bg-surface-container-highest text-primary font-metric-display flex items-center justify-center text-label-code-md">
+                  DS
+                </div>
+<div>
+<h3 class="font-headline-sm text-headline-sm text-on-surface">DeepSeek Cloud</h3>
+<span class="font-label-code-sm text-label-code-sm text-outline">V3 &amp; R1 Reasoning</span>
+</div>
+</div>
+<span class="px-space-xs py-0.5 bg-surface-container-highest text-outline rounded font-label-code-sm text-label-code-sm">
+                STANDBY
+              </span>
+</div>
+<div class="p-space-sm rounded bg-surface-container-lowest font-label-code-sm text-label-code-sm space-y-space-xs">
+<div class="flex justify-between items-center">
+<span class="text-outline">Mode:</span>
+<span class="text-on-surface-variant">Prefer Local R1 (8B)</span>
+</div>
+<div class="flex justify-between items-center">
+<span class="text-outline">Keyring:</span>
+<span class="text-outline">Unconfigured</span>
+</div>
+</div>
+<div class="flex items-center gap-space-xs flex-wrap">
+<span class="px-space-xs py-0.5 bg-surface-container text-on-surface-variant font-label-code-sm text-label-code-sm rounded">Reasoning</span>
+<span class="px-space-xs py-0.5 bg-surface-container text-on-surface-variant font-label-code-sm text-label-code-sm rounded">Code</span>
+<span class="px-space-xs py-0.5 bg-surface-container text-on-surface-variant font-label-code-sm text-label-code-sm rounded">FIM</span>
+</div>
+</div>
+<div class="pt-space-xs">
+<button class="w-full py-1 px-space-sm bg-surface-container-high hover:bg-surface-bright text-on-surface font-label-code-sm text-label-code-sm rounded transition-colors flex items-center justify-center gap-space-xs" onclick="openKeyModal('DeepSeek', '')">
+<span class="material-symbols-outlined text-[14px]">add</span>
+<span>Register Key</span>
+</button>
+</div>
+</div>
+<div class="p-space-md rounded bg-surface-container-low shadow-sm space-y-space-md flex flex-col justify-between">
+<div class="space-y-space-sm">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-sm">
+<div class="w-8 h-8 rounded bg-surface-container-highest text-primary font-metric-display flex items-center justify-center text-label-code-md">
+                  GO
+                </div>
+<div>
+<h3 class="font-headline-sm text-headline-sm text-on-surface">Google Gemini</h3>
+<span class="font-label-code-sm text-label-code-sm text-outline">Gemini 1.5 &amp; 2.0 Flash</span>
+</div>
+</div>
+<span class="px-space-xs py-0.5 bg-surface-container-highest text-outline rounded font-label-code-sm text-label-code-sm">
+                STANDBY
+              </span>
+</div>
+<div class="p-space-sm rounded bg-surface-container-lowest font-label-code-sm text-label-code-sm space-y-space-xs">
+<div class="flex justify-between items-center">
+<span class="text-outline">Context Limit:</span>
+<span class="text-on-surface">2,000,000 Tok</span>
+</div>
+<div class="flex justify-between items-center">
+<span class="text-outline">Keyring:</span>
+<span class="text-outline">Unconfigured</span>
+</div>
+</div>
+<div class="flex items-center gap-space-xs flex-wrap">
+<span class="px-space-xs py-0.5 bg-surface-container text-on-surface-variant font-label-code-sm text-label-code-sm rounded">Vision</span>
+<span class="px-space-xs py-0.5 bg-surface-container text-on-surface-variant font-label-code-sm text-label-code-sm rounded">Audio</span>
+<span class="px-space-xs py-0.5 bg-surface-container text-on-surface-variant font-label-code-sm text-label-code-sm rounded">Video</span>
+</div>
+</div>
+<div class="pt-space-xs">
+<button class="w-full py-1 px-space-sm bg-surface-container-high hover:bg-surface-bright text-on-surface font-label-code-sm text-label-code-sm rounded transition-colors flex items-center justify-center gap-space-xs" onclick="openKeyModal('Google Gemini', '')">
+<span class="material-symbols-outlined text-[14px]">add</span>
+<span>Register Key</span>
+</button>
+</div>
+</div>
+<div class="p-space-md rounded bg-surface-container-low shadow-sm space-y-space-md flex flex-col justify-between">
+<div class="space-y-space-sm">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-sm">
+<div class="w-8 h-8 rounded bg-surface-container-highest text-on-surface font-metric-display flex items-center justify-center text-label-code-md">
+                  MI
+                </div>
+<div>
+<h3 class="font-headline-sm text-headline-sm text-on-surface">Mistral / Grok</h3>
+<span class="font-label-code-sm text-label-code-sm text-outline">Le Chat &amp; xAI API</span>
+</div>
+</div>
+<span class="px-space-xs py-0.5 bg-surface-container-highest text-outline rounded font-label-code-sm text-label-code-sm">
+                INACTIVE
+              </span>
+</div>
+<div class="p-space-sm rounded bg-surface-container-lowest font-label-code-sm text-label-code-sm space-y-space-xs">
+<div class="flex justify-between items-center">
+<span class="text-outline">Mistral Large:</span>
+<span class="text-outline">Disabled</span>
+</div>
+<div class="flex justify-between items-center">
+<span class="text-outline">Grok 2 / Vision:</span>
+<span class="text-outline">Disabled</span>
+</div>
+</div>
+<div class="flex items-center gap-space-xs flex-wrap">
+<span class="px-space-xs py-0.5 bg-surface-container text-on-surface-variant font-label-code-sm text-label-code-sm rounded">Vision</span>
+<span class="px-space-xs py-0.5 bg-surface-container text-on-surface-variant font-label-code-sm text-label-code-sm rounded">Tools</span>
+<span class="px-space-xs py-0.5 bg-surface-container text-on-surface-variant font-label-code-sm text-label-code-sm rounded">Reasoning</span>
+</div>
+</div>
+<div class="pt-space-xs">
+<button class="w-full py-1 px-space-sm bg-surface-container-high hover:bg-surface-bright text-on-surface font-label-code-sm text-label-code-sm rounded transition-colors flex items-center justify-center gap-space-xs" onclick="openKeyModal('Mistral &amp; Grok', '')">
+<span class="material-symbols-outlined text-[14px]">tune</span>
+<span>Configure Providers</span>
+</button>
+</div>
+</div>
+</div>
+</section>
+<section class="space-y-space-md">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-sm">
+<span class="font-label-code-sm text-label-code-sm text-primary font-bold">04/</span>
+<h2 class="font-headline-md text-headline-md text-on-surface">Model Routing &amp; Fallback Policy</h2>
+</div>
+<span class="font-label-code-sm text-label-code-sm text-tertiary flex items-center gap-space-xs">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>
+<span>Zero-Leakage Guarantee Active</span>
+</span>
+</div>
+<div class="p-space-lg rounded bg-surface-container-low shadow-md space-y-space-lg">
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-space-md p-space-md rounded bg-surface-container-lowest">
+<div class="space-y-space-xs max-w-2xl">
+<div class="flex items-center gap-space-xs">
+<span class="font-headline-sm text-headline-sm text-on-surface">Allow Cloud Fallback</span>
+<span class="px-space-xs py-0.5 rounded bg-error-container text-error font-label-code-sm text-label-code-sm uppercase font-bold">Privacy Guard</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">
+              Disabled by default. Prevents accidental data leakage and unexpected cloud billing. When off, local Out-Of-Memory (OOM) errors halt inference instead of sending prompts over WAN.
+            </p>
+</div>
+<div class="flex items-center gap-space-sm shrink-0">
+<label class="relative inline-flex items-center cursor-pointer">
+<input class="sr-only peer" id="fallback-toggle" onchange="toggleFallbackPolicy(this.checked)" type="checkbox"/>
+<div class="w-11 h-6 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-on-surface after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+</label>
+<span class="font-label-code-sm text-label-code-sm text-outline font-semibold" id="fallback-status">DISABLED</span>
+</div>
+</div>
+<div class="space-y-space-sm">
+<span class="font-label-code-sm text-label-code-sm uppercase tracking-wider text-outline">Active Workstation Routing Rules</span>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-space-sm font-label-code-sm text-label-code-sm">
+<div class="p-space-md rounded bg-surface-container-lowest space-y-space-xs">
+<div class="flex items-center justify-between text-outline">
+<span>PRIMARY CHAT &amp; AGENT</span>
+<span class="text-tertiary">STRICT LOCAL</span>
+</div>
+<div class="text-on-surface font-semibold text-label-code-md">Dual RX 9070 Local</div>
+<div class="text-on-surface-variant">Engine: llama.cpp IPC · Qwen3.8-27B-Q4_K_M</div>
+<div class="pt-space-xs flex items-center gap-space-xs text-outline">
+<span class="material-symbols-outlined text-[14px]">router</span>
+<span>Direct GPU 0 · GPU 1 Split</span>
+</div>
+</div>
+<div class="p-space-md rounded bg-surface-container-lowest space-y-space-xs">
+<div class="flex items-center justify-between text-outline">
+<span>CODE &amp; REASONING TASK</span>
+<span class="text-tertiary">STRICT LOCAL</span>
+</div>
+<div class="text-on-surface font-semibold text-label-code-md">DeepSeek-Coder-32B Local</div>
+<div class="text-on-surface-variant">Engine: Ollama Container · Context 32K</div>
+<div class="pt-space-xs flex items-center gap-space-xs text-outline">
+<span class="material-symbols-outlined text-[14px]">code</span>
+<span>Target Port :11434</span>
+</div>
+</div>
+<div class="p-space-md rounded bg-surface-container-lowest space-y-space-xs">
+<div class="flex items-center justify-between text-outline">
+<span>FAILOVER ESCALATION</span>
+<span class="text-primary font-medium" id="fallback-rule-mode">INTERACTIVE ONLY</span>
+</div>
+<div class="text-on-surface font-semibold text-label-code-md">OpenRouter Gateway</div>
+<div class="text-on-surface-variant">Requires User Prompt Confirmation modal</div>
+<div class="pt-space-xs flex items-center gap-space-xs text-outline">
+<span class="material-symbols-outlined text-[14px]">security</span>
+<span>Zero Silent Rerouting</span>
+</div>
+</div>
+</div>
+</div>
+<div class="flex flex-col sm:flex-row sm:items-center justify-between pt-space-xs gap-space-sm font-label-code-sm text-label-code-sm text-on-surface-variant">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-[16px] text-tertiary">memory</span>
+<span>Daemon Policy Engine: Hash SHA-256 <code class="text-primary">c9820f1a...43de</code> verified</span>
+</div>
+<button class="text-primary hover:underline flex items-center gap-space-xs self-start sm:self-center" onclick="triggerFeedback('Routing table exported to ~/.local/share/local-ai-studio/routing.json')">
+<span class="material-symbols-outlined text-[14px]">download</span>
+<span>Export Routing Policy (JSON)</span>
+</button>
+</div>
+</div>
+</section>
+</div>
+<div class="fixed bottom-12 right-6 z-50 transform translate-y-12 opacity-0 transition-all duration-300 pointer-events-none flex items-center gap-space-sm px-space-md py-space-sm rounded bg-surface-container-highest text-on-surface shadow-xl" id="toast">
+<span class="material-symbols-outlined text-tertiary text-[18px]">info</span>
+<span class="font-label-code-sm text-label-code-sm font-medium" id="toast-text">Action complete</span>
+</div>
+<div class="fixed inset-0 z-50 hidden bg-surface-container-lowest/80 backdrop-blur-sm flex items-center justify-center p-space-md" id="add-server-modal">
+<div class="w-full max-w-lg rounded bg-surface-container-low p-space-lg shadow-xl space-y-space-md relative">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-sm">
+<div class="w-8 h-8 rounded bg-primary/20 text-primary flex items-center justify-center">
+<span class="material-symbols-outlined text-[18px]">dns</span>
+</div>
+<div>
+<h3 class="font-headline-sm text-headline-sm text-on-surface">Add OpenAI-Compatible Local Server</h3>
+<p class="font-label-code-sm text-label-code-sm text-outline">Register custom Docker container or host daemon</p>
+</div>
+</div>
+<button class="text-outline hover:text-on-surface" onclick="closeModal('add-server-modal')">
+<span class="material-symbols-outlined text-[20px]">close</span>
+</button>
+</div>
+<form class="space-y-space-md" onsubmit="handleRegisterServer(event)">
+<div class="space-y-space-xs">
+<label class="font-label-code-sm text-label-code-sm text-on-surface uppercase">Server Display Name</label>
+<input class="w-full h-8 px-space-sm bg-surface-container-lowest text-on-surface font-label-code-md text-label-code-md rounded focus:outline-none focus:ring-1 focus:ring-primary" id="server-name" placeholder="e.g., Aphrodite Engine ROCm" required="" type="text"/>
+</div>
+<div class="space-y-space-xs">
+<label class="font-label-code-sm text-label-code-sm text-on-surface uppercase">Base URL Endpoint</label>
+<div class="flex gap-space-xs">
+<input class="flex-1 h-8 px-space-sm bg-surface-container-lowest text-on-surface font-label-code-md text-label-code-md rounded focus:outline-none focus:ring-1 focus:ring-primary" id="server-url" placeholder="http://127.0.0.1:8000/v1" required="" type="text"/>
+<button class="px-space-md h-8 bg-surface-container-high hover:bg-surface-bright text-on-surface font-label-code-sm text-label-code-sm rounded transition-colors" onclick="testHealthCheck()" type="button">
+              Health Check
+            </button>
+</div>
+<p class="font-label-code-sm text-label-code-sm text-outline">Must expose <code class="text-on-surface-variant">/models</code> and <code class="text-on-surface-variant">/chat/completions</code> endpoints.</p>
+</div>
+<div class="space-y-space-xs">
+<label class="font-label-code-sm text-label-code-sm text-on-surface uppercase">Auth Header (Optional)</label>
+<input class="w-full h-8 px-space-sm bg-surface-container-lowest text-on-surface font-label-code-md text-label-code-md rounded focus:outline-none focus:ring-1 focus:ring-primary" id="server-token" placeholder="Bearer custom-token or leave empty" type="password"/>
+</div>
+<div class="p-space-sm rounded bg-surface-container-lowest flex items-center justify-between font-label-code-sm text-label-code-sm">
+<span class="text-outline">Health Check Status:</span>
+<span class="text-on-surface-variant" id="health-status">Untested</span>
+</div>
+<div class="flex items-center justify-end gap-space-sm pt-space-sm">
+<button class="px-space-md h-8 bg-surface-container-high hover:bg-surface-bright text-on-surface font-body-sm text-body-sm rounded transition-colors" onclick="closeModal('add-server-modal')" type="button">
+            Cancel
+          </button>
+<button class="px-space-md h-8 bg-primary hover:bg-primary-container text-on-primary font-body-sm text-body-sm font-semibold rounded transition-colors" type="submit">
+            Register &amp; Save
+          </button>
+</div>
+</form>
+</div>
+</div>
+<div class="fixed inset-0 z-50 hidden bg-surface-container-lowest/80 backdrop-blur-sm flex items-center justify-center p-space-md" id="key-modal">
+<div class="w-full max-w-md rounded bg-surface-container-low p-space-lg shadow-xl space-y-space-md relative">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-sm">
+<div class="w-8 h-8 rounded bg-primary/20 text-primary flex items-center justify-center">
+<span class="material-symbols-outlined text-[18px]">vpn_key</span>
+</div>
+<div>
+<h3 class="font-headline-sm text-headline-sm text-on-surface" id="key-modal-title">Configure Provider API Key</h3>
+<p class="font-label-code-sm text-label-code-sm text-outline">Stored in secure host keyring</p>
+</div>
+</div>
+<button class="text-outline hover:text-on-surface" onclick="closeModal('key-modal')">
+<span class="material-symbols-outlined text-[20px]">close</span>
+</button>
+</div>
+<div class="space-y-space-md">
+<div class="space-y-space-xs">
+<label class="font-label-code-sm text-label-code-sm text-on-surface uppercase">API Key Token</label>
+<input class="w-full h-8 px-space-sm bg-surface-container-lowest text-on-surface font-label-code-md text-label-code-md rounded focus:outline-none focus:ring-1 focus:ring-primary" id="key-modal-input" placeholder="sk-..." type="password"/>
+<p class="font-label-code-sm text-label-code-sm text-outline">Key will be passed strictly over TLS 1.3 when explicitly invoked.</p>
+</div>
+<div class="flex items-center justify-end gap-space-sm pt-space-xs">
+<button class="px-space-md h-8 bg-surface-container-high hover:bg-surface-bright text-on-surface font-body-sm text-body-sm rounded transition-colors" onclick="closeModal('key-modal')" type="button">
+            Cancel
+          </button>
+<button class="px-space-md h-8 bg-primary hover:bg-primary-container text-on-primary font-body-sm text-body-sm font-semibold rounded transition-colors" onclick="saveKeyModal()" type="button">
+            Save into Keyring
+          </button>
+</div>
+</div>
+</div>
+</div>
+<div class="fixed inset-0 z-50 hidden bg-surface-container-lowest/80 backdrop-blur-sm flex items-center justify-center p-space-md" id="logs-modal">
+<div class="w-full max-w-2xl rounded bg-surface-container-low p-space-lg shadow-xl space-y-space-md relative">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-[20px] text-tertiary">terminal</span>
+<h3 class="font-headline-sm text-headline-sm text-on-surface">llama.cpp Runtime Journal (PID 48201)</h3>
+</div>
+<button class="text-outline hover:text-on-surface" onclick="closeModal('logs-modal')">
+<span class="material-symbols-outlined text-[20px]">close</span>
+</button>
+</div>
+<div class="h-64 p-space-sm rounded bg-surface-container-lowest font-label-code-sm text-label-code-sm text-on-surface-variant overflow-y-auto space-y-space-xs font-mono select-text">
+<div class="text-outline">[2025-05-18 10:14:02.102] main: build = 6821 (bc63aef) with HIP ROCm 6.2 for Linux x86_64</div>
+<div class="text-outline">[2025-05-18 10:14:02.110] hip_init: found 2 ROCm devices: Radeon RX 9070 (0000:03:00.0), Radeon RX 9070 (0000:08:00.0)</div>
+<div class="text-on-surface">[2025-05-18 10:14:03.441] llama_model_loader: loaded meta data with 38 key-value pairs and 364 tensors from /home/dev/.models/Qwen3.8-27B.gguf</div>
+<div class="text-on-surface">[2025-05-18 10:14:03.442] llama_model_loader: - type f32: 65 tensors</div>
+<div class="text-on-surface">[2025-05-18 10:14:03.442] llama_model_loader: - type q4_K: 299 tensors</div>
+<div class="text-tertiary">[2025-05-18 10:14:05.109] llama_kv_cache_init: VRAM kv buffer size = 2048.00 MiB (ROCm device 0)</div>
+<div class="text-tertiary">[2025-05-18 10:14:05.110] llama_kv_cache_init: VRAM kv buffer size = 2048.00 MiB (ROCm device 1)</div>
+<div class="text-primary">[2025-05-18 10:14:05.890] server: IPC direct pipe listening at /run/user/1000/local-ai-studio-llama.sock</div>
+<div class="text-tertiary font-bold">[2025-05-18 10:14:05.892] server: WORKSTATION SERVER READY FOR PROMPTS</div>
+</div>
+<div class="flex items-center justify-between">
+<span class="font-label-code-sm text-label-code-sm text-outline">Tracing socket: /run/user/1000/local-ai-studio-llama.sock</span>
+<button class="px-space-md h-8 bg-surface-container-high hover:bg-surface-bright text-on-surface font-label-code-sm text-label-code-sm rounded transition-colors" onclick="closeModal('logs-modal')">
+          Close Journal
+        </button>
+</div>
+</div>
+</div>
+<div class="fixed inset-0 z-50 hidden bg-surface-container-lowest/80 backdrop-blur-sm flex items-center justify-center p-space-md" id="configure-llamacpp-modal">
+<div class="w-full max-w-lg rounded bg-surface-container-low p-space-lg shadow-xl space-y-space-md relative">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-[20px] text-primary">tune</span>
+<h3 class="font-headline-sm text-headline-sm text-on-surface">llama.cpp Daemon Parameters</h3>
+</div>
+<button class="text-outline hover:text-on-surface" onclick="closeModal('configure-llamacpp-modal')">
+<span class="material-symbols-outlined text-[20px]">close</span>
+</button>
+</div>
+<div class="space-y-space-sm font-label-code-sm text-label-code-sm">
+<div class="space-y-space-xs">
+<label class="text-on-surface uppercase">GPU Layers Offload (-ngl)</label>
+<input class="w-full h-8 px-space-sm bg-surface-container-lowest text-on-surface rounded focus:outline-none focus:ring-1 focus:ring-primary font-mono" type="number" value="64"/>
+</div>
+<div class="space-y-space-xs">
+<label class="text-on-surface uppercase">Context Window Tokens (-c)</label>
+<input class="w-full h-8 px-space-sm bg-surface-container-lowest text-on-surface rounded focus:outline-none focus:ring-1 focus:ring-primary font-mono" type="number" value="32768"/>
+</div>
+<div class="space-y-space-xs">
+<label class="text-on-surface uppercase">ROCm Split Tensor Ratio</label>
+<input class="w-full h-8 px-space-sm bg-surface-container-lowest text-on-surface rounded focus:outline-none focus:ring-1 focus:ring-primary font-mono" type="text" value="0.55, 0.45"/>
+</div>
+</div>
+<div class="flex items-center justify-end gap-space-sm pt-space-xs">
+<button class="px-space-md h-8 bg-surface-container-high hover:bg-surface-bright text-on-surface font-body-sm text-body-sm rounded transition-colors" onclick="closeModal('configure-llamacpp-modal')">
+          Cancel
+        </button>
+<button class="px-space-md h-8 bg-primary hover:bg-primary-container text-on-primary font-body-sm text-body-sm font-semibold rounded transition-colors" onclick="triggerFeedback('llama.cpp configuration saved. Restart required.'); closeModal('configure-llamacpp-modal');">
+          Save Configuration
+        </button>
+</div>
+</div>
+</div>
+<script>
+    function triggerFeedback(message) {
+      const toast = document.getElementById('toast');
+      const toastText = document.getElementById('toast-text');
+      toastText.innerText = message;
+      toast.classList.remove('translate-y-12', 'opacity-0');
+      setTimeout(() => {
+        toast.classList.add('translate-y-12', 'opacity-0');
+      }, 3200);
+    }
+
+    function openModal(id) {
+      const modal = document.getElementById(id);
+      if (modal) modal.classList.remove('hidden');
+    }
+
+    function closeModal(id) {
+      const modal = document.getElementById(id);
+      if (modal) modal.classList.add('hidden');
+    }
+
+    let activeProviderToKey = '';
+    function openKeyModal(provider, currentVal) {
+      activeProviderToKey = provider;
+      document.getElementById('key-modal-title').innerText = 'Configure ' + provider + ' Key';
+      document.getElementById('key-modal-input').value = currentVal || '';
+      openModal('key-modal');
+    }
+
+    function saveKeyModal() {
+      const val = document.getElementById('key-modal-input').value;
+      closeModal('key-modal');
+      triggerFeedback(activeProviderToKey + ' credential committed to local OS keyring.');
+    }
+
+    function testHealthCheck() {
+      const status = document.getElementById('health-status');
+      status.innerHTML = '<span class="text-tertiary">Ping: 200 OK (2.4ms) - llama / v1 ready</span>';
+    }
+
+    function handleRegisterServer(e) {
+      e.preventDefault();
+      const name = document.getElementById('server-name').value;
+      closeModal('add-server-modal');
+      triggerFeedback('Registered OpenAI server "' + name + '" successfully.');
+    }
+
+    function rescanAll() {
+      const icon = document.getElementById('rescan-icon');
+      icon.classList.add('animate-spin');
+      setTimeout(() => {
+        icon.classList.remove('animate-spin');
+        triggerFeedback('Subsystem scan complete. 2 GPUs healthy, 2 daemons online.');
+      }, 700);
+    }
+
+    function toggleFallbackPolicy(isChecked) {
+      const label = document.getElementById('fallback-status');
+      const rule = document.getElementById('fallback-rule-mode');
+      if (isChecked) {
+        label.innerText = 'ENABLED';
+        label.classList.remove('text-outline');
+        label.classList.add('text-error');
+        rule.innerText = 'AUTO (OOM FAILOVER)';
+        rule.classList.remove('text-primary');
+        rule.classList.add('text-error');
+        triggerFeedback('Warning: Cloud fallback active. Prompts may egress to WAN on OOM.');
+      } else {
+        label.innerText = 'DISABLED';
+        label.classList.remove('text-error');
+        label.classList.add('text-outline');
+        rule.innerText = 'INTERACTIVE ONLY';
+        rule.classList.remove('text-error');
+        rule.classList.add('text-primary');
+        triggerFeedback('Strict Local First re-engaged. Wan egress completely blocked.');
+      }
+    }
+  </script>
+</div></main><footer class="fixed bottom-0 left-72 right-0 h-8 bg-surface-container-lowest z-40 px-margin flex items-center justify-between font-label-code-sm text-label-code-sm text-on-surface-variant shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="flex items-center gap-space-lg truncate"><div class="flex items-center gap-space-xs"><span class="text-outline">RUNTIME:</span><span class="text-on-surface">llama.cpp b6821 (Vulkan)</span></div><div class="hidden lg:flex items-center gap-space-xs"><span class="text-outline">MODEL:</span><span class="text-on-surface font-semibold">Qwen3.8-27B-Instruct</span></div><div class="flex items-center gap-space-xs"><span class="text-outline">SPEED:</span><span class="text-tertiary font-bold">42.4 tok/s</span></div><div class="flex items-center gap-space-xs"><span class="text-outline">CONTEXT:</span><span class="text-on-surface">14.2k / 32k</span></div></div><div class="flex items-center gap-space-lg"><div class="hidden sm:flex items-center gap-space-xs"><span class="text-outline">LOCAL API:</span><span class="text-primary hover:underline cursor-pointer">http://127.0.0.1:5200/v1</span></div><div class="flex items-center gap-space-xs"><span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span><span class="text-tertiary font-medium">STRICT LOCAL</span><span class="text-outline hidden md:inline">(Zero Cloud Telemetry)</span></div></div></footer></div></body></html>
