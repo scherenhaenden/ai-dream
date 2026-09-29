@@ -1,188 +1,174 @@
 import { ChangeDetectionStrategy, Component, OnInit, signal } from '@angular/core';
 import { ApiService } from '../core/api.service';
-import { SettingsService, GlobalSettings } from '../core/settings.service';
-import { RuntimeService, RuntimeBackend } from '../core/runtime.service';
 import { RuntimeInstallation } from '../core/control-plane.types';
+import { RuntimeBackend, RuntimeService } from '../core/runtime.service';
+import { GlobalSettings, SettingsService } from '../core/settings.service';
 
 type SettingsTab = 'general' | 'runtime';
 
 @Component({
-  selector: 'app-settings',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="page-head">
-      <div>
-        <div class="eyebrow">PREFERENCES</div>
-        <h1>Settings</h1>
-        <p>Application-wide preferences and runtime defaults.</p>
-      </div>
-      <span class="page-badge"><i></i>LOCAL</span>
-    </div>
-
-    <section class="surface settings-card api-card">
-      <div class="section-title">
+    <div class="settings-page">
+      <header class="settings-header">
         <div>
-          <h2>Local API</h2>
-          <p>Requests stay on your machine.</p>
+          <div class="eyebrow">PREFERENCES</div>
+          <h1>Settings</h1>
+          <p>Local defaults for the AI Dream application.</p>
         </div>
-        <span class="status-tag" [class.ok]="api.connected()">{{ api.connected() ? 'Connected' : api.connection() === 'checking' ? 'Checking' : 'Unavailable' }}</span>
-      </div>
-      <label class="field-label" for="api-url">Base URL</label>
-      <div class="input-row">
-        <input id="api-url" type="url" [value]="url" (input)="url = $any($event.target).value" spellcheck="false" placeholder="http://127.0.0.1:8765" (keydown.enter)="saveApiUrl()">
-        <button class="primary-button" (click)="saveApiUrl()">Save & check</button>
-      </div>
-      <p class="help">Health check: <code>GET {{ api.baseUrl() }}/api/health</code>. The base URL is stored in this browser's local storage.</p>
-      @if (urlError()) {<p class="error-line" role="alert">{{urlError()}}</p>}
-      @else if (api.error()) {<p class="error-line">{{ api.error() }}</p>}
-    </section>
+        <div class="header-actions">
+          @if (saved()) { <span class="save-status" role="status">Saved</span> }
+          <button class="primary-button" (click)="saveSettings()" [disabled]="saving() || !settings()">
+            {{ saving() ? 'Saving…' : 'Save changes' }}
+          </button>
+        </div>
+      </header>
 
-    @if(loading()){
-      <p role="status">Loading settings…</p>
-    }
-    @if(loadError()){
-      <section class="surface settings-card">
-        <p class="error-line" role="alert">{{loadError()}}</p>
-        <button class="secondary-button" (click)="initialize()">Retry settings</button>
-      </section>
-    }
-
-    @if(settings(); as s){
       <nav class="settings-tabs" aria-label="Settings categories" role="tablist">
-        <button role="tab" [attr.aria-selected]="tab()==='general'" [class.active]="tab()==='general'" (click)="tab.set('general')">Application</button>
-        <button role="tab" [attr.aria-selected]="tab()==='runtime'" [class.active]="tab()==='runtime'" (click)="tab.set('runtime')">Runtime defaults</button>
+        <button role="tab" [attr.aria-selected]="tab() === 'general'" [class.active]="tab() === 'general'" (click)="tab.set('general')">Application</button>
+        <button role="tab" [attr.aria-selected]="tab() === 'runtime'" [class.active]="tab() === 'runtime'" (click)="tab.set('runtime')">Runtime defaults</button>
       </nav>
 
-      @if(tab()==='general'){
-        <section class="surface settings-card">
-          <div class="section-title">
-            <div>
-              <h2>Application behavior</h2>
-              <p>Settings that apply across models.</p>
-            </div>
-          </div>
-          <div class="form-grid">
-            <label>
-              Default profile behavior
-              <select [value]="s.default_profile_behavior" (change)="updateBehavior($any($event.target).value)">
-                <option value="model">Use the model profile</option>
-                <option value="global">Use global defaults</option>
-              </select>
-              <small>Model-specific placement and load options belong to each model profile.</small>
-            </label>
-            <label class="check-setting">
-              <input type="checkbox" [checked]="s.keep_last_model_loaded" (change)="updateKeepLoaded($any($event.target).checked)">
-              <span>Keep last model loaded</span>
-            </label>
-          </div>
-          <div class="save-row">
-            <button class="primary-button" (click)="saveSettings()" [disabled]="saving()">{{saving()?'Saving…':'Save settings'}}</button>
-            @if(saved()){<span role="status" class="saved-status">Saved</span>}
-          </div>
-          @if(saveError()){<p class="error-line" role="alert">{{saveError()}}</p>}
-        </section>
-
-        <section class="surface settings-card paths-card">
-          <div class="section-title">
-            <div>
-              <h2>Local paths</h2>
-              <p>Read-only diagnostics. AI Dream does not expose filesystem browsing here.</p>
-            </div>
-          </div>
-          <div class="form-grid">
-            <label>Managed models directory<output>{{s.managed_models_dir}}</output></label>
-            <label>Configuration directory<output>{{s.config_dir}}</output></label>
-            <label>Data directory<output>{{s.data_dir}}</output></label>
-          </div>
-        </section>
-      } @else {
-        <section class="surface settings-card">
-          <div class="section-title">
-            <div>
-              <h2>Runtime defaults</h2>
-              <p>Choose the default engine for new model loads. GPU placement and load tuning are configured per model.</p>
-            </div>
-          </div>
-          @if(runtimeError()){<p class="error-line" role="alert">{{runtimeError()}}</p>}
-          <div class="form-grid runtime-grid">
-            <label>
-              Default backend
-              <select [value]="s.runtime_defaults.backend_name||''" (change)="updateBackend($any($event.target).value)">
-                <option value="">Use runtime default</option>
-                @for(b of backends();track b.name){<option [value]="b.name" [selected]="s.runtime_defaults.backend_name === b.name" [disabled]="!b.available">{{b.name}}{{b.available?'':' (unavailable)'}}</option>}
-              </select>
-              <small>Available choices come from the local runtime service.</small>
-            </label>
-            <label>
-              Default runtime
-              <select [value]="s.runtime_defaults.runtime_id||''" (change)="updateRuntime($any($event.target).value)">
-                <option value="">Use backend default</option>
-                @for(r of installations();track r.id){<option [value]="r.id" [selected]="s.runtime_defaults.runtime_id === r.id" [disabled]="!r.enabled||!r.available">{{r.name}} · {{r.backend||r.kind}}{{r.available?'':' (unavailable)'}}</option>}
-              </select>
-              <small>Registered llama.cpp installations detected by AI Dream.</small>
-            </label>
-          </div>
-          <p class="info-note">
-            ℹ
-            <span>Context size, GPU layers, device placement, tensor split, and other load options are model-specific. Configure them from <a href="/#/runtime">Runtime</a> for the selected model.</span>
-          </p>
-          <div class="save-row">
-            <button class="primary-button" (click)="saveSettings()" [disabled]="saving()">{{saving()?'Saving…':'Save defaults'}}</button>
-            @if(saved()){<span role="status" class="saved-status">Saved</span>}
-          </div>
-          @if(saveError()){<p class="error-line" role="alert">{{saveError()}}</p>}
-        </section>
+      @if (loading()) { <p class="settings-message" role="status">Loading settings…</p> }
+      @if (loadError()) {
+        <div class="settings-alert" role="alert">
+          <span>{{ loadError() }}</span>
+          <button class="secondary-button" (click)="initialize()">Retry</button>
+        </div>
       }
-    }
+
+      @if (settings(); as s) {
+        @if (tab() === 'general') {
+          <div class="settings-grid">
+            <section class="surface settings-card">
+              <div class="section-heading">
+                <div><h2>Local API</h2><p>Requests stay on this device.</p></div>
+                <span class="status-tag" [class.ok]="api.connected()">{{ api.connected() ? 'Connected' : api.connection() === 'checking' ? 'Checking' : 'Unavailable' }}</span>
+              </div>
+              <label class="field-label" for="api-url">Base URL</label>
+              <div class="input-row">
+                <input id="api-url" type="url" [value]="url" (input)="url = $any($event.target).value" spellcheck="false" placeholder="http://127.0.0.1:8765" (keydown.enter)="saveApiUrl()">
+                <button class="secondary-button" (click)="saveApiUrl()">Save &amp; check</button>
+              </div>
+              <p class="help">Health check: <code>GET {{ api.baseUrl() }}/api/health</code>. The URL is stored in this browser.</p>
+              @if (urlError()) { <p class="error-line" role="alert">{{ urlError() }}</p> }
+              @else if (api.error()) { <p class="error-line">{{ api.error() }}</p> }
+            </section>
+
+            <section class="surface settings-card">
+              <div class="section-heading"><div><h2>Application behavior</h2><p>Choose how saved model profiles are applied.</p></div></div>
+              <label class="setting-field" for="profile-behavior">
+                <span>Default profile behavior</span>
+                <select id="profile-behavior" [value]="s.default_profile_behavior" (change)="updateBehavior($any($event.target).value)">
+                  <option value="model">Use the model profile</option>
+                  <option value="global">Use global defaults</option>
+                </select>
+              </label>
+              <p class="help">Model-specific placement and load settings belong in each model’s profile.</p>
+              <label class="toggle-row">
+                <span><b>Keep last model loaded</b><small>Keep the active model available after a request finishes.</small></span>
+                <input type="checkbox" [checked]="s.keep_last_model_loaded" (change)="updateKeepLoaded($any($event.target).checked)">
+              </label>
+              @if (saveError()) { <p class="error-line" role="alert">{{ saveError() }}</p> }
+            </section>
+
+            <section class="surface settings-card paths-card">
+              <div class="section-heading"><div><h2>Local paths</h2><p>Read-only locations used by this installation.</p></div></div>
+              <div class="path-grid">
+                <label>Managed models directory<output>{{ s.managed_models_dir }}</output></label>
+                <label>Configuration directory<output>{{ s.config_dir }}</output></label>
+                <label>Data directory<output>{{ s.data_dir }}</output></label>
+              </div>
+            </section>
+          </div>
+        } @else {
+          <section class="surface settings-card runtime-card">
+            <div class="section-heading"><div><h2>Runtime defaults</h2><p>Choose the engine used when a model does not select one explicitly.</p></div></div>
+            @if (runtimeError()) { <p class="settings-alert inline-alert" role="alert">{{ runtimeError() }}</p> }
+            <div class="runtime-fields">
+              <label class="setting-field" for="default-backend">
+                <span>Default backend</span>
+                <select id="default-backend" [value]="s.runtime_defaults.backend_name || ''" (change)="updateBackend($any($event.target).value)">
+                  <option value="">Runtime default</option>
+                  @for (b of backends(); track b.name) { <option [value]="b.name" [disabled]="!b.available">{{ b.name }}{{ b.available ? '' : ' (unavailable)' }}</option> }
+                </select>
+                <small>Available backends reported by the local runtime service.</small>
+              </label>
+              <label class="setting-field" for="default-runtime">
+                <span>Default runtime</span>
+                <select id="default-runtime" [value]="s.runtime_defaults.runtime_id || ''" (change)="updateRuntime($any($event.target).value)">
+                  <option value="">Backend default</option>
+                  @for (r of installations(); track r.id) { <option [value]="r.id" [disabled]="!r.enabled || !r.available">{{ r.name }} · {{ r.backend || r.kind }}{{ r.available ? '' : ' (unavailable)' }}</option> }
+                </select>
+                <small>Installed runtimes registered with AI Dream.</small>
+              </label>
+            </div>
+            <aside class="model-profile-note">
+              <b>Model configuration lives with each model</b>
+              <p>Context size, GPU placement, split mode, tensor split, and other load options can vary by model. Configure them in the model profile from <a href="#/models">Models</a> or when loading from <a href="#/runtime">Runtime</a>.</p>
+            </aside>
+            @if (saveError()) { <p class="error-line" role="alert">{{ saveError() }}</p> }
+          </section>
+        }
+      }
+    </div>
   `,
   styles: [`
-    :host { display: block; }
-    .settings-card { max-width: 1050px; margin: 0 auto 16px; padding: 20px; }
-    .api-card { margin-bottom: 16px; }
-    .settings-tabs {
-      max-width: 1050px; margin: 0 auto 16px; display: flex; gap: 8px; border-bottom: 1px solid #282f3d; padding-bottom: 0px;
-    }
-    .settings-tabs button {
-      padding: 10px 16px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: #8991a2; font: inherit; cursor: pointer; font-size: 13px; font-weight: 500;
-    }
-    .settings-tabs button:hover { color: #dee2f1; }
-    .settings-tabs button.active { color: #adc6ff; border-bottom-color: #adc6ff; font-weight: 600; }
-    .section-title { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 16px; margin-bottom: 20px; border-bottom: 1px solid #282f3d; }
-    .section-title h2 { font-size: 14px; font-weight: 600; margin: 0; color: #dee2f1; display: flex; align-items: center; gap: 8px; }
-    .section-title p, .help { color: #8991a2; font-size: 12px; margin: 6px 0 0; font-family: 'JetBrains Mono', monospace; }
-    .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 20px 24px; }
-    .form-grid label { display: grid; align-content: start; gap: 8px; color: #8991a2; font-size: 12px; font-family: 'JetBrains Mono', monospace; }
-    .form-grid select, .form-grid output { width: 100%; box-sizing: border-box; background: #171c26; border: 1px solid #282f3d; border-radius: 8px; padding: 10px 12px; color: #dee2f1; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
-    .form-grid select:focus { outline: none; border-color: #a0caff; }
-    .form-grid small { color: #8991a2; font-size: 11px; line-height: 1.5; margin-top: 4px; }
-    .check-setting { display: flex !important; align-items: center; gap: 10px !important; min-height: 42px; font-weight: 600; color: #dee2f1; grid-template-columns: auto 1fr; cursor: pointer; }
-    .check-setting span { font-family: 'Inter', sans-serif; font-size: 13px;}
-    .check-setting input { width: 16px; height: 16px; accent-color: #3b82f6; border-radius: 4px; cursor: pointer; }
-    .save-row { display: flex; align-items: center; gap: 12px; margin-top: 24px; }
-    .saved-status { color: #34d399; font-size: 12px; font-family: 'JetBrains Mono', monospace; font-weight: 500; display: flex; align-items: center; gap: 4px; animation: pulse 2s infinite; }
-    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
-    .info-note { margin: 20px 0 0; padding: 12px 16px; border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; background: rgba(2, 44, 34, 0.2); color: #8991a2; font-size: 11px; line-height: 1.6; display: flex; align-items: flex-start; gap: 8px; }
-    .info-note .icon { color: #34d399; font-size: 16px; }
-    .info-note a { color: #a0caff; text-decoration: none; }
-    .info-note a:hover { text-decoration: underline; }
-    .paths-card output { overflow-wrap: anywhere; color: #dee2f1; }
-    .input-row { display: flex; gap: 10px; margin-bottom: 8px; }
-    .input-row input { max-width: 520px; flex: 1; min-width: 0; background: #171c26; border: 1px solid #282f3d; border-radius: 8px; padding: 10px 12px; color: #dee2f1; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
-    .input-row input:focus { outline: none; border-color: #a0caff; }
-    .field-label { display: block; color: #8991a2; font-size: 12px; margin-bottom: 8px; font-family: 'JetBrains Mono', monospace; }
-    .status-tag { border: 1px solid #484438; background: #29251c; color: #fbbf24; border-radius: 6px; padding: 4px 8px; font-size: 10px; font-family: 'JetBrains Mono', monospace; font-weight: 600; }
-    .status-tag.ok { border-color: rgba(52, 211, 153, 0.3); background: rgba(2, 44, 34, 0.4); color: #34d399; }
-    .help code { overflow-wrap: anywhere; background: #171c26; padding: 2px 4px; border-radius: 4px; }
-    .primary-button { padding: 8px 16px; background: #2563eb; color: #fff; border: none; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 14px 0 rgba(37, 99, 235, 0.2); transition: background 0.2s; }
-    .primary-button:hover { background: #3b82f6; }
-    .primary-button:disabled { background: #303540; color: #8c909f; cursor: not-allowed; box-shadow: none; }
-    .secondary-button { padding: 8px 16px; background: #171c26; color: #dee2f1; border: 1px solid #282f3d; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; transition: background 0.2s; }
-    .secondary-button:hover { background: #252a35; }
-    @media(max-width: 600px) {
-      .settings-card { padding: 16px; }
-      .input-row { align-items: stretch; flex-direction: column; }
-    }
+    :host { display:block; min-height:100%; }
+    .settings-page { width:min(1050px,100%); margin:0 auto; color:var(--text); }
+    .settings-header { display:flex; align-items:flex-end; justify-content:space-between; gap:18px; margin:0 0 22px; }
+    .settings-header h1 { margin:0; font-size:23px; font-weight:550; letter-spacing:-.4px; }
+    .settings-header p { margin:7px 0 0; color:#929aaa; font-size:12px; }
+    .header-actions { display:flex; align-items:center; gap:12px; }
+    .save-status { color:var(--green); font:10px ui-monospace,monospace; }
+    .settings-tabs { display:flex; gap:5px; border-bottom:1px solid #2e3541; margin-bottom:14px; }
+    .settings-tabs button { padding:10px 13px; border:0; border-bottom:2px solid transparent; background:transparent; color:#8991a2; font:inherit; font-size:11px; cursor:pointer; }
+    .settings-tabs button:hover { color:#d7deeb; }
+    .settings-tabs button.active { color:#c5d8ff; border-color:#80aaff; }
+    .settings-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+    .settings-card { min-width:0; padding:18px; }
+    .section-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; padding-bottom:13px; margin-bottom:15px; border-bottom:1px solid #2e3541; }
+    .section-heading h2 { margin:0; color:#d9deea; font-size:13px; font-weight:550; }
+    .section-heading p { margin:5px 0 0; color:#8992a2; font-size:10px; line-height:1.5; }
+    .status-tag { flex:none; border:1px solid #484438; background:#29251c; color:var(--amber); border-radius:5px; padding:4px 7px; font:9px ui-monospace,monospace; }
+    .status-tag.ok { border-color:#275542; background:#162b24; color:var(--green); }
+    .field-label,.setting-field>span { display:block; color:#bdc4d2; font-size:10px; margin-bottom:7px; }
+    .input-row { display:flex; align-items:center; gap:8px; }
+    .input-row input,.setting-field select { min-width:0; width:100%; box-sizing:border-box; border:1px solid #3b4351; border-radius:6px; background:#10151e; color:var(--text); padding:9px 10px; font:11px ui-monospace,monospace; }
+    .input-row input { flex:1; }
+    .input-row input:focus,.setting-field select:focus { outline:2px solid #5473a7; outline-offset:1px; }
+    .secondary-button,.primary-button { flex:none; border:1px solid #3c4657; border-radius:6px; background:#222a38; color:#c7d6f4; padding:8px 11px; cursor:pointer; font-size:10px; white-space:nowrap; }
+    .secondary-button:hover { background:#2b3648; }
+    .primary-button { border-color:#5473a7; background:#253750; }
+    .primary-button:hover { background:#2b4162; }
+    .primary-button:disabled { opacity:.55; cursor:not-allowed; }
+    .help,.setting-field small { display:block; margin:8px 0 0; color:#848d9d; font-size:10px; line-height:1.55; }
+    .help code { color:#bdc8da; font:10px ui-monospace,monospace; overflow-wrap:anywhere; }
+    .error-line { margin:9px 0 0; color:var(--red); font-size:10px; line-height:1.5; overflow-wrap:anywhere; }
+    .settings-alert { display:flex; align-items:center; justify-content:space-between; gap:12px; max-width:100%; margin:0 0 13px; padding:11px 13px; border:1px solid #68423f; border-radius:7px; background:#281a1c; color:#e6b9b3; font-size:10px; }
+    .settings-alert .secondary-button { margin:0; border-color:#77514d; background:#372324; color:#ffd0c7; }
+    .settings-message { margin:14px 0; color:#929aaa; font-size:11px; }
+    .toggle-row { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-top:17px; padding:11px 12px; border:1px solid #2e3541; border-radius:7px; background:#111721; cursor:pointer; }
+    .toggle-row b,.toggle-row small { display:block; }
+    .toggle-row b { color:#cbd2df; font-size:10px; font-weight:550; }
+    .toggle-row small { margin-top:4px; color:#858e9e; font-size:9px; line-height:1.45; }
+    .toggle-row input { width:16px; height:16px; flex:none; accent-color:#739ce8; }
+    .paths-card { grid-column:1 / -1; }
+    .path-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
+    .path-grid label { min-width:0; color:#929aaa; font-size:10px; }
+    .path-grid output { display:block; margin-top:6px; padding:9px 10px; border:1px solid #303745; border-radius:6px; background:#10151e; color:#adb8ca; font:10px/1.5 ui-monospace,monospace; overflow-wrap:anywhere; }
+    .runtime-card { padding:19px; }
+    .runtime-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+    .setting-field { display:block; min-width:0; }
+    .setting-field select { display:block; }
+    .model-profile-note { margin-top:18px; padding:13px 14px; border:1px solid #303d52; border-radius:7px; background:#141b27; }
+    .model-profile-note b { color:#c7d6f4; font-size:10px; font-weight:550; }
+    .model-profile-note p { margin:6px 0 0; color:#929aaa; font-size:10px; line-height:1.65; }
+    .model-profile-note a { color:#a9c5ff; text-decoration:none; }
+    .model-profile-note a:hover { text-decoration:underline; }
+    @media(max-width:720px) { .settings-grid { grid-template-columns:1fr; }.paths-card { grid-column:auto; }.path-grid { grid-template-columns:1fr; }.settings-header { align-items:flex-start; }.runtime-fields { grid-template-columns:1fr; } }
+    @media(max-width:480px) { .settings-header { flex-direction:column; align-items:stretch; gap:14px; }.header-actions { justify-content:space-between; }.input-row { align-items:stretch; flex-direction:column; }.input-row .secondary-button { align-self:flex-start; }.settings-tabs button { padding:9px 10px; } }
   `]
 })
 export class SettingsPage implements OnInit {
@@ -228,10 +214,7 @@ export class SettingsPage implements OnInit {
       this.settings.set(response.data?.settings ?? null);
       if (!response.data?.settings) throw new Error('The settings endpoint returned no settings object.');
       try {
-        const [{ runtime }, installations] = await Promise.all([
-          this.runtime.snapshot(),
-          this.runtime.installations()
-        ]);
+        const [{ runtime }, installations] = await Promise.all([this.runtime.snapshot(), this.runtime.installations()]);
         this.backends.set(runtime.backends);
         this.installations.set(installations);
       } catch (e) {
@@ -253,7 +236,7 @@ export class SettingsPage implements OnInit {
   }
 
   updateBehavior(value: string) {
-    if (value === 'model' || value === 'global') this.edit(s => s.default_profile_behavior = value as 'model' | 'global');
+    if (value === 'model' || value === 'global') this.edit(s => s.default_profile_behavior = value);
   }
 
   updateKeepLoaded(value: boolean) {
@@ -280,7 +263,6 @@ export class SettingsPage implements OnInit {
       const response = await this.settingsApi.patch(editable);
       if (response.data?.settings) this.settings.set(response.data.settings);
       this.saved.set(true);
-      setTimeout(() => this.saved.set(false), 2500); // clear saved state visually after short period
     } catch (e) {
       this.saveError.set(message(e));
     } finally {
