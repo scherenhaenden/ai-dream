@@ -24,7 +24,7 @@ model_text = model_text.replace(
 )
 model_text = model_text.replace(
     "    await expect(presetSelect.locator('option', { hasText: 'beta preset' })).toBeAttached();\n    await page.waitForTimeout(650);\n    await expect(presetSelect.locator('option', { hasText: 'alpha preset' })).toHaveCount(0);\n    await expect(presetSelect.locator('option', { hasText: 'beta preset' })).toHaveCount(1);",
-    "    await expect(presetSelect.locator('option[value=\"beta-profile\"]')).toBeAttached();\n    await page.waitForTimeout(650);\n    await expect(presetSelect.locator('option[value=\"alpha-profile\"]')).toHaveCount(0);\n    await expect(presetSelect.locator('option[value=\"beta-profile\"]')).toHaveCount(1);",
+    "    await expect.poll(async () => presetSelect.locator('option').evaluateAll(options => options.map(option => option.value))).toContain('beta-profile');\n    await page.waitForTimeout(650);\n    const presetValues = await presetSelect.locator('option').evaluateAll(options => options.map(option => option.value));\n    expect(presetValues).not.toContain('alpha-profile');\n    expect(presetValues.filter(value => value === 'beta-profile')).toHaveLength(1);",
 )
 model_path.write_text(model_text, encoding='utf-8')
-print('Fixed SSE fixture, textarea assertions, and made preset race assertion identity-based')
+print('Fixed SSE fixture, textarea assertions, and asserted preset race through DOM values')
