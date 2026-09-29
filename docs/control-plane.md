@@ -50,11 +50,15 @@ llama.cpp-native device IDs. No model process is started for detection.
 | `PATCH /api/settings` | `runtime_defaults`, `default_profile_behavior`, `keep_last_model_loaded` | `data.settings: AppSettings` |
 | `GET /api/chats/<id>/settings` | — | `data.settings: ChatSettings` |
 | `PATCH /api/chats/<id>/settings` | partial settings | `data.settings: ChatSettings` |
+| `GET /api/agent/tools` | — | registered read-only tools and enforced limits |
 
 `POST /api/chat` keeps the required `chat_id`, `model_id`, and `prompt` fields
 and accepts optional `runtime_id`, `backend`, `profile_id`, `placement`, `load`,
 and `generation` overrides. Saved chat settings and the selected profile are
 resolved before loading; generation-only changes do not restart the server.
+The tool registry endpoint reports the names/descriptions of actual registered
+agent tools and server-enforced limits; it does not grant capabilities or load a
+model.
 
 All write routes use the same loopback Host and exact Origin checks as existing
 mutations. Source/profile/runtime removal deletes only the catalog/config

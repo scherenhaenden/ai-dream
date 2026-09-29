@@ -13,10 +13,20 @@ from aidream.document_input import (
     DocumentInputError,
     build_document_prompt,
     load_document_attachment,
+    load_document_bytes,
 )
 
 
 class DocumentInputTests(unittest.TestCase):
+    def test_loads_uploaded_bytes_without_a_host_path_and_rejects_path_names(self):
+        document = load_document_bytes("notes.md", b"Uploaded local notes")
+        self.assertEqual(document.name, "notes.md")
+        self.assertEqual(document.text, "Uploaded local notes")
+        self.assertEqual(document.size_bytes, 20)
+        for name in ("../notes.md", "folder\\notes.md", ""):
+            with self.subTest(name=name), self.assertRaises(DocumentInputError):
+                load_document_bytes(name, b"text")
+
     def test_loads_utf8_text_and_markdown_with_bom(self):
         with tempfile.TemporaryDirectory() as temp:
             for filename, expected_type in (("notes.txt", "text/plain"), ("notes.md", "text/markdown")):

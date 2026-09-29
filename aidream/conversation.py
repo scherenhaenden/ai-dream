@@ -16,12 +16,13 @@ import uuid
 _SESSION_ID = re.compile(r"[a-f0-9]{32}\Z")
 _ROLES = {"user", "assistant", "system"}
 _PRESET_ID = re.compile(r"[a-f0-9]{32}\Z")
-_SESSION_SETTING_KEYS = {"backend_name", "model_id", "model_path", "runtime", "generation", "preset_id", "profile_id"}
+_SESSION_SETTING_KEYS = {"backend_name", "model_id", "model_path", "runtime", "generation", "knowledge", "preset_id", "profile_id"}
 _PLACEMENT_KEYS = {"gpu_layers", "device", "tensor_split", "split_mode", "main_gpu"}
 _LOAD_KEYS = {"context_size", "threads", "batch_size", "physical_batch_size", "max_concurrent",
               "threads_batch", "continuous_batching", "numa", "kv_cache_type_k", "kv_cache_type_v",
               "unified_kv_cache", "flash_attention", "offload_kv_cache", "keep_model_in_memory", "mmap", "fit"}
 _GENERATION_KEYS = {"system_prompt", "reasoning", "temperature", "max_tokens", "stop_strings",
+                    "top_p", "top_k", "min_p", "repeat_penalty", "seed",
                     "placement", "structured_output"}
 _LEGACY_GENERATION_RUNTIME_KEYS = {"context_size", "threads", "batch_size"}
 _ATTACHMENT_KINDS = {"image", "document"}
@@ -36,6 +37,7 @@ def _default_session_settings() -> dict[str, Any]:
             "generation": {"system_prompt": "", "reasoning": False, "temperature": 0.7,
                            "max_tokens": None, "stop_strings": [], "placement": {},
                            "structured_output": None},
+            "knowledge": {"enabled": False},
             "preset_id": None, "profile_id": None}
 
 
@@ -357,6 +359,14 @@ def _validate_session_settings(value: Any) -> dict[str, Any]:
             normalized_load[key] = text.strip()
     result["runtime"] = {"placement": normalized_placement, "load": normalized_load}
 
+    knowledge = result["knowledge"]
+    if not isinstance(knowledge, dict) or set(knowledge) - {"enabled"}:
+        raise ValueError("knowledge must contain only the enabled flag")
+    enabled = knowledge.get("enabled", False)
+    if not isinstance(enabled, bool):
+        raise ValueError("knowledge.enabled must be boolean")
+    result["knowledge"] = {"enabled": enabled}
+
     generation = result["generation"]
     if not isinstance(generation, dict) or set(generation) - (_GENERATION_KEYS | _LEGACY_GENERATION_RUNTIME_KEYS):
         raise ValueError("generation contains unsupported options")
@@ -380,6 +390,25 @@ def _validate_session_settings(value: Any) -> dict[str, Any]:
             or not math.isfinite(temperature) or not 0 <= temperature <= 2):
         raise ValueError("generation.temperature must be a finite number from 0 to 2")
     generation_result["temperature"] = float(temperature)
+    for key in ("top_p", "min_p"):
+        parameter = generation_result.get(key)
+        if parameter is not None:
+            if (isinstance(parameter, bool) or not isinstance(parameter, (int, float))
+                    or not math.isfinite(parameter) or not 0 <= parameter <= 1):
+                raise ValueError(f"generation.{key} must be a finite number from 0 to 1")
+            generation_result[key] = float(parameter)
+    top_k = generation_result.get("top_k")
+    if top_k is not None:
+        generation_result["top_k"] = _bounded_int(top_k, "generation.top_k", 1, 2048)
+    repeat_penalty = generation_result.get("repeat_penalty")
+    if repeat_penalty is not None:
+        if (isinstance(repeat_penalty, bool) or not isinstance(repeat_penalty, (int, float))
+                or not math.isfinite(repeat_penalty) or not 0 <= repeat_penalty <= 4):
+            raise ValueError("generation.repeat_penalty must be a finite number from 0 to 4")
+        generation_result["repeat_penalty"] = float(repeat_penalty)
+    seed = generation_result.get("seed")
+    if seed is not None and (isinstance(seed, bool) or not isinstance(seed, int)):
+        raise ValueError("generation.seed must be an integer or None")
     for key, maximum in (("max_tokens", 1_000_000),):
         if generation_result[key] is not None:
             generation_result[key] = _bounded_int(generation_result[key], f"generation.{key}", 1, maximum)

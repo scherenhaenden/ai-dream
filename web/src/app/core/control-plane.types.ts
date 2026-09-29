@@ -19,6 +19,7 @@ export interface ModelSource {
   readable: boolean;
   managed: boolean;
   model_count: number;
+  file_count: number;
   total_bytes: number;
 }
 

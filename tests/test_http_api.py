@@ -13,6 +13,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from aidream.conversation import ChatStore
+from aidream.diagnostics import DiagnosticsLog
 from aidream.http_api import MAX_MODELS, MAX_REQUEST_BYTES, ReadOnlyAPI, create_server
 from aidream.runtime import LlamaCppBackend
 
@@ -22,6 +23,7 @@ class Capabilities:
     available: bool
     executable: str | None = None
     details: str = "test"
+    device_selection: bool = False
 
 
 class FakeBackend:
@@ -80,7 +82,7 @@ class FakeChatBackend(FakeBackend):
         self.started = threading.Event()
     def can_load(self, model):
         return model.id in {"safe-model", "alt-model"}
-    def load(self, model):
+    def load(self, model, placement=None, options=None):
         self.loaded += 1
     def restore_history(self, history):
         self.history = history
@@ -144,8 +146,12 @@ http.server.HTTPServer(('127.0.0.1', port), Handler).serve_forever()
 
 class HTTPAPITests(unittest.TestCase):
     def setUp(self):
+        self.temp = TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.diagnostics = DiagnosticsLog(Path(self.temp.name) / "diagnostics.jsonl")
         self.server = create_server(0, api=ReadOnlyAPI(
-            hardware=FakeHardware(), catalog=FakeCatalog(), runtimes=FakeRuntime()))
+            hardware=FakeHardware(), catalog=FakeCatalog(), runtimes=FakeRuntime(),
+            diagnostics_log=self.diagnostics))
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.base = f"http://127.0.0.1:{self.server.server_address[1]}"
@@ -162,7 +168,8 @@ class HTTPAPITests(unittest.TestCase):
     def set_chat_services(self, chat_store, backend=None):
         backend = backend or FakeChatBackend()
         api = ReadOnlyAPI(hardware=FakeHardware(), catalog=FakeModelCatalog(),
-                          runtimes=FakeRuntime(), chat_store=chat_store)
+                          runtimes=FakeRuntime(), chat_store=chat_store,
+                          diagnostics_log=self.diagnostics)
         api.runtimes = SimpleNamespace(list_backends=lambda: [backend])
         self.server.services = api
         return backend
@@ -196,6 +203,14 @@ class HTTPAPITests(unittest.TestCase):
             runtime = json.loads(response.read())
         self.assertTrue(runtime["data"]["backends"][0]["available"])
         self.assertEqual(runtime["data"]["backends"][0]["name"], "fixture")
+
+    def test_logs_snapshot_accepts_bounded_limit_query(self):
+        with self.request("/api/logs?limit=50") as response:
+            payload = json.loads(response.read())
+        self.assertEqual(payload["data"], {
+            "lines": [], "source": None, "supported": False,
+            "loaded": False, "limit": 50,
+        })
 
     def test_hub_search_file_listing_and_download_sse_use_managed_directory(self):
         with TemporaryDirectory() as temp:
@@ -262,6 +277,68 @@ class HTTPAPITests(unittest.TestCase):
         with self.assertRaises(HTTPError) as caught:
             self.request("/api/health", headers={"Origin": "https://attacker.example"})
         self.assertEqual(caught.exception.code, 403)
+        caught.exception.read()
+        caught.exception.close()
+
+    def test_runtime_actions_allow_browser_preflight(self):
+        for path in ("/api/runtime/load", "/api/runtime/unload", "/api/runtime/command", "/api/runtime/chat", "/api/diagnostics"):
+            with self.subTest(path=path):
+                with self.request(path, method="OPTIONS", headers={
+                        "Origin": "http://127.0.0.1:5173",
+                        "Access-Control-Request-Method": "POST",
+                        "Access-Control-Request-Headers": "content-type"}) as response:
+                    self.assertEqual(response.status, 204)
+                    self.assertEqual(response.headers.get("Access-Control-Allow-Origin"), "http://127.0.0.1:5173")
+                    self.assertEqual(response.headers.get("Access-Control-Allow-Headers"), "Content-Type")
+
+    def test_chat_generation_failure_is_persisted_with_root_cause_and_incident_id(self):
+        class FailingBackend(FakeChatBackend):
+            def generate_stream(self, prompt, options=None, on_delta=None, cancel_event=None):
+                raise RuntimeError(f"llama-server generation failed for {prompt}: Vulkan device initialization")
+
+        store = ChatStore(Path(self.temp.name) / "chats")
+        self.set_chat_services(store, FailingBackend())
+        chat_id = store.create()["id"]
+        incident_id = "a" * 32
+        prompt = "private prompt text must not be stored"
+        with self.post_json("/api/chat", {"chat_id": chat_id, "model_id": "safe-model",
+                                           "prompt": prompt, "request_id": incident_id}) as response:
+            stream = response.read().decode("utf-8")
+
+        self.assertIn("event: error", stream)
+        self.assertIn(incident_id, stream)
+        self.assertIn("Local model request failed", stream)
+        status, result = self.server.services.get("/api/diagnostics", "limit=100")
+        event = result["data"]["events"][0]
+        self.assertEqual(status, 200)
+        self.assertEqual(event["incident_id"], incident_id)
+        self.assertEqual(event["operation"], "chat.generate")
+        self.assertEqual(event["error_type"], "RuntimeError")
+        self.assertIn("Vulkan device initialization", event["detail"])
+        self.assertNotIn(prompt, event["detail"])
+        self.assertNotIn(prompt, json.dumps(event))
+
+    def test_chat_contract_reports_missing_fields_and_unexpected_fields_separately(self):
+        with self.assertRaises(HTTPError) as missing:
+            self.post_json("/api/chat", {"model_id": "safe-model", "prompt": "hello"})
+        self.assertEqual(json.loads(missing.exception.read())["error"], "Missing required chat field(s): chat_id")
+        missing.exception.close()
+
+        with self.assertRaises(HTTPError) as unexpected:
+            self.post_json("/api/chat", {"chat_id": "a" * 32, "model_id": "safe-model",
+                                         "prompt": "hello", "surprise": True})
+        self.assertEqual(json.loads(unexpected.exception.read())["error"], "Unexpected chat field(s): surprise")
+        unexpected.exception.close()
+
+    def test_client_diagnostic_endpoint_accepts_only_bounded_chat_metadata(self):
+        event = {"incident_id": "c" * 32, "operation": "chat.client",
+                 "error_type": "TypeError", "detail": "Failed to fetch local chat response"}
+        with self.post_json("/api/diagnostics", event) as response:
+            self.assertEqual(response.status, 201)
+            self.assertEqual(json.loads(response.read())["data"]["event"]["incident_id"], "c" * 32)
+        with self.assertRaises(HTTPError) as caught:
+            self.post_json("/api/diagnostics", {**event, "detail": "x" * 501})
+        self.assertEqual(caught.exception.code, 400)
         caught.exception.read()
         caught.exception.close()
 
@@ -353,6 +430,7 @@ class HTTPAPITests(unittest.TestCase):
             self.assertEqual(backend.history[0]["attachments"][0]["path"], "/private/photos/secret.png")
             self.assertEqual(backend.loaded, 1)
             self.assertEqual(backend.unloaded, 0)
+            self.assertEqual(self.diagnostics.list(), [])
 
     def test_chat_rename_delete_and_attachment_files_are_preserved(self):
         with TemporaryDirectory() as temp:
@@ -461,7 +539,10 @@ class HTTPAPITests(unittest.TestCase):
 
             with self.post_json("/api/chat", {"chat_id": chat_id, "model_id": "/etc/passwd", "prompt": "Hi"}) as response:
                 stream = response.read().decode("utf-8")
-            self.assertIn('event: error\ndata: {"error":"Model id was not found in the local catalog"}', stream)
+            self.assertIn("event: error\ndata: ", stream)
+            payload = json.loads(stream.split("data: ", 1)[1].strip())
+            self.assertEqual(payload["error"], "Model id was not found in the local catalog")
+            self.assertRegex(payload["incident_id"], r"^[a-f0-9]{32}$")
             self.assertEqual(backend.loaded, 0)
 
     def test_agent_endpoint_runs_fixed_read_only_tools_and_persists_chat(self):

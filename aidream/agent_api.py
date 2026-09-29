@@ -14,6 +14,10 @@ from aidream.agent_tools import AgentToolRegistry
 from aidream.http_api import (AGENT_AUDIT_PREFIX, APIError, MAX_HISTORY_CHARS,
                               MAX_HISTORY_MESSAGES, MAX_MODELS, CHAT_ID_RE)
 
+AGENT_MAX_TOOL_CALLS = 4
+AGENT_MAX_SECONDS = 45.0
+AGENT_MAX_OUTPUT_CHARS = 12_000
+
 
 class AgentRun:
     """A serialized agent turn that releases the shared model lock on close."""
@@ -47,7 +51,8 @@ class AgentRun:
             AgentToolRegistry(hardware=self.api.hardware, models=self.api.catalog,
                               runtime=self.api.runtimes,
                               runtime_manager=getattr(self.api, "runtime_manager", None)),
-            max_tool_calls=4, max_seconds=45.0, max_output_chars=12_000,
+            max_tool_calls=AGENT_MAX_TOOL_CALLS, max_seconds=AGENT_MAX_SECONDS,
+            max_output_chars=AGENT_MAX_OUTPUT_CHARS,
         ).run(self.prompt, history, cancel_event)
         # Don't persist an incomplete/cancelled turn. Other bounded stop reasons
         # (time/output/tool-call limit) return useful text and remain auditable.

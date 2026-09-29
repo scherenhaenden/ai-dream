@@ -10,7 +10,7 @@ from aidream.runtime import GenerationCancelled, LlamaCppBackend
 FAKE_SERVER = r'''#!/usr/bin/env python3
 import http.server, json, sys, time
 if '--help' in sys.argv:
-    print('usage -m MODEL --host HOST --port PORT -ngl N --device NAME --tensor-split LIST --split-mode MODE --main-gpu N -c CTX -t THREADS -b BATCH -ub UB --parallel N -tb THREADS --continuous-batching --no-cont-batching --numa MODE -ctk TYPE -ctv TYPE --list_devices -fa --kv-unified --no-kv-offload --mmap --no-mmap --mlock --fit on|off --reasoning on|off /v1/chat/completions')
+    print('usage -m MODEL --mmproj FILE --host HOST --port PORT -ngl N --device NAME --tensor-split LIST --split-mode MODE --main-gpu N -c CTX -t THREADS -b BATCH -ub UB --parallel N -tb THREADS --continuous-batching --no-cont-batching --numa MODE -ctk TYPE -ctv TYPE --list_devices -fa --kv-unified --no-kv-offload --mmap --no-mmap --mlock --fit on|off --reasoning on|off /v1/chat/completions')
     raise SystemExit(0)
 port = int(sys.argv[sys.argv.index('--port') + 1])
 with open(sys.argv[sys.argv.index('-m') + 1] + '.argv', 'w') as f: f.write(json.dumps(sys.argv))
@@ -41,6 +41,59 @@ http.server.HTTPServer(('127.0.0.1', port), Handler).serve_forever()
 '''
 
 class PersistentServerTest(unittest.TestCase):
+    def test_recent_log_lines_returns_only_bounded_real_process_output(self):
+        backend = LlamaCppBackend('/does/not/exist')
+        self.assertEqual(backend.recent_log_lines(), [])
+        with tempfile.TemporaryFile(mode='w+t', encoding='utf-8') as log:
+            log.write('\n'.join(f'actual line {i}' for i in range(5)))
+            log.flush()
+            backend._log = log
+            backend._process = SimpleNamespace(poll=lambda: None)
+            self.assertEqual(backend.recent_log_lines(2), ['actual line 3', 'actual line 4'])
+            self.assertEqual(backend.recent_log_lines(10000)[0], 'actual line 0')
+            self.assertEqual(log.tell(), len('\n'.join(f'actual line {i}' for i in range(5))))
+        backend._log = None
+        backend._process = None
+
+    def test_fit_is_disabled_by_default_even_without_tensor_split(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            executable = root / "fake-server"
+            executable.write_text(FAKE_SERVER)
+            executable.chmod(0o755)
+            model = root / "model.gguf"
+            model.write_bytes(b"mock")
+            backend = LlamaCppBackend(str(executable), port=12345)
+            command = backend.effective_command(model)
+            fit_index = command.index("--fit")
+            self.assertEqual(command[fit_index + 1], "off")
+
+    def test_mmproj_pair_is_passed_when_server_advertises_it(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            executable = root / "fake-server"
+            executable.write_text(FAKE_SERVER)
+            executable.chmod(0o755)
+            model, projector = root / "model.gguf", root / "mmproj.gguf"
+            model.write_bytes(b"model")
+            projector.write_bytes(b"projector")
+            record = SimpleNamespace(path=model, metadata={"mmproj_path": str(projector)})
+            command = LlamaCppBackend(str(executable), port=12345).effective_command(record)
+            index = command.index("--mmproj")
+            self.assertEqual(command[index + 1], str(projector.resolve()))
+
+    def test_incomplete_split_model_is_rejected_before_launch(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            executable = root / "fake-server"
+            executable.write_text(FAKE_SERVER)
+            executable.chmod(0o755)
+            model = root / "model-00001-of-00003.gguf"
+            model.write_bytes(b"model")
+            record = SimpleNamespace(path=model, metadata={"split_missing_parts": [2, 3]})
+            with self.assertRaisesRegex(ValueError, r"missing shard\(s\): 2, 3"):
+                LlamaCppBackend(str(executable)).effective_command(record)
+
     def test_detected_devices_use_help_advertised_runtime_native_ids(self):
         calls = []
         def run(argv, **kwargs):
@@ -274,7 +327,7 @@ class PersistentServerTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'temperature'):
                 backend.generate('hello', {'temperature': -1})
             with self.assertRaisesRegex(ValueError, 'Unsupported generation option'):
-                backend.generate('hello', {'top_k': 5})
+                backend.generate('hello', {'unsupported_sampling_option': 5})
             self.assertEqual(backend._messages, [])
             backend.unload()
             self.assertIsNone(backend._process)

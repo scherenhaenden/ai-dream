@@ -25,13 +25,13 @@ class LauncherTests(unittest.TestCase):
         web = _desktop("AI Dream Web.desktop")
 
         self.assertEqual(standalone["name"], "AI Dream")
-        self.assertTrue(standalone["exec"].endswith("/open-ai-dream"))
+        self.assertTrue(standalone["exec"].endswith("/open-ai-dream-app"))
         self.assertEqual(standalone["tryexec"], standalone["exec"])
         self.assertEqual(web["name"], "AI Dream Web")
-        self.assertTrue(web["exec"].endswith("/open-ai-dream-web"))
+        self.assertTrue(web["exec"].endswith("/open-ai-dream-app"))
         self.assertEqual(web["tryexec"], web["exec"])
-        self.assertEqual(standalone["terminal"], web["terminal"])
-        self.assertEqual(standalone["terminal"], "true")
+        self.assertEqual(standalone["terminal"], "false")
+        self.assertEqual(web["terminal"], "false")
 
 
     def test_shell_launchers_target_standalone_and_web_modes_with_diagnostics(self):

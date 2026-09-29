@@ -9,6 +9,8 @@ from dataclasses import asdict, is_dataclass
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import errno
+import base64
+import binascii
 import json
 import os
 import re
@@ -40,7 +42,10 @@ MAX_TRANSCRIPT_MESSAGES = 100
 MAX_TRANSCRIPT_CHARS = 256 * 1024
 MAX_HISTORY_MESSAGES = 32
 MAX_HISTORY_CHARS = 32_768
+MAX_KNOWLEDGE_CONTEXT_CHARS = 6_000
+MAX_KNOWLEDGE_CONTEXT_RESULTS = 4
 MAX_REQUEST_BYTES = 32 * 1024
+MAX_KNOWLEDGE_REQUEST_BYTES = 8 * 1024 * 1024
 MAX_PROMPT_CHARS = 8_000
 MAX_CHAT_OUTPUT_CHARS = 64 * 1024
 MAX_STATIC_FILE_BYTES = 32 * 1024 * 1024
@@ -120,6 +125,10 @@ class APIConflict(APIError):
     status = 409
 
 
+class APIUnavailable(APIError):
+    status = 503
+
+
 class APILimit(APIError):
     status = 413
 
@@ -127,11 +136,13 @@ class APILimit(APIError):
 class ChatRun:
     """Owns one serialized runtime generation and releases its backend/lock."""
 
-    def __init__(self, api, backend, session_id: str, prompt: str, generation=None):
+    def __init__(self, api, backend, session_id: str, prompt: str, generation=None,
+                 stored_prompt: str | None = None):
         self.api = api
         self.backend = backend
         self.session_id = session_id
         self.prompt = prompt
+        self.stored_prompt = prompt if stored_prompt is None else stored_prompt
         self.generation = generation or {}
         self._closed = False
 
@@ -141,7 +152,7 @@ class ChatRun:
             raise GenerationCancelled("generation was cancelled")
         response = self.backend.generate_stream(
             self.prompt, self.generation, on_delta=on_delta, cancel_event=cancel_event)
-        self.api.chat_store.append(self.session_id, "user", self.prompt)
+        self.api.chat_store.append(self.session_id, "user", self.stored_prompt)
         session = self.api.chat_store.append(self.session_id, "assistant", response)
         return {"chat_id": self.session_id, "assistant": response,
                 "session_id": session["id"]}
@@ -156,7 +167,8 @@ class ReadOnlyAPI:
     """HTTP adapter backed by the existing local catalog, chat and runtime services."""
 
     def __init__(self, *, hardware=None, catalog=None, runtimes=None, chat_store=None, hub=None, download_dir=None,
-                 runtime_installations=None, profile_store=None, settings_store=None):
+                 runtime_installations=None, profile_store=None, settings_store=None, knowledge_index=None,
+                 diagnostics_log=None):
         if hardware is None:
             from aidream.hardware import HardwareService
             hardware = HardwareService()
@@ -179,6 +191,16 @@ class ReadOnlyAPI:
         self.runtime_installations = runtime_installations or RuntimeInstallationRegistry()
         self.profile_store = profile_store or ModelProfileStore()
         self.settings_store = settings_store or AppSettingsStore()
+        if knowledge_index is None:
+            from aidream.knowledge import SQLiteKnowledgeIndex
+            data_dir = Path(self.settings_store.get()["data_dir"]).expanduser().resolve()
+            knowledge_dir = data_dir / "knowledge"
+            if knowledge_dir.is_symlink():
+                raise ValueError("Knowledge directory must not be a symbolic link")
+            knowledge_index = SQLiteKnowledgeIndex(knowledge_dir / "index.sqlite3")
+        self.knowledge_index = knowledge_index
+        from aidream.diagnostics import DiagnosticsLog
+        self.diagnostics_log = diagnostics_log or DiagnosticsLog()
         if hub is None:
             from aidream.huggingface import HuggingFaceDownloader
             hub = HuggingFaceDownloader()
@@ -194,6 +216,25 @@ class ReadOnlyAPI:
         self._active_binding = None
         self._closed = False
         self._installation_backends = {}
+
+    def record_diagnostic(self, operation, error, *, incident_id=None, chat_id=None, error_type=None,
+                          sensitive_values=()):
+        return self.diagnostics_log.record(operation, error, incident_id=incident_id,
+                                           chat_id=chat_id, error_type=error_type,
+                                           sensitive_values=tuple(sensitive_values))
+
+    def record_client_diagnostic(self, body):
+        if (not isinstance(body, dict) or set(body) != {"incident_id", "operation", "detail", "error_type"}
+                or not isinstance(body["incident_id"], str)
+                or not re.fullmatch(r"[a-f0-9]{32}", body["incident_id"])
+                or body["operation"] != "chat.client"
+                or not isinstance(body["detail"], str) or not body["detail"].strip()
+                or len(body["detail"]) > 500
+                or not isinstance(body["error_type"], str)
+                or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,63}", body["error_type"])):
+            raise APIError("Invalid chat diagnostic event")
+        return self.record_diagnostic(body["operation"], body["detail"],
+                                      incident_id=body["incident_id"], error_type=body["error_type"])
 
     def _all_backends(self):
         """Include explicitly registered llama.cpp installations in backend selection."""
@@ -248,6 +289,108 @@ class ReadOnlyAPI:
         chat_layer = {**chat_runtime, "generation": chat_generation}
         return resolve_effective_settings(
             {**defaults, "generation": {}}, model_profile, chat_layer, request_settings)
+
+    def add_knowledge_document(self, body):
+        if not isinstance(body, dict) or set(body) not in ({"name", "content"}, {"name", "content_base64"}):
+            raise APIError("name and exactly one of content or content_base64 are required")
+        from aidream.document_input import MAX_DOCUMENT_BYTES
+        name = body.get("name")
+        if not isinstance(name, str):
+            raise APIError("name must be a filename")
+        if "content" in body:
+            content = body["content"]
+            if not isinstance(content, str):
+                raise APIError("content must be text")
+            data = content.encode("utf-8")
+        else:
+            content = body["content_base64"]
+            if not isinstance(content, str) or len(content) > ((MAX_DOCUMENT_BYTES + 2) // 3) * 4:
+                raise APILimit("Encoded document exceeds the local document limit")
+            try:
+                data = base64.b64decode(content, validate=True)
+            except (ValueError, binascii.Error) as exc:
+                raise APIError("content_base64 must contain valid base64") from exc
+        if len(data) > MAX_DOCUMENT_BYTES:
+            raise APILimit("Document exceeds the local document byte limit")
+        try:
+            document = self.knowledge_index.add_document(name, data)
+            return {"data": {"document": document, "index": self.knowledge_index.list_documents()}}
+        except Exception as exc:
+            from aidream.knowledge import KnowledgeError, KnowledgeLimitError
+            import sqlite3
+            if isinstance(exc, KnowledgeLimitError):
+                raise APILimit(str(exc)) from exc
+            if isinstance(exc, KnowledgeError):
+                raise APIError(str(exc)) from exc
+            if isinstance(exc, sqlite3.Error):
+                raise APIUnavailable("The local full-text index is unavailable") from exc
+            raise
+
+    def list_knowledge_documents(self):
+        try:
+            return {"data": self.knowledge_index.list_documents()}
+        except Exception as exc:
+            from aidream.knowledge import KnowledgeError
+            import sqlite3
+            if isinstance(exc, KnowledgeError):
+                raise APIUnavailable(str(exc)) from exc
+            if isinstance(exc, sqlite3.Error):
+                raise APIUnavailable("The local full-text index is unavailable") from exc
+            raise
+
+    def search_knowledge(self, query: str, limit: int):
+        try:
+            return {"data": {"query": query, "results": self.knowledge_index.search(query, limit), "limit": limit,
+                              "mode": "full_text"}}
+        except Exception as exc:
+            from aidream.knowledge import KnowledgeError
+            import sqlite3
+            if isinstance(exc, KnowledgeError):
+                raise APIError(str(exc)) from exc
+            if isinstance(exc, sqlite3.Error):
+                raise APIUnavailable("The local full-text index is unavailable") from exc
+            raise
+
+    def _knowledge_context(self, query: str) -> str:
+        """Return bounded local lexical matches formatted as untrusted document context."""
+        from aidream.document_input import DocumentAttachment, build_document_prompt
+
+        results = self.knowledge_index.search(query, MAX_KNOWLEDGE_CONTEXT_RESULTS)
+        documents = []
+        remaining = MAX_KNOWLEDGE_CONTEXT_CHARS
+        for result in results[:MAX_KNOWLEDGE_CONTEXT_RESULTS]:
+            if remaining <= 0:
+                break
+            snippet = result.get("snippet")
+            name = result.get("name")
+            if not isinstance(snippet, str) or not isinstance(name, str):
+                continue
+            text = snippet[:min(900, remaining)]
+            if not text.strip():
+                continue
+            documents.append(DocumentAttachment(
+                path=Path(name), name=name[:255], media_type="text/plain",
+                size_bytes=len(text.encode("utf-8")), text=text, truncated=len(snippet) > len(text)))
+            remaining -= len(text)
+        if not documents:
+            return query
+        return build_document_prompt(query, documents)
+
+    def delete_knowledge_document(self, doc_id: str):
+        try:
+            if not self.knowledge_index.delete_document(doc_id):
+                raise APINotFound("Knowledge document not found")
+            return {"data": {"deleted": True, "id": doc_id}}
+        except APIError:
+            raise
+        except Exception as exc:
+            from aidream.knowledge import KnowledgeError
+            import sqlite3
+            if isinstance(exc, KnowledgeError):
+                raise APIError(str(exc)) from exc
+            if isinstance(exc, sqlite3.Error):
+                raise APIUnavailable("The local full-text index is unavailable") from exc
+            raise
 
     def _effective_runtime_defaults(self, settings=None):
         """Return persisted defaults plus a detected runtime when selectors are unset.
@@ -497,7 +640,12 @@ class ReadOnlyAPI:
                                   if key in generation}
             if "stop_strings" in allowed_generation:
                 allowed_generation["stop"] = allowed_generation.pop("stop_strings")
-            return ChatRun(self, backend, chat_id, prompt.strip(), allowed_generation)
+            user_prompt = prompt.strip()
+            effective_prompt = user_prompt
+            if session.get("settings", {}).get("knowledge", {}).get("enabled", False):
+                effective_prompt = self._knowledge_context(user_prompt)
+            return ChatRun(self, backend, chat_id, effective_prompt, allowed_generation,
+                           stored_prompt=user_prompt)
         except APIError:
             self._chat_lock.release()
             raise
@@ -614,6 +762,69 @@ class ReadOnlyAPI:
     def get(self, path: str, query: str = "") -> tuple[int, dict[str, Any]]:
         if path == "/api/health":
             return 200, {"data": {"status": "ok", "service": "ai-dream"}}
+        if path == "/api/knowledge/documents":
+            return 200, self.list_knowledge_documents()
+        if path == "/api/knowledge/search":
+            params = parse_qs(query, keep_blank_values=True)
+            if set(params) - {"q", "limit"} or any(len(values) != 1 for values in params.values()):
+                raise APIError("Only one q and one limit query value are accepted")
+            search_query = params.get("q", [""])[0]
+            raw_limit = params.get("limit", ["10"])[0]
+            try:
+                limit = int(raw_limit)
+            except ValueError as exc:
+                raise APIError("limit must be an integer from 1 to 20") from exc
+            if str(limit) != raw_limit or not 1 <= limit <= 20:
+                raise APIError("limit must be an integer from 1 to 20")
+            return 200, self.search_knowledge(search_query, limit)
+        if path == "/api/agent/tools":
+            from aidream.agent_api import (AGENT_MAX_OUTPUT_CHARS, AGENT_MAX_SECONDS,
+                                           AGENT_MAX_TOOL_CALLS)
+            from aidream.agent_tools import AgentToolRegistry
+            registry = AgentToolRegistry(hardware=self.hardware, models=self.catalog,
+                                         runtime=self.runtimes,
+                                         runtime_manager=getattr(self, "runtime_manager", None))
+            tools = [{"name": spec.name, "description": spec.description,
+                      "parameters": dict(spec.parameters), "read_only": spec.read_only}
+                     for spec in registry.list_tools()]
+            return 200, {"data": {"tools": tools, "limits": {
+                "max_tool_calls": AGENT_MAX_TOOL_CALLS,
+                "max_seconds": AGENT_MAX_SECONDS,
+                "max_output_chars": AGENT_MAX_OUTPUT_CHARS,
+            }, "policy": {"filesystem_write": False, "shell": False,
+                          "network_tools": False}}}
+        if path == "/api/logs":
+            params = parse_qs(query, keep_blank_values=True)
+            if set(params) - {"limit"} or any(len(values) != 1 for values in params.values()):
+                raise APIError("Only one limit query value is accepted")
+            raw_limit = params.get("limit", ["200"])[0]
+            try:
+                limit = int(raw_limit)
+            except (TypeError, ValueError) as exc:
+                raise APIError("limit must be an integer from 1 to 1000") from exc
+            if str(limit) != raw_limit or not 1 <= limit <= 1000:
+                raise APIError("limit must be an integer from 1 to 1000")
+            backend = self._active_backend
+            reader = getattr(backend, "recent_log_lines", None) if backend is not None else None
+            lines = reader(limit) if callable(reader) else []
+            if not isinstance(lines, list) or any(not isinstance(line, str) for line in lines):
+                raise APIError("Runtime returned an invalid log snapshot")
+            return 200, {"data": {"lines": lines,
+                                  "source": getattr(backend, "name", None) if callable(reader) else None,
+                                  "supported": bool(callable(reader)),
+                                  "loaded": bool(self.runtime_status().get("loaded")), "limit": limit}}
+        if path == "/api/diagnostics":
+            params = parse_qs(query, keep_blank_values=True)
+            if set(params) - {"limit"} or any(len(values) != 1 for values in params.values()):
+                raise APIError("Only one limit query value is accepted")
+            raw_limit = params.get("limit", ["100"])[0]
+            try:
+                limit = int(raw_limit)
+            except (TypeError, ValueError) as exc:
+                raise APIError("limit must be an integer from 1 to 500") from exc
+            if str(limit) != raw_limit or not 1 <= limit <= 500:
+                raise APIError("limit must be an integer from 1 to 500")
+            return 200, {"data": {"events": self.diagnostics_log.list(limit), "limit": limit}}
         if path == "/api/hardware":
             return 200, {"data": {"hardware": _jsonable(self.hardware.detect())}}
         if path == "/api/models":
@@ -1017,7 +1228,7 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
                 return
             if parsed.path == "/api" or parsed.path.startswith("/api/"):
                 if (parsed.path != self.path.split("?", 1)[0]
-                        or (parsed.query and parsed.path not in {"/api/hub/search", "/api/model-profiles"}
+                        or (parsed.query and parsed.path not in {"/api/hub/search", "/api/model-profiles", "/api/logs", "/api/diagnostics", "/api/knowledge/search"}
                             and "/api/hub/repos/" not in parsed.path)):
                     self._send_json(400, {"error": "Query strings are not supported for this API path"})
                     return
@@ -1028,7 +1239,7 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
                 elif re.fullmatch(r"/api/downloads/[a-f0-9]{32}/events", parsed.path):
                     self._serve_download_events(parsed.path.split("/")[3])
                 else:
-                    if parsed.query and parsed.path != "/api/model-profiles":
+                    if parsed.query and parsed.path not in {"/api/model-profiles", "/api/logs", "/api/diagnostics", "/api/knowledge/search"}:
                         self._send_json(400, {"error": "Query strings are not supported for this API path"})
                         return
                     self._serve_api(parsed.path, parsed.query)
@@ -1267,6 +1478,26 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
             if self.path == "/api/agent":
                 self._post_agent()
                 return
+            if self.path == "/api/knowledge/documents":
+                try:
+                    result = self.server.services.add_knowledge_document(
+                        self._read_json_body(MAX_KNOWLEDGE_REQUEST_BYTES)
+                    )
+                    self._send_json(201, result)
+                except (APIError, ValueError) as exc:
+                    self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
+                except OSError:
+                    self._send_json(503, {"error": "Could not persist the local knowledge index"})
+                return
+            if self.path == "/api/diagnostics":
+                try:
+                    result = self.server.services.record_client_diagnostic(self._read_json_body())
+                    self._send_json(201, {"data": {"event": result}})
+                except (APIError, ValueError) as exc:
+                    self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
+                except OSError:
+                    self._send_json(503, {"error": "Could not persist local diagnostics"})
+                return
             if self.path == "/api/runtime/load":
                 try:
                     result = self.server.services.load_model(self._read_json_body())
@@ -1428,6 +1659,15 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
             if not self._write_origin_ok():
                 self._send_json(403, {"error": "A permitted Origin is required"})
                 return
+            knowledge_match = re.fullmatch(r"/api/knowledge/documents/([a-f0-9]{32})", self.path)
+            if knowledge_match:
+                try:
+                    self._send_json(200, self.server.services.delete_knowledge_document(knowledge_match.group(1)))
+                except (APIError, ValueError) as exc:
+                    self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
+                except OSError:
+                    self._send_json(503, {"error": "Could not update the local knowledge index"})
+                return
             match = re.fullmatch(r"/api/downloads/([a-f0-9]{32})/cancel", self.path)
             if match:
                 try:
@@ -1473,7 +1713,7 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
             origin = self._allowed_origin()
             return bool(origin)
 
-        def _read_json_body(self):
+        def _read_json_body(self, max_bytes=MAX_REQUEST_BYTES):
             if self.headers.get("Transfer-Encoding"):
                 raise APIError("Chunked request bodies are not supported")
             content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
@@ -1482,10 +1722,10 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
             raw_length = self.headers.get("Content-Length")
             if raw_length is None or not raw_length.isascii() or not raw_length.isdigit():
                 raise APIError("Content-Length is required")
-            if len(raw_length) > 6:
+            if len(raw_length) > len(str(max_bytes)):
                 raise APILimit("Request body exceeds the local API limit")
             length = int(raw_length)
-            if length > MAX_REQUEST_BYTES:
+            if length > max_bytes:
                 raise APILimit("Request body exceeds the local API limit")
             try:
                 raw = self.rfile.read(length)
@@ -1510,8 +1750,14 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
                 self._send_json(exc.status, {"error": str(exc)})
                 return
             optional = {"runtime_id", "backend", "profile_id", "placement", "load", "generation"}
-            if not {"chat_id", "model_id", "prompt"} <= set(body) or set(body) - ({"chat_id", "model_id", "prompt"} | optional):
-                self._send_json(400, {"error": "chat_id, model_id and prompt are required; only runtime settings are optional"})
+            required = {"chat_id", "model_id", "prompt"}
+            missing = sorted(required - set(body))
+            unexpected = sorted(set(body) - (required | {"request_id"} | optional))
+            if missing:
+                self._send_json(400, {"error": "Missing required chat field(s): " + ", ".join(missing)})
+                return
+            if unexpected:
+                self._send_json(400, {"error": "Unexpected chat field(s): " + ", ".join(unexpected)})
                 return
             if (not isinstance(body.get("chat_id"), str) or not isinstance(body.get("model_id"), str)
                     or not isinstance(body.get("prompt"), str)):
@@ -1519,6 +1765,10 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
                 return
             if len(body["prompt"]) > MAX_PROMPT_CHARS or not body["prompt"].strip():
                 self._send_json(400, {"error": f"prompt must contain 1 to {MAX_PROMPT_CHARS} characters"})
+                return
+            incident_id = body.get("request_id") or uuid.uuid4().hex
+            if not isinstance(incident_id, str) or not re.fullmatch(r"[a-f0-9]{32}", incident_id):
+                self._send_json(400, {"error": "request_id must be a 32-character lowercase hexadecimal id"})
                 return
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream; charset=utf-8")
@@ -1605,7 +1855,14 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
                     else:
                         safe_error = str(exc) if isinstance(exc, APIError) else "Local model request failed"
                     try:
-                        emit_event("error", {"error": safe_error[:240]})
+                        self.server.services.record_diagnostic("chat.generate", exc,
+                                                               incident_id=incident_id,
+                                                               chat_id=body["chat_id"],
+                                                               sensitive_values=(body["prompt"],))
+                    except OSError:
+                        pass
+                    try:
+                        emit_event("error", {"error": safe_error[:240], "incident_id": incident_id})
                     except (BrokenPipeError, ConnectionResetError, socket.timeout, OSError):
                         cancel_backend()
             finally:
@@ -1723,7 +1980,7 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
             if not self._write_origin_ok():
                 self._send_json(403, {"error": "A permitted Origin is required"})
                 return
-            if self.path not in {"/api/chat", "/api/agent", "/api/chats", "/api/downloads", "/api/model-sources", "/api/models/rescan", "/api/runtime/installations", "/api/model-profiles", "/api/settings"} and not re.fullmatch(r"/api/runtime/installations/[a-f0-9]{32}(/probe)?", self.path) and not re.fullmatch(r"/api/model-profiles/[a-f0-9]{32}", self.path) and not re.fullmatch(r"/api/chats/[a-f0-9]{32}(/settings)?", self.path) and not re.fullmatch(r"/api/downloads/[a-f0-9]{32}/cancel", self.path):
+            if self.path not in {"/api/chat", "/api/agent", "/api/chats", "/api/downloads", "/api/diagnostics", "/api/knowledge/documents", "/api/model-sources", "/api/models/rescan", "/api/runtime/load", "/api/runtime/unload", "/api/runtime/chat", "/api/runtime/command", "/api/runtime/installations", "/api/model-profiles", "/api/settings"} and not re.fullmatch(r"/api/runtime/installations/[a-f0-9]{32}(/probe)?", self.path) and not re.fullmatch(r"/api/model-profiles/[a-f0-9]{32}", self.path) and not re.fullmatch(r"/api/chats/[a-f0-9]{32}(/settings)?", self.path) and not re.fullmatch(r"/api/downloads/[a-f0-9]{32}/cancel", self.path):
                 self._send_json(404, {"error": "Not found"})
                 return
             self.send_response(204)

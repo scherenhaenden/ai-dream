@@ -27,12 +27,15 @@ Successful JSON responses use a `{ "data": ... }` envelope. Errors use a short
 - `GET /api/runtime` → `data.backends` (name, availability, and advertised capability fields)
 - `GET /api/chats` → `data.chats` (id, title and timestamps only)
 - `GET /api/chats/<32-hex-id>` → `data.chat` (transcript roles, text and timestamps; excludes settings and attachment paths)
+- `GET /api/chats/<32-hex-id>/settings` → `data.settings` (saved per-chat model/runtime and generation overrides)
+- `GET /api/agent/tools` → `data.tools` and `data.limits` from the registered read-only tool registry; this is descriptive, not a permissions-grant endpoint
 - `GET /api/hub/search?q=<text>&limit=<1-100>` → `data.items` with public Hugging Face GGUF repository metadata
 - `GET /api/hub/repos/<percent-encoded-owner%2Frepo>/files?revision=main` → validated GGUF filenames and public repository details
 - `GET /api/downloads` → current in-memory downloads with status and received/total byte counts; jobs are recovered by the browser after a page refresh while the server stays running
 - `GET /api/downloads/<32-hex-id>` → one current in-memory download snapshot
 - `POST /api/chats` with optional `{"title":"..."}` → creates one local session and returns `data.chat`
 - `PATCH /api/chats/<32-hex-id>` with `{"title":"..."}` → renames a local session; title must contain 1–120 characters
+- `PATCH /api/chats/<32-hex-id>/settings` with supported partial settings → validates and saves per-chat overrides; omitted fields retain runtime defaults
 - `DELETE /api/chats/<32-hex-id>` → deletes only the saved chat record; referenced attachment files remain untouched
 - `POST /api/chat` with `{"chat_id":"...","model_id":"...","prompt":"..."}` → SSE `delta` events (`{"text":"..."}`), then `complete` (`chat_id`, saved `assistant` text, and `session_id`). Model IDs must match the local catalog; callers cannot provide paths.
 - `POST /api/agent` with the same body → SSE `status`, then `complete` with `assistant`, `chat_id`, `session_id`, and a bounded `agent` summary (`tools`, `tool_call_count`, `elapsed_seconds`, `stop_reason`, `tool_calls_supported`). Agent mode requires the selected catalog model's runtime to support tool calls. It permits at most four registered read-only calls and 45 seconds per turn; results and audit snippets are bounded. Disconnecting cancels the active backend call. Completed agent turns and a compact audit record are saved to that chat; `GET /api/chats/<id>` returns audit data in `agent_audits` and keeps the internal audit record out of visible transcript messages.

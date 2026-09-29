@@ -129,6 +129,22 @@ class ChatStoreTests(unittest.TestCase):
         loaded = self.store.load(session["id"])
         self.assertEqual(loaded["settings"], updated)
 
+    def test_session_generation_sampling_options_validate_and_round_trip(self):
+        session = self.store.create()
+        settings = self.store.update_session_settings(session["id"], {
+            "generation": {"temperature": 0.2, "top_p": 0.9, "top_k": 40,
+                           "min_p": 0.05, "repeat_penalty": 1.1, "max_tokens": 2048},
+        })
+        self.assertEqual({key: settings["generation"][key] for key in
+                          ("temperature", "top_p", "top_k", "min_p", "repeat_penalty", "max_tokens")},
+                         {"temperature": 0.2, "top_p": 0.9, "top_k": 40,
+                          "min_p": 0.05, "repeat_penalty": 1.1, "max_tokens": 2048})
+        for invalid in ({"top_p": 1.1}, {"min_p": -0.1}, {"top_k": 0},
+                        {"top_k": True}, {"repeat_penalty": float("inf")},
+                        {"repeat_penalty": 4.1}, {"seed": 2.5}):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                self.store.update_session_settings(session["id"], {"generation": invalid})
+
     def test_runtime_load_contract_options_and_profile_id_round_trip(self):
         session = self.store.create()
         settings = self.store.update_session_settings(session["id"], {

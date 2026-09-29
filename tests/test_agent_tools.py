@@ -1,7 +1,11 @@
 from dataclasses import dataclass
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 
 from aidream.agent_tools import AgentToolRegistry
+from aidream.conversation import ChatStore
+from aidream.http_api import ReadOnlyAPI
 from aidream.models import ModelRecord
 
 
@@ -72,6 +76,25 @@ class AgentToolRegistryTests(unittest.TestCase):
             self.tools.invoke("models.info")
         with self.assertRaisesRegex(ValueError, "non-empty string"):
             self.tools.invoke("models.info", {"model_id": " "})
+
+
+class AgentToolDiscoveryTests(unittest.TestCase):
+    def test_http_payload_comes_from_registry_and_does_not_load_model(self):
+        with TemporaryDirectory() as temp:
+            api = ReadOnlyAPI(hardware=FakeHardware(), catalog=FakeModels(),
+                              runtimes=FakeRuntime(), chat_store=ChatStore(Path(temp) / "chats"))
+            status, response = api.get("/api/agent/tools")
+        payload = response["data"]
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["tools"], [{"name": spec.name, "description": spec.description,
+                           "parameters": dict(spec.parameters), "read_only": spec.read_only}
+                          for spec in AgentToolRegistry(hardware=FakeHardware(), models=FakeModels(),
+                                                       runtime=FakeRuntime(), runtime_manager=FakeManager()).list_tools()])
+        self.assertEqual(payload["limits"], {"max_tool_calls": 4, "max_seconds": 45.0,
+                                             "max_output_chars": 12_000})
+        self.assertEqual(payload["policy"], {"filesystem_write": False, "shell": False,
+                                             "network_tools": False})
+        self.assertIsNone(api._active_backend)
 
 
 if __name__ == "__main__":

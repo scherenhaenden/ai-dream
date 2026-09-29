@@ -69,7 +69,23 @@ def load_document_attachment(path: str | Path) -> DocumentAttachment:
     """
 
     resolved, data = _read_local_file(path)
-    suffix = resolved.suffix.lower()
+    return load_document_bytes(resolved.name, data, path=resolved)
+
+
+def load_document_bytes(name: str, data: bytes, *, path: Path | None = None) -> DocumentAttachment:
+    """Extract bounded text from an uploaded document without accepting a host path."""
+    if not isinstance(name, str) or not name or len(name) > 255 or "\x00" in name:
+        raise DocumentInputError("Document name must contain 1 to 255 safe characters")
+    if "/" in name or "\\" in name or name in {".", ".."}:
+        raise DocumentInputError("Document name must not contain a path")
+    if not isinstance(data, bytes):
+        raise DocumentInputError("Document content must be bytes")
+    if not data:
+        raise DocumentInputError("Document file is empty")
+    if len(data) > MAX_DOCUMENT_BYTES:
+        raise DocumentInputError(f"Document exceeds the {MAX_DOCUMENT_BYTES} byte limit")
+    resolved = path or Path(name)
+    suffix = Path(name).suffix.lower()
     if suffix in SUPPORTED_TEXT_EXTENSIONS:
         extracted = _decode_text(data)
         media_type = "text/markdown" if suffix in {".md", ".markdown"} else "text/plain"
@@ -112,7 +128,7 @@ def load_document_attachment(path: str | Path) -> DocumentAttachment:
         extracted = extracted[:MAX_DOCUMENT_CHARS]
     return DocumentAttachment(
         path=resolved,
-        name=resolved.name,
+        name=name,
         media_type=media_type,
         size_bytes=len(data),
         text=extracted,

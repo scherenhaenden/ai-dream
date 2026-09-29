@@ -12,6 +12,12 @@ const SCREENSHOT_DIR = path.resolve(__dirname, '../../artifacts/ui-smoke/chat-ag
   let hasErrors = false;
   const unmatchedApiRequests = [];
   let healthChecks = 0;
+  let knowledgeEnabled = false;
+  let chatPayload = null;
+  let chatMessages = [
+    { role: 'user', content: 'Hello' },
+    { role: 'assistant', content: 'Hi there!' }
+  ];
 
   try {
     fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
@@ -86,6 +92,16 @@ const SCREENSHOT_DIR = path.resolve(__dirname, '../../artifacts/ui-smoke/chat-ag
       });
     });
 
+    await page.route('**/api/runtime/status', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: { status: {
+          loaded: true, model: '/mock/models/model-2.gguf', backend: 'llama.cpp', runtime_id: null
+        } } })
+      });
+    });
+
     // Mock API for /api/models
     await page.route('**/api/models', route => {
       route.fulfill({
@@ -93,7 +109,10 @@ const SCREENSHOT_DIR = path.resolve(__dirname, '../../artifacts/ui-smoke/chat-ag
         contentType: 'application/json',
         body: JSON.stringify({
           data: {
-            models: [{ id: 'mock-model-1', name: 'Mock Model' }]
+            models: [
+              { id: 'mock-model-1', name: 'Mock Model 1', path: '/mock/models/model-1.gguf' },
+              { id: 'mock-model-2', name: 'Mock Model 2', path: '/mock/models/model-2.gguf' }
+            ]
           }
         })
       });
@@ -111,10 +130,7 @@ const SCREENSHOT_DIR = path.resolve(__dirname, '../../artifacts/ui-smoke/chat-ag
               chat: {
                 id: 'mock-chat-1',
                 title: 'Mock Chat',
-                messages: [
-                  { role: 'user', content: 'Hello' },
-                  { role: 'assistant', content: 'Hi there!' }
-                ]
+                messages: chatMessages
               }
             }
           })
@@ -132,6 +148,32 @@ const SCREENSHOT_DIR = path.resolve(__dirname, '../../artifacts/ui-smoke/chat-ag
       }
     });
 
+    await page.route(/\/api\/chats\/mock-chat-1\/settings$/, async route => {
+      if (route.request().method() === 'PATCH') {
+        const settings = route.request().postDataJSON();
+        knowledgeEnabled = settings?.knowledge?.enabled === true;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: { settings: {
+          generation: { temperature: 0.7, top_p: null, top_k: null, min_p: null, repeat_penalty: null, max_tokens: null },
+          knowledge: { enabled: knowledgeEnabled }
+        } } })
+      });
+    });
+
+    await page.route('**/api/chat', async route => {
+      chatPayload = route.request().postDataJSON();
+      chatMessages = [...chatMessages, { role: 'user', content: chatPayload.prompt },
+        { role: 'assistant', content: 'Mock answer\n\n```html\n<html><body>Hello</body></html>\n```' }];
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        body: 'event: delta\ndata: {"text":"Mock answer\\n\\n```html\\n<html><body>Hello</body></html>\\n```"}\n\nevent: complete\ndata: {"assistant":"Mock answer\\n\\n```html\\n<html><body>Hello</body></html>\\n```"}\n\n'
+      });
+    });
+
     // 1. Check Chat Page
     console.log("Checking Chat Page...");
     await page.goto('http://localhost:4200/chat');
@@ -146,6 +188,26 @@ const SCREENSHOT_DIR = path.resolve(__dirname, '../../artifacts/ui-smoke/chat-ag
     if (!chatNewButton) throw new Error("Chat new button not found or invisible.");
     await expect(page.locator('.chat-new-button')).toBeEnabled();
     await expect(page.getByText('Local API unavailable')).toHaveCount(0);
+    await expect(page.locator('.code-canvas')).toHaveCount(0);
+    const knowledgeToggle = page.getByRole('checkbox', { name: 'Use local Knowledge in this chat' });
+    await expect(knowledgeToggle).toBeEnabled();
+    await knowledgeToggle.check();
+    await expect.poll(() => knowledgeEnabled).toBe(true);
+    await expect(page.getByText('Local full-text retrieval · no embeddings')).toBeVisible();
+    await expect(page.locator('#chat-model')).toHaveValue('mock-model-2');
+    await page.locator('#chat-model').selectOption('mock-model-1');
+    await page.getByRole('textbox', { name: 'Message' }).fill('Test request contract');
+    await page.getByRole('button', { name: 'Send message' }).click();
+    await expect.poll(() => chatPayload?.model_id).toBe('mock-model-1');
+    await expect.poll(() => Object.keys(chatPayload || {}).sort()).toEqual(['chat_id', 'model_id', 'prompt']);
+    await expect(page.getByText('Mock answer')).toBeVisible();
+    await expect(page.locator('.code-canvas')).toBeVisible();
+    await expect(page.locator('.code-scroll code')).toContainText('<html><body>Hello</body></html>');
+    await expect(page.locator('.message-content').filter({ hasText: '[html block is shown in Canvas]' })).toBeVisible();
+    await page.getByRole('button', { name: 'Hide Canvas' }).click();
+    await expect(page.locator('.code-canvas')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Canvas · Code' }).click();
+    await expect(page.locator('.code-canvas')).toBeVisible();
 
     await page.screenshot({ path: path.join(SCREENSHOT_DIR, 'chat.png') });
 

@@ -4,7 +4,8 @@ set -u
 ROOT=$(CDPATH= cd -- "$(dirname -- "$(readlink -f -- "$0")")" && pwd) || exit 1
 cd "$ROOT" || exit 1
 
-URL="http://127.0.0.1:8765"
+PORT=8765
+URL=""
 LOG_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/ai-dream"
 LOG_FILE="$LOG_DIR/web.log"
 APP_PROFILE="${XDG_DATA_HOME:-$HOME/.local/share}/ai-dream/chrome-profile"
@@ -18,25 +19,66 @@ show_error() {
   fi
 }
 
-api_ready() {
-  python3 -c 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8765/api/health", timeout=0.6).close()' >/dev/null 2>&1
+web_ready() {
+  python3 - "$1" <<'PY' >/dev/null 2>&1
+import sys
+import urllib.request
+
+try:
+    with urllib.request.urlopen(f"http://127.0.0.1:{sys.argv[1]}/chat", timeout=0.6) as response:
+        valid = response.status == 200 and response.headers.get_content_type() == "text/html"
+        valid = valid and b"<ai-root>" in response.read(65536)
+    raise SystemExit(0 if valid else 1)
+except Exception:
+    raise SystemExit(1)
+PY
 }
 
-if ! api_ready; then
+port_available() {
+  python3 - "$1" <<'PY' >/dev/null 2>&1
+import socket
+import sys
+
+try:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", int(sys.argv[1])))
+except OSError:
+    raise SystemExit(1)
+PY
+}
+
+free_port() {
+  python3 - <<'PY'
+import socket
+
+with socket.socket() as sock:
+    sock.bind(("127.0.0.1", 0))
+    print(sock.getsockname()[1])
+PY
+}
+
+if web_ready "$PORT"; then
+  URL="http://127.0.0.1:$PORT"
+else
+  if ! port_available "$PORT"; then
+    PORT=$(free_port) || exit 1
+  fi
   mkdir -p "$APP_PROFILE" 2>/dev/null || true
-  if ! mkdir -p "$LOG_DIR" 2>/dev/null; then LOG_FILE=/dev/null; fi
-  python3 -u -m aidream web --restart --no-open >>"$LOG_FILE" 2>&1 </dev/null &
+  if ! mkdir -p "$LOG_DIR" 2>/dev/null || ! { : >>"$LOG_FILE"; } 2>/dev/null; then
+    LOG_FILE=/dev/null
+  fi
+  python3 -u -m aidream web --port "$PORT" --no-open >>"$LOG_FILE" 2>&1 </dev/null &
   SERVER_PID=$!
   for _ in {1..50}; do
-    if api_ready; then break; fi
+    if web_ready "$PORT"; then break; fi
     sleep 0.2
   done
-fi
-
-if ! api_ready; then
-  if [[ -n "$SERVER_PID" ]]; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi
-  show_error "AI Dream could not start its local service. See $LOG_FILE for details."
-  exit 1
+  if ! web_ready "$PORT"; then
+    if [[ -n "$SERVER_PID" ]]; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi
+    show_error "AI Dream could not serve its application page on port $PORT. See $LOG_FILE for details."
+    exit 1
+  fi
+  URL="http://127.0.0.1:$PORT"
 fi
 
 CHROME=$(command -v google-chrome || command -v google-chrome-stable || true)

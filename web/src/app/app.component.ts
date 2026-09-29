@@ -3,48 +3,76 @@ import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } fro
 import { filter } from 'rxjs';
 import { ApiService } from './core/api.service';
 
-const NAV = [
-  { label: 'Chat', path: '/chat', icon: '◫', group: 'WORKSPACE' },
-  { label: 'Agent', path: '/agent', icon: '✳', group: 'WORKSPACE' },
-  { label: 'Models', path: '/models', icon: '⬡', group: 'LIBRARY' },
-  { label: 'Model Hub', path: '/hub', icon: '⌕', group: 'LIBRARY' },
-  { label: 'Hardware', path: '/hardware', icon: '▤', group: 'SYSTEM' },
-  { label: 'Runtime', path: '/runtime', icon: '⌘', group: 'SYSTEM' },
-  { label: 'Downloads', path: '/downloads', icon: '⇩', group: 'SYSTEM' },
-  { label: 'Settings', path: '/settings', icon: '⚙', group: 'PREFERENCES' },
+const NAV_GROUPS = [
+  { label: 'WORKSPACE', items: [
+    { label: 'Chat', path: '/chat', icon: '▤' },
+    { label: 'Agent', path: '/agent', icon: '◇' },
+    { label: 'Models', path: '/models', icon: '⬡' },
+    { label: 'Model Hubs', path: '/hub', icon: '⌕' },
+    { label: 'Knowledge (RAG)', path: '/knowledge', icon: '▧' },
+  ] },
+  { label: 'SYSTEM', items: [
+    { label: 'Hardware', path: '/hardware', icon: '▦' },
+    { label: 'Load Model (Placement)', path: '/load-model', icon: '▣' },
+    { label: 'Runtime Manager', path: '/runtime', icon: '⌘' },
+    { label: 'Downloads', path: '/downloads', icon: '↓' },
+  ] },
+  { label: 'DEVELOPER', items: [
+    { label: 'Local API', path: '/local-api', icon: '⌘' },
+    { label: 'Tools & Permissions', path: '/tools-permissions', icon: '⛨' },
+    { label: 'Logs & Traces', path: '/logs', icon: '≋' },
+  ] },
+  { label: 'SETTINGS', items: [
+    { label: 'Settings', path: '/settings', icon: '⚙' },
+  ] },
 ];
+const NAV = NAV_GROUPS.flatMap(group => group.items);
 
 @Component({
   selector: 'ai-root', standalone: true, imports: [RouterOutlet, RouterLink, RouterLinkActive],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  styles: [`
+    :host{--sidebar:340px}
+    .nav-group{margin:8px 0 13px}
+    .nav-group-title{padding:7px 8px 4px;color:#788397;font:500 9px/1.4 ui-monospace,monospace;letter-spacing:0}
+    @media(max-width:1500px){:host{--sidebar:300px}}
+    @media(max-width:800px){:host{--sidebar:256px}}
+  `],
   template: `
     <div class="app-frame">
       <aside class="sidebar" [class.mobile-open]="mobileNav()">
         <a routerLink="/chat" class="brand" (click)="mobileNav.set(false)">
-          <span class="brand-mark">A</span><span><b>AI DREAM</b><small>LOCAL STUDIO</small></span>
+          <span class="brand-lights" aria-hidden="true"><i></i><i></i><i></i></span><span class="brand-copy"><b>Local AI Studio</b><small>Workstation Local Node</small></span>
         </a>
-        <button class="project-switch" (click)="openPalette()"><span class="project-icon">◈</span><span>Local workspace<small>On this device</small></span><span class="chevron">⌄</span></button>
-        @for (group of groups; track group) {
-          <div class="nav-group"><div class="nav-heading">{{ group }}</div>
-            @for (item of navFor(group); track item.path) {
-              <a [routerLink]="item.path" routerLinkActive="active" class="nav-item" (click)="mobileNav.set(false)"><span class="nav-icon">{{ item.icon }}</span>{{ item.label }}</a>
-            }
-          </div>
-        }
+        <nav class="nav-list" aria-label="Main navigation">
+          @for (group of navGroups; track group.label) {
+            <section class="nav-group"><div class="nav-group-title">{{ group.label }}</div>
+              @for (item of group.items; track item.path) {
+                <a [routerLink]="item.path" routerLinkActive="active" class="nav-item" (click)="mobileNav.set(false)"><span class="nav-icon">{{ item.icon }}</span><span class="nav-label">{{ item.label }}</span></a>
+              }
+            </section>
+          }
+        </nav>
         <div class="sidebar-bottom"><div class="backend-card">
-          <span class="pulse" [class.online]="api.connected()"></span><div><b>{{ api.connected() ? 'API connected' : 'Backend unavailable' }}</b><small>{{ api.baseUrl() }}</small></div><button title="Check connection" (click)="api.check()">↻</button>
+          <div class="backend-heading"><span class="pulse" [class.online]="api.connected()"></span><b>LOCAL API</b><span class="backend-state" [class.offline]="!api.connected()">{{ api.connected() ? 'ONLINE' : api.connection() === 'checking' ? 'CHECKING' : 'OFFLINE' }}</span></div>
+          <small>{{ api.baseUrl() }}</small><button title="Check connection" aria-label="Check API connection" (click)="api.check()">↻</button>
+          <a routerLink="/settings" class="api-settings">Connection settings <span>→</span></a>
         </div></div>
       </aside>
       <div class="scrim" [class.visible]="mobileNav()" (click)="mobileNav.set(false)"></div>
       <section class="main-column">
         <header class="topbar">
           <button class="mobile-menu icon-button" (click)="mobileNav.set(!mobileNav())" aria-label="Toggle navigation">☰</button>
-          <div class="breadcrumbs"><span>Workspace</span><i>/</i><b>{{ title() }}</b></div>
-          <div class="top-actions"><span class="connection-chip" [class.connected]="api.connected()"><span class="pulse"></span>{{ api.connected() ? 'Connected' : api.connection() === 'checking' ? 'Checking' : 'Offline' }}</span><button class="search-trigger" (click)="openPalette()"><span>⌕</span><span>Search anything...</span><kbd>Ctrl K</kbd></button><button class="avatar">ED</button></div>
+          <div class="breadcrumbs"><span>Studio</span><i>›</i><b>{{ title() }}</b></div>
+          <div class="top-actions">
+            <button class="search-trigger" (click)="openPalette()"><span>⌕</span><span>Search models, runtimes, commands</span><kbd>Ctrl+K</kbd></button>
+            <a class="load-model-action" routerLink="/models"><span>＋</span><span>Models</span></a>
+            <span class="connection-chip" [class.connected]="api.connected()"><span class="pulse" [class.online]="api.connected()"></span>{{ api.connected() ? 'API Online' : api.connection() === 'checking' ? 'API Checking' : 'API Offline' }}</span>
+          </div>
         </header>
         <main class="content"><router-outlet /></main>
-        <footer class="statusbar"><div><span class="pulse" [class.online]="api.connected()"></span>{{ api.connected() ? 'Local API ready' : 'Waiting for local backend' }}<span class="divider">|</span><span>Privacy: local</span></div><div>AI DREAM <span class="divider">·</span> v0.1 console</div></footer>
       </section>
+      <footer class="statusbar"><div><span class="status-key">LOCAL API</span><span class="pulse" [class.online]="api.connected()"></span><span>{{ api.connected() ? 'Connected' : api.connection() === 'checking' ? 'Connecting' : 'Unavailable' }}</span><span class="divider">|</span><span>LOCAL ONLY</span></div><div><span>ENDPOINT</span> <code>{{ api.baseUrl() }}</code><span class="divider">|</span><span>AI DREAM</span></div></footer>
       @if (paletteOpen()) {
         <div class="palette-backdrop" (click)="paletteOpen.set(false)" (keydown.escape)="paletteOpen.set(false)">
           <section class="palette" (click)="$event.stopPropagation()"><label class="palette-search"><span>⌕</span><input autofocus placeholder="Jump to a page..." [value]="query()" (input)="query.set($any($event.target).value)" (keydown.escape)="paletteOpen.set(false)" (keydown.enter)="goFirst()" /></label>
@@ -57,15 +85,13 @@ const NAV = [
 export class AppComponent {
   readonly api = inject(ApiService);
   private readonly router = inject(Router);
-  readonly nav = NAV;
-  readonly groups = ['WORKSPACE', 'LIBRARY', 'SYSTEM', 'PREFERENCES'];
+  readonly navGroups = NAV_GROUPS;
   readonly mobileNav = signal(false);
   readonly paletteOpen = signal(false);
   readonly query = signal('');
   readonly filteredNav = computed(() => NAV.filter(item => item.label.toLowerCase().includes(this.query().toLowerCase())));
-  readonly title = signal('Chat');
-  constructor() { this.router.events.pipe(filter((event): event is NavigationEnd => event instanceof NavigationEnd)).subscribe(event => { this.title.set(NAV.find(item => item.path === event.urlAfterRedirects)?.label ?? 'Chat'); }); }
-  navFor(group: string) { return NAV.filter(item => item.group === group); }
+  readonly title = signal('Chat (Loaded Model)');
+  constructor() { this.router.events.pipe(filter((event): event is NavigationEnd => event instanceof NavigationEnd)).subscribe(event => { this.title.set(NAV.find(item => event.urlAfterRedirects === item.path || event.urlAfterRedirects.startsWith(`${item.path}/`))?.label ?? 'Chat (Loaded Model)'); }); }
   @HostListener('window:keydown', ['$event']) onKey(event: KeyboardEvent) {
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); this.openPalette(); }
     if (event.key === 'Escape') { this.paletteOpen.set(false); this.mobileNav.set(false); }

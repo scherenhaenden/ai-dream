@@ -8,7 +8,89 @@ from unittest.mock import patch
 from aidream.models import ModelCatalog, ModelRecord
 
 
+def write_gguf(path: Path, metadata: dict[str, object]) -> None:
+    def encode(value: object) -> tuple[int, bytes]:
+        if isinstance(value, str):
+            data = value.encode()
+            return 8, struct.pack("<Q", len(data)) + data
+        if isinstance(value, int):
+            return 4, struct.pack("<I", value)
+        raise TypeError(value)
+
+    encoded = []
+    for key, value in metadata.items():
+        kind, body = encode(value)
+        key_bytes = key.encode()
+        encoded.append(struct.pack("<Q", len(key_bytes)) + key_bytes + struct.pack("<I", kind) + body)
+    path.write_bytes(b"GGUF" + struct.pack("<IQQ", 3, 0, len(encoded)) + b"".join(encoded))
+
+
 class ModelCatalogTests(unittest.TestCase):
+    def test_keeps_architecture_layer_and_context_metadata(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            file = root / "model.gguf"
+            write_gguf(file, {"llama.block_count": 32, "llama.context_length": 32768,
+                              "general.architecture": "llama", "general.name": "Test model"})
+            catalog = ModelCatalog(root / "cfg")
+            catalog.add_source(root)
+            record = catalog.scan()[0]
+            self.assertEqual(record.metadata["llama.block_count"], 32)
+            self.assertEqual(record.display_info()["layer_count"], 32)
+            self.assertEqual(record.display_info()["context_length"], 32768)
+
+    def test_mmproj_is_attached_to_matching_logical_model_not_listed_alone(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            base, projector = root / "model-q4.gguf", root / "mmproj-model-f16.gguf"
+            write_gguf(base, {"general.architecture": "llama", "general.name": "Shared model name"})
+            write_gguf(projector, {"general.architecture": "clip", "general.name": "Shared model name"})
+            catalog = ModelCatalog(root / "cfg")
+            catalog.add_source(root)
+            records = catalog.scan()
+            self.assertEqual(len(records), 1)
+            self.assertEqual(records[0].path, str(base.resolve()))
+            self.assertEqual(records[0].metadata["mmproj_path"], str(projector.resolve()))
+            self.assertEqual(records[0].size, base.stat().st_size + projector.stat().st_size)
+
+    def test_split_gguf_series_is_one_record_and_incomplete_series_is_marked(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            first, second = root / "model-00001-of-00002.gguf", root / "model-00002-of-00002.gguf"
+            write_gguf(first, {"general.architecture": "llama", "general.name": "Split model", "split.no": 0, "split.count": 2})
+            write_gguf(second, {"general.architecture": "llama", "general.name": "Split model", "split.no": 1, "split.count": 2})
+            catalog = ModelCatalog(root / "cfg")
+            catalog.add_source(root)
+            complete = catalog.scan()
+            self.assertEqual(len(complete), 1)
+            self.assertEqual(complete[0].path, str(first.resolve()))
+            self.assertEqual(complete[0].size, first.stat().st_size + second.stat().st_size)
+            self.assertEqual(len(complete[0].metadata["split_paths"]), 2)
+            second.unlink()
+            incomplete = catalog.scan()
+            self.assertEqual(len(incomplete), 1)
+            self.assertEqual(incomplete[0].metadata["split_missing_parts"], [2])
+
+    def test_source_counts_logical_models_separately_from_gguf_files(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "models"
+            root.mkdir()
+            write_gguf(root / "model-00001-of-00002.gguf", {
+                "general.architecture": "llama", "general.name": "Split vision model", "split.no": 0, "split.count": 2,
+            })
+            write_gguf(root / "model-00002-of-00002.gguf", {
+                "general.architecture": "llama", "general.name": "Split vision model", "split.no": 1, "split.count": 2,
+            })
+            write_gguf(root / "mmproj-model-f16.gguf", {
+                "general.architecture": "clip", "general.name": "Split vision model",
+            })
+            catalog = ModelCatalog(Path(td) / "cfg")
+            catalog.add_source(root)
+            detail = catalog.list_source_details()[0]
+            self.assertEqual(detail["model_count"], 1)
+            self.assertEqual(detail["file_count"], 3)
+            self.assertEqual(detail["total_bytes"], sum(path.stat().st_size for path in root.glob("*.gguf")))
+
     def test_sources_persist_and_scan_deduplicates(self):
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)

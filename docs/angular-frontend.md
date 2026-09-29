@@ -18,14 +18,17 @@ For local development, run the Python API on port 8765 (`python3 -m aidream serv
 | `src/app/app.routes.ts` | Lazy standalone routes; `/` and unknown routes redirect to `/chat`. |
 | `src/app/core/api.service.ts` | API base URL, health state, HttpClient helpers and 30-second one-shot requests. |
 | `src/app/core/hub.service.ts` | Hub requests, download list state, progress EventSource subscriptions and cancellation. |
-| `src/app/pages/chat.page.ts` | Conversation list, transcript, text composer and chat SSE stream. |
+| `src/app/pages/chat.page.ts` | Conversation list, transcript, code canvas, generation controls and chat SSE stream. |
 | `src/app/pages/agent.page.ts` | Read-only agent conversations, SSE status/answer/audit and stop. |
 | `src/app/pages/hub.page.ts`, `downloads.page.ts` | Public GGUF search/file picker and transfer progress. |
-| `src/app/pages/page-shell.ts` | Common snapshot viewer for Hardware, Models and Runtime. |
-| `src/app/pages/settings.page.ts` | API address editor and health feedback. |
+| `src/app/pages/models.page.ts` | Local model catalog and per-model runtime profiles. |
+| `src/app/pages/runtime.page.ts` | Runtime selection, capability-gated placement/load settings and actions. |
+| `src/app/pages/local-api.page.ts`, `tools-permissions.page.ts` | Local HTTP API status and registered agent tool permissions. |
+| `src/app/pages/capability-unavailable.page.ts` | Explicit capability status for backend areas without an API yet. |
+| `src/app/pages/settings.page.ts` | API address, supported runtime defaults and health feedback. |
 | `src/styles.css` | Theme tokens, layout, responsive styles and shared page styles. Agent also has component-local CSS. |
 
-Each route uses a dynamic `loadComponent()` import, so the page's code is loaded when visited. Navigation is grouped into Workspace (Chat, Agent), Library (Models, Model Hub), System (Hardware, Runtime, Downloads) and Preferences (Settings). The shell shows the last health result; the sidebar refresh button calls `/api/health`. The page palette filters route names; Enter opens its first result, Escape closes it. The palette's displayed ↑/↓ hints do not currently have corresponding selection logic.
+Each route uses a dynamic `loadComponent()` import, so the page's code is loaded when visited. Navigation preserves the reference's Workspace, System and Developer groups, with Settings separated at the bottom. Knowledge and Logs have explicit unavailable states because no RAG or trace API currently exists; Load Model routes into the Runtime workflow rather than duplicating it. The shell shows the last health result; the sidebar refresh button calls `/api/health`. The page palette filters route names; Enter opens its first result, Escape closes it. The palette's displayed ↑/↓ hints do not currently have corresponding selection logic.
 
 ## API address, state and persistence
 
@@ -39,13 +42,13 @@ The Python API wraps successful JSON in `{ "data": ... }`. Chat, Hub and the sna
 
 ### Chat (`/chat`)
 
-On entry, Chat checks health, loads `GET /api/models` and `GET /api/chats`, selects an available conversation and fetches its messages with `GET /api/chats/<id>`. A monotonically increasing selection counter discards late transcript responses after the user changes chats. Models are displayed using the filename from their path when present; the first catalogued model is selected initially. The browser does not currently read or set per-chat saved model/settings state, despite the composer hint suggesting the model ID is stored with the conversation by the backend.
+On entry, Chat checks health, loads `GET /api/models` and `GET /api/chats`, selects an available conversation and fetches its messages with `GET /api/chats/<id>`. A monotonically increasing selection counter discards late transcript responses after the user changes chats. Models are displayed using the filename from their path when present; the first catalogued model is selected initially. The runtime inspector displays reported live status, and generation settings are read from and saved to `GET/PATCH /api/chats/<id>/settings`; unspecified values remain runtime defaults. The code canvas only extracts an actual fenced code block from assistant output and has an explicit empty state otherwise.
 
 The toolbar creates a chat (`POST /api/chats`), renames it (`PATCH /api/chats/<id>`), deletes its saved record (`DELETE /api/chats/<id>`) after a browser confirmation, and exports the currently displayed text as a downloaded `.md` file. Rename accepts 1–120 trimmed characters. Delete does not delete source files referenced by that chat. The transcript renders text with preserved whitespace; it does not render Markdown. Assistant responses can be copied via the browser clipboard API.
 
 Enter sends the composer text and Shift+Enter inserts a newline. A valid chat, model, connected API and nonempty prompt are required. `POST /api/chat` sends `{chat_id, model_id, prompt}` and requests `text/event-stream`. Chat parses SSE frames by blank lines: `delta` appends text; `complete` marks a finished turn and may provide final assistant text; `error` fails the turn. It temporarily shows the user's prompt and the streaming answer, then reloads the authoritative saved transcript. If that refresh fails, it keeps a local fallback pair from the completed stream. Stop aborts the request. On cancellation, stream error or premature end, Chat restores the draft and previous visible messages and offers a Retry message action. The backend discards incomplete turns. While a request or chat mutation is active, controls are disabled.
 
-The web composer is text-only. It does not expose attachment selection, voice, per-chat load or generation parameters, presets, a system prompt, reasoning toggles or response regeneration. Export contains the visible text and title, not the backend's full attachment metadata or hidden audit records.
+The web composer is text-only. It does not expose attachment selection, voice, per-chat load settings, presets, a system prompt, reasoning toggles or response regeneration. Export contains the visible text and title, not the backend's full attachment metadata or hidden audit records.
 
 ### Agent (`/agent`)
 
@@ -61,11 +64,15 @@ Hub sends the entered query to `GET /api/hub/search?q=...&limit=30`, displays pu
 
 ### Hardware, Models and Runtime (`/hardware`, `/models`, `/runtime`)
 
-These routes wrap `PageShell`, which loads `/api/hardware`, `/api/models` or `/api/runtime` when the route initializes while connected. It shows the returned JSON and a manual Load/Retry button. These pages are diagnostic snapshots. The Models page does not add folders or delete model files, and Runtime does not install/select backends or edit placement from this Angular screen. Chat and Agent have their own model selectors.
+Hardware, Models and Runtime display backend-reported inventory/configuration, with the Models page also supporting local source/catalog management and per-model profiles. Runtime options are shown only when the selected runtime advertises the capability, and device choices come from its reported device inventory. These controls do not install a runtime or delete model files.
+
+### Local API, Tools & Permissions, Knowledge and Logs
+
+Local API shows the reachable loopback endpoint and the available local API surface. Tools & Permissions lists the read-only tools registered by the backend; it does not grant shell, filesystem-write or network access. Knowledge and Logs are status-only routes until a real RAG or tracing subsystem is implemented; they do not fabricate collections, events or metrics.
 
 ### Settings (`/settings`)
 
-The one Settings card accepts the loopback API URL, stores it in browser localStorage and checks health. It is not the chat or runtime parameter editor.
+Settings accepts the loopback API URL, stores it in browser localStorage and checks health. Runtime defaults are editable only where the selected installation/backend reports support; model-specific placement and load values belong in model profiles.
 
 ## Styling, accessibility and performance
 

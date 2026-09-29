@@ -37,11 +37,18 @@ class ModelRecord:
             "size_human": _human_size(self.size),
             "quantization": quantization,
             "architecture": meta.get("general.architecture", "Unknown"),
+            "layer_count": _architecture_metadata(meta, "block_count"),
             "context_length": meta.get(f"{meta.get('general.architecture', '')}.context_length"),
             "license": str(license_name) if license_name else "Not declared in GGUF metadata",
             "source": str(source),
             "path": self.path,
         }
+
+
+def _architecture_metadata(metadata: dict[str, Any], field_name: str) -> int | None:
+    architecture = metadata.get("general.architecture")
+    value = metadata.get(f"{architecture}.{field_name}") if isinstance(architecture, str) else None
+    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
 
 
 _FILE_TYPE_QUANTIZATION = {
@@ -122,12 +129,12 @@ def _metadata(path: Path) -> dict[str, Any]:
             result.update(gguf_version=version, tensor_count=tensors)
             if count > 10000:
                 return result
-            keep = {"general.architecture", "general.name", "general.basename", "general.quantization_version", "general.file_type", "general.license", "general.license.name", "general.source.url", "general.source.name", "llama.context_length", "tokenizer.ggml.model"}
+            keep = {"general.architecture", "general.name", "general.basename", "general.quantization_version", "general.file_type", "general.license", "general.license.name", "general.source.url", "general.source.name", "llama.context_length", "tokenizer.ggml.model", "split.no", "split.count"}
             for _ in range(count):
                 key = _string(f)
                 kind = struct.unpack("<I", _read_exact(f, 4))[0]
                 value = _value(f, kind)
-                if key in keep:
+                if key in keep or re.fullmatch(r"[a-zA-Z0-9_-]+\.(?:block_count|context_length)", key):
                     result[key] = value
     except (OSError, ValueError, struct.error):
         # Invalid or partial GGUF files remain discoverable; metadata is best effort.
@@ -201,9 +208,11 @@ class ModelCatalog:
                 managed = False
             exists = root.exists() and root.is_dir()
             readable = bool(exists and os.access(root, os.R_OK | os.X_OK))
-            model_count = total_bytes = 0
+            model_count = file_count = total_bytes = 0
             if readable:
                 try:
+                    source_models: list[ModelRecord] = []
+                    seen_files: set[str] = set()
                     for base, dirs, files in os.walk(root, followlinks=False):
                         dirs.sort()
                         for name in sorted(files):
@@ -211,19 +220,25 @@ class ModelCatalog:
                                 continue
                             path = Path(base) / name
                             try:
-                                if path.is_file():
-                                    size = path.stat().st_size
-                                    model_count += 1
-                                    total_bytes += size
+                                resolved = str(path.resolve(strict=True))
+                                if path.is_file() and resolved not in seen_files:
+                                    stat = path.stat()
+                                    seen_files.add(resolved)
+                                    file_count += 1
+                                    total_bytes += stat.st_size
+                                    identity = hashlib.sha256(resolved.encode("utf-8")).hexdigest()[:24]
+                                    source_models.append(ModelRecord(identity, resolved, stat.st_size, "gguf", _metadata(path)))
                             except OSError:
                                 continue
+                    model_count = len(self._attach_projectors(self._group_split_models(source_models)))
                 except OSError:
                     readable = False
-                    model_count = total_bytes = 0
+                    model_count = file_count = total_bytes = 0
             result.append({"id": self._source_id(canonical), "path": canonical,
                            "canonical_path": canonical, "exists": exists,
                            "readable": readable, "managed": managed,
-                           "model_count": model_count, "total_bytes": total_bytes})
+                           "model_count": model_count, "file_count": file_count,
+                           "total_bytes": total_bytes})
         return result
 
     def remove_source(self, source_id: str) -> None:
@@ -263,7 +278,81 @@ class ModelCatalog:
                             continue
             except OSError:
                 continue
-        return sorted(found.values(), key=lambda item: (item.path.casefold(), item.path))
+        records = list(found.values())
+        records = self._group_split_models(records)
+        return self._attach_projectors(records)
+
+    @staticmethod
+    def _group_split_models(records: list[ModelRecord]) -> list[ModelRecord]:
+        split_pattern = re.compile(r"^(.*?)-(\d{5})-of-(\d{5})\.gguf$", re.IGNORECASE)
+        groups: dict[tuple[str, str], list[tuple[int, int, ModelRecord]]] = {}
+        plain: list[ModelRecord] = []
+        for record in records:
+            path = Path(record.path)
+            match = split_pattern.match(path.name)
+            if not match:
+                plain.append(record)
+                continue
+            index, filename_count = int(match.group(2)), int(match.group(3))
+            if filename_count < 2 or index < 1 or index > filename_count:
+                plain.append(record)
+                continue
+            key = (str(path.parent), match.group(1).casefold())
+            groups.setdefault(key, []).append((index, filename_count, record))
+
+        for (_, _), parts in groups.items():
+            parts.sort(key=lambda part: part[0])
+            counts = {count for _, count, _ in parts}
+            expected = next(iter(counts)) if len(counts) == 1 else max(counts)
+            by_index = {index: record for index, _, record in parts}
+            first = by_index.get(1, parts[0][2])
+            missing = [index for index in range(1, expected + 1) if index not in by_index]
+            shard_paths = [by_index[index].path for index in sorted(by_index)]
+            metadata = dict(first.metadata)
+            metadata["split_count"] = expected
+            metadata["split_paths"] = shard_paths
+            if missing:
+                metadata["split_missing_parts"] = missing
+            declared_counts = [item.metadata.get("split.count") for _, _, item in parts]
+            if len(counts) != 1 or any(count is not None and (not isinstance(count, int) or isinstance(count, bool) or count != expected)
+                                       for count in declared_counts):
+                metadata["split_metadata_inconsistent"] = True
+            plain.append(ModelRecord(first.id, first.path, sum(item.size for item in by_index.values()),
+                                     first.format, metadata))
+        return plain
+
+    @staticmethod
+    def _attach_projectors(records: list[ModelRecord]) -> list[ModelRecord]:
+        projectors: list[ModelRecord] = []
+        models: list[ModelRecord] = []
+        for record in records:
+            name = Path(record.path).name.casefold()
+            if record.metadata.get("general.architecture") == "clip" or name.startswith("mmproj-"):
+                projectors.append(record)
+            else:
+                models.append(record)
+
+        by_key: dict[tuple[str, str], list[ModelRecord]] = {}
+        for projector in projectors:
+            model_name = projector.metadata.get("general.name")
+            if isinstance(model_name, str) and model_name:
+                by_key.setdefault((str(Path(projector.path).parent), model_name.casefold()), []).append(projector)
+
+        attached: list[ModelRecord] = []
+        for model in models:
+            model_name = model.metadata.get("general.name")
+            candidates = by_key.get((str(Path(model.path).parent), model_name.casefold()), []) if isinstance(model_name, str) and model_name else []
+            # Ambiguous duplicate projectors are left unattached rather than guessed.
+            if len(candidates) == 1:
+                projector = candidates[0]
+                metadata = dict(model.metadata)
+                metadata["mmproj_path"] = projector.path
+                metadata["mmproj_size_bytes"] = projector.size
+                attached.append(ModelRecord(model.id, model.path, model.size + projector.size,
+                                            model.format, metadata))
+            else:
+                attached.append(model)
+        return sorted(attached, key=lambda item: (item.path.casefold(), item.path))
 
     def list_models(self) -> list[ModelRecord]:
         return self.scan()

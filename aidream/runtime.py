@@ -242,6 +242,18 @@ class LlamaCppBackend:
             raise ValueError("This GGUF is a vision projector, not a standalone chat model. Select its compatible base model.")
         if not path or not path.is_file() or path.suffix.lower() != ".gguf":
             raise ValueError("Select an existing GGUF chat model.")
+        if isinstance(metadata, Mapping):
+            missing_parts = metadata.get("split_missing_parts")
+            if isinstance(missing_parts, list) and missing_parts:
+                raise ValueError(f"This split GGUF model is incomplete; missing shard(s): {', '.join(map(str, missing_parts))}")
+            if metadata.get("split_metadata_inconsistent") is True:
+                raise ValueError("This split GGUF model has inconsistent shard counts; inspect the source files before loading.")
+            projector = metadata.get("mmproj_path")
+            if projector:
+                if not isinstance(projector, str) or not Path(projector).is_file():
+                    raise ValueError("The paired vision projector GGUF is missing or unreadable.")
+                if not re.search(r"(?<![\w-])--mmproj(?![\w-])", self._help):
+                    raise ValueError("This llama.cpp server does not advertise --mmproj for the paired vision projector.")
         self._load_options(options)
         self._placement_options(placement)
 
@@ -384,16 +396,20 @@ class LlamaCppBackend:
 
     def effective_command(self, model: Any, placement: Any = None,
                           options: Mapping[str, Any] | None = None, *, port: int | None = None) -> list[str]:
-        """Return the exact argv for a load, including AI Dream's automatic fit default."""
+        """Return the exact argv for a load, disabling llama.cpp auto-fit by default."""
         self.validate_load(model, placement, options)
         runtime_options = self._load_options(options)
-        if (isinstance(placement, Mapping) and placement.get("tensor_split") is not None
-                and not (options and "fit" in options) and self.capabilities().fit):
+        if not (options and "fit" in options) and self.capabilities().fit:
             runtime_options.extend(("--fit", "off"))
         selected_port = port if port is not None else (self.port or self._free_port())
         path = self._path(model)
-        return [self.executable, "-m", str(path.resolve()), "--host", "127.0.0.1", "--port",
-                str(selected_port), *self._placement_options(placement), *runtime_options]
+        command = [self.executable, "-m", str(path.resolve()), "--host", "127.0.0.1", "--port",
+                   str(selected_port), *self._placement_options(placement), *runtime_options]
+        metadata = getattr(model, "metadata", {})
+        projector = metadata.get("mmproj_path") if isinstance(metadata, Mapping) else None
+        if projector:
+            command.extend(("--mmproj", str(Path(projector).resolve())))
+        return command
 
     def status(self) -> dict[str, Any]:
         """Describe the current persistent server state for UI/API status views."""
@@ -641,6 +657,29 @@ class LlamaCppBackend:
         self._log.flush()
         self._log.seek(0)
         return self._log.read().strip()[-4000:]
+
+    def recent_log_lines(self, limit: int = 200) -> list[str]:
+        """Read a bounded tail of the actual server log without moving its write offset."""
+        if isinstance(limit, bool) or not isinstance(limit, int):
+            raise ValueError("limit must be an integer")
+        limit = max(1, min(limit, 1000))
+        if self._process is None or self._log is None:
+            return []
+        try:
+            if self._process.poll() is not None:
+                return []
+            self._log.flush()
+            fd = self._log.fileno()
+            size = os.fstat(fd).st_size
+            start = max(0, size - 128 * 1024)
+            chunk = os.pread(fd, size - start, start)
+        except (OSError, ValueError):
+            return []
+        text = chunk.decode("utf-8", errors="replace")
+        lines = text.splitlines()
+        if start:
+            lines = lines[1:]
+        return lines[-limit:]
 
     def _close_log(self) -> None:
         if self._log:

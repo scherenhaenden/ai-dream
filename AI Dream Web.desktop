@@ -2,9 +2,9 @@
 Version=1.0
 Type=Application
 Name=AI Dream Web
-Comment=Open the local AI Dream web app
-TryExec=/home/edward/Development/ai-dream/open-ai-dream-web
-Exec=/home/edward/Development/ai-dream/open-ai-dream-web
+Comment=Open AI Dream in a standalone application window
+TryExec=/home/edward/Development/ai-dream/open-ai-dream-app
+Exec=/home/edward/Development/ai-dream/open-ai-dream-app
 Path=/home/edward/Development/ai-dream
-Terminal=true
+Terminal=false
 Categories=Utility;

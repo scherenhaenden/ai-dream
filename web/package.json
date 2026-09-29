@@ -7,6 +7,8 @@
     "build": "vite build",
     "typecheck": "tsc --noEmit",
     "test:runtime-layout": "node scripts/check-runtime-layout.mjs",
+    "test:nav-routes": "node scripts/check-nav-routes.mjs",
+    "test:templates": "node scripts/check-templates.mjs",
     "test:model-studio-ui": "node scripts/check-model-studio-ui.mjs",
     "test:chat-agent-ui": "node scripts/check-chat-agent-ui.mjs",
     "test:ui-smoke": "node scripts/smoke-hardware-settings-ui.mjs",
