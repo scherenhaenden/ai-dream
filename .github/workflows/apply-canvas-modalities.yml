@@ -31,7 +31,7 @@ jobs:
 
       - name: Install web dependencies
         working-directory: web
-        run: npm ci
+        run: npm install --no-audit --no-fund
 
       - name: Typecheck
         working-directory: web
