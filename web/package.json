@@ -10,7 +10,8 @@
     "test:model-studio-ui": "node scripts/check-model-studio-ui.mjs",
     "test:chat-agent-ui": "node scripts/check-chat-agent-ui.mjs",
     "test:ui-smoke": "node scripts/smoke-hardware-settings-ui.mjs",
-    "test:hardware-settings-ui": "node scripts/smoke-hardware-settings-ui.mjs"
+    "test:hardware-settings-ui": "node scripts/smoke-hardware-settings-ui.mjs",
+    "test:models-config": "node scripts/check-models-config.mjs"
   },
   "dependencies": {
     "@angular/common": "^20.3.0",

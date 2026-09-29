@@ -72,16 +72,16 @@ type ProfileTab = 'placement' | 'load';
                     @if (model.metadata['general.file_type']; as quant) { <span>{{ quant }}</span> }
                   </div>
                   <details><summary>Model metadata</summary><dl>@for (entry of metadataEntries(model); track entry[0]) {<dt>{{ entry[0] }}</dt><dd>{{ display(entry[1]) }}</dd>}</dl></details>
-                  <button class="secondary-button" (click)="selectModel(model)" [attr.aria-pressed]="selectedModelId() === model.id">{{ selectedModelId() === model.id ? 'Selected for loading' : 'Select model' }}</button>
+                  <button class="secondary-button configure-model-button" (click)="selectModel(model)" [attr.aria-pressed]="selectedModelId() === model.id">{{ selectedModelId() === model.id ? 'Configuring this model' : 'Configure model' }}</button>
                 </div></article></li>
               }
             </ul>
           }
           @if (selectedModel(); as model) {
             <section class="load-panel" aria-label="Model runtime actions">
-              <div><div class="eyebrow">MODEL ACTIONS</div><b>{{ modelName(model) }}</b><small>{{ model.path }}</small></div>
+              <div><div class="eyebrow">MODEL SETUP</div><b>{{ modelName(model) }}</b><small>{{ model.path }}</small><p class="setup-hint">Choose a saved profile or configure placement and load settings for this model, then load it into the runtime.</p></div>
               <section class="profile-panel" aria-label="Model profile">
-                <div class="profile-title"><div><div class="eyebrow">MODEL PROFILE</div><b>Placement and load settings for this model</b></div><button class="secondary-button" (click)="refreshProfiles()" [disabled]="profileBusy()">↻</button></div>
+                <div class="profile-title"><div><div class="eyebrow">CONFIGURATION PROFILE</div><b>Settings saved specifically for this model</b></div><button class="secondary-button" (click)="refreshProfiles()" [disabled]="profileBusy()">↻</button></div>
                 <div class="profile-grid">
                   <label>Saved profile<select [value]="selectedProfileId()" (change)="selectProfile($any($event.target).value)"><option value="">Unsaved settings</option>@for(profile of profiles();track profile.id){<option [value]="profile.id">{{profile.name}}</option>}</select></label>
                   <label>Profile name<input [value]="profileName()" (input)="profileName.set($any($event.target).value)" placeholder="e.g. Balanced on two GPUs"></label>
@@ -115,7 +115,24 @@ type ProfileTab = 'placement' | 'load';
                 <button class="secondary-button" (click)="unloadModel()" [disabled]="runtimeBusy()">Unload model</button>
                 <button class="secondary-button" (click)="refreshRuntimeStatus()" [disabled]="runtimeBusy()">Runtime status</button>
               </div>
-              @if (runtimeStatus()) { <pre class="runtime-status" role="status">{{ runtimeStatus() }}</pre> }
+              @if (runtimeStatus(); as status) {
+                <section class="runtime-status-card" aria-label="Runtime status" role="status">
+                  <div class="runtime-status-heading"><div><div class="eyebrow">RUNTIME</div><h3>Runtime status</h3></div>
+                    <span class="status-chip" [class.loaded]="runtimeStatusValue('loaded') === true">{{ runtimeStatusValue('loaded') === true ? 'Model loaded' : 'No model loaded' }}</span>
+                    <button class="secondary-button" type="button" (click)="showRuntimeJson.update(value => !value)">{{ showRuntimeJson() ? 'Hide JSON' : 'Show JSON' }}</button>
+                  </div>
+                  @if (runtimeStatusValue('loaded') === true) {
+                    <dl class="runtime-status-grid">
+                      <div><dt>Model</dt><dd>{{ runtimeStatusValue('model') || '—' }}</dd></div>
+                      <div><dt>Backend</dt><dd>{{ runtimeStatusValue('backend') || '—' }}</dd></div>
+                      <div><dt>Runtime</dt><dd>{{ runtimeStatusValue('runtime_id') || 'Default runtime' }}</dd></div>
+                      <div><dt>Running for</dt><dd>{{ runtimeUptime() }}</dd></div>
+                      <div><dt>Placement</dt><dd>{{ runtimePlacementSummary() }}</dd></div>
+                    </dl>
+                  } @else { <p class="runtime-empty">No model is loaded. Configure this model above and choose <b>Load model</b> to start the persistent runtime.</p> }
+                  @if (showRuntimeJson()) { <pre class="runtime-status-json">{{ runtimeStatusJson() }}</pre> }
+                </section>
+              }
               <a href="#/runtime">Configure runtime options</a>
             </section>
           }
@@ -129,7 +146,7 @@ type ProfileTab = 'placement' | 'load';
     :host{display:block}.page-head{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:22px}.page-head h1{margin:4px 0;font-size:30px}.page-head p,.add-source p,.detail-head p{margin:5px 0;color:var(--muted,#929baa)}
     .eyebrow{font-size:10px;letter-spacing:.14em;font-weight:700;color:var(--muted,#929baa)}h2{font-size:17px;margin:5px 0}.surface{background:var(--surface,#171a20);border:1px solid var(--border,#292d35);border-radius:12px;padding:18px}.add-source{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:18px}.add-source form{display:flex;gap:8px;width:min(620px,58%)}input{flex:1;min-width:120px;background:var(--bg,#101216);border:1px solid var(--border,#353943);border-radius:7px;padding:10px 12px;color:inherit;font:inherit}.primary-button,.secondary-button,.danger-button{border:1px solid var(--border,#353943);border-radius:7px;padding:9px 12px;color:inherit;background:var(--surface,#171a20);font:inherit;font-weight:600;cursor:pointer}.primary-button{background:var(--accent,#8b72ff);border-color:transparent;color:#fff}.danger-button{color:#ff9696}.primary-button:disabled,.secondary-button:disabled,.danger-button:disabled{opacity:.55;cursor:wait}.library-layout{display:grid;grid-template-columns:minmax(250px,.8fr) minmax(0,1.7fr);gap:16px;align-items:start}.section-heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}.count{font-size:12px;background:var(--bg,#101216);border-radius:20px;padding:4px 9px;color:var(--muted,#929baa)}.source-list,.model-list{list-style:none;padding:0;margin:0}.source-list li+li,.model-list li+li{border-top:1px solid var(--border,#292d35)}.source-item{display:flex;align-items:center;gap:10px;width:100%;padding:12px 8px;text-align:left;border:0;background:transparent;color:inherit;border-radius:8px;cursor:pointer}.source-item.selected{background:color-mix(in srgb,var(--accent,#8b72ff) 15%,transparent)}.folder-icon{color:var(--accent,#a28eff)}.source-copy{min-width:0;flex:1}.source-copy b,.source-copy small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.source-copy b{font-size:12px}.source-copy small,.arrow,.muted{color:var(--muted,#929baa);font-size:12px;margin-top:4px}.arrow{font-size:22px}.detail-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.detail-head h2{overflow-wrap:anywhere}.summary{display:flex;gap:26px;padding:14px 0;border-bottom:1px solid var(--border,#292d35);margin:8px 0 16px}.summary div{display:grid;gap:3px}.summary b{font-size:16px}.summary span{font-size:11px;color:var(--muted,#929baa)}.model-heading{margin-top:8px}.model-card{display:flex;gap:12px;padding:14px 4px}.model-icon{color:var(--accent,#a28eff);font-size:19px}.model-copy{min-width:0;flex:1}.model-copy h3{margin:0;font-size:14px}.model-copy p{font-size:11px;color:var(--muted,#929baa);overflow-wrap:anywhere;margin:4px 0 8px}.model-tags{display:flex;flex-wrap:wrap;gap:6px}.model-tags span{font-size:10px;padding:4px 7px;border-radius:12px;background:var(--bg,#101216);color:var(--muted,#c0c4ce)}details{margin-top:9px;font-size:11px}summary{cursor:pointer;color:var(--muted,#aeb4c0)}dl{display:grid;grid-template-columns:minmax(130px,.6fr) minmax(0,1fr);gap:5px 12px}dt{color:var(--muted,#929baa);overflow-wrap:anywhere}dd{margin:0;overflow-wrap:anywhere}.empty{padding:30px 12px;text-align:center;display:grid;gap:7px;color:var(--muted,#929baa);font-size:12px}.empty b{color:var(--text,#e8eaf0);font-size:14px}.empty.large{min-height:260px;place-content:center}.empty-icon{font-size:30px;color:var(--accent,#a28eff)}.notice{padding:11px 14px;border-radius:8px;margin-bottom:14px;font-size:13px}.error{background:#3a2024;color:#ffb4bb}.success{background:#1d382c;color:#9be0b5}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
     @media(max-width:820px){.library-layout{grid-template-columns:1fr}.add-source{align-items:stretch;flex-direction:column}.add-source form{width:100%}.page-head{align-items:flex-start}.detail-head{flex-direction:column}}
-    .model-selected{background:color-mix(in srgb,var(--accent,#8b72ff) 8%,transparent)}.load-panel{display:grid;gap:12px;margin-top:20px;padding:14px;border:1px solid var(--border,#292d35);border-radius:9px;background:var(--bg,#101216)}.load-panel>div:first-child{display:grid;gap:5px;min-width:0}.load-panel small{overflow-wrap:anywhere;color:var(--muted,#929baa)}.load-actions{display:flex;flex-wrap:wrap;gap:8px}.load-panel a{font-size:12px;color:var(--accent,#a28eff)}.runtime-status{white-space:pre-wrap;overflow-wrap:anywhere;padding:10px;border-radius:7px;background:var(--surface,#171a20);font-size:11px}.profile-panel{display:grid;gap:12px;padding:14px;border:1px solid var(--border,#30394a);border-radius:9px;background:color-mix(in srgb,var(--surface,#171a20) 78%,#111722)}.profile-title{display:flex;align-items:center;justify-content:space-between;gap:10px}.profile-title>div{display:grid;gap:5px}.profile-title b{font-size:12px}.profile-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:12px}.profile-grid label{display:grid;gap:6px;color:#bdc4d2;font-size:11px}.profile-grid input:not([type=checkbox]),.profile-grid select{box-sizing:border-box;width:100%;min-width:0;background:#10151e;border:1px solid #363f4e;border-radius:6px;padding:8px 9px;color:inherit;font:inherit}.profile-grid .profile-check{display:flex;align-items:center;gap:8px;min-height:34px}.profile-notice{margin:0;color:#9be0b5;font-size:11px}.profile-tabs{display:flex;gap:6px;border-bottom:1px solid var(--border,#30394a)}.profile-tabs button{padding:8px 11px;border:0;border-bottom:2px solid transparent;background:transparent;color:var(--muted,#929baa);font:inherit;font-size:11px;cursor:pointer}.profile-tabs button.active{color:var(--text,#e8eaf0);border-color:var(--accent,#8b72ff)}.advanced-device{grid-column:1/-1;padding-top:3px;font-size:11px}.advanced-device summary{margin-bottom:9px}.advanced-device .profile-check{margin-bottom:8px}.advanced-device small{display:block;margin-top:5px;line-height:1.5;color:var(--muted,#929baa)}`]
+    .model-selected{background:color-mix(in srgb,var(--accent,#8b72ff) 8%,transparent)}.load-panel{display:grid;gap:12px;margin-top:20px;padding:14px;border:1px solid var(--border,#292d35);border-radius:9px;background:var(--bg,#101216)}.load-panel>div:first-child{display:grid;gap:5px;min-width:0}.load-panel small{overflow-wrap:anywhere;color:var(--muted,#929baa)}.setup-hint{margin:0;color:var(--muted,#929baa);font-size:12px;line-height:1.5}.configure-model-button{margin-top:10px}.load-actions{display:flex;flex-wrap:wrap;gap:8px}.load-panel a{font-size:12px;color:var(--accent,#a28eff)}.runtime-status-card{display:grid;gap:12px;padding:14px;border:1px solid var(--border,#30394a);border-radius:9px;background:var(--surface,#171a20)}.runtime-status-heading{display:flex;align-items:center;gap:10px}.runtime-status-heading>div{margin-right:auto}.runtime-status-heading h3{margin:4px 0 0;font-size:14px}.status-chip{border-radius:20px;padding:5px 9px;background:#342b20;color:#e8bd79;font-size:11px}.status-chip.loaded{background:#1d382c;color:#9be0b5}.runtime-status-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin:0}.runtime-status-grid div{min-width:0;padding:9px;border-radius:7px;background:var(--bg,#101216)}.runtime-status-grid dt{color:var(--muted,#929baa);font-size:10px}.runtime-status-grid dd{margin:5px 0 0;overflow-wrap:anywhere;font-size:11px}.runtime-empty{margin:0;color:var(--muted,#929baa);font-size:12px;line-height:1.5}.runtime-status-json{max-height:260px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;border-radius:7px;background:var(--bg,#101216);font-size:11px}.profile-panel{display:grid;gap:12px;padding:14px;border:1px solid var(--border,#30394a);border-radius:9px;background:color-mix(in srgb,var(--surface,#171a20) 78%,#111722)}.profile-title{display:flex;align-items:center;justify-content:space-between;gap:10px}.profile-title>div{display:grid;gap:5px}.profile-title b{font-size:12px}.profile-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:12px}.profile-grid label{display:grid;gap:6px;color:#bdc4d2;font-size:11px}.profile-grid input:not([type=checkbox]),.profile-grid select{box-sizing:border-box;width:100%;min-width:0;background:#10151e;border:1px solid #363f4e;border-radius:6px;padding:8px 9px;color:inherit;font:inherit}.profile-grid .profile-check{display:flex;align-items:center;gap:8px;min-height:34px}.profile-notice{margin:0;color:#9be0b5;font-size:11px}.profile-tabs{display:flex;gap:6px;border-bottom:1px solid var(--border,#30394a)}.profile-tabs button{padding:8px 11px;border:0;border-bottom:2px solid transparent;background:transparent;color:var(--muted,#929baa);font:inherit;font-size:11px;cursor:pointer}.profile-tabs button.active{color:var(--text,#e8eaf0);border-color:var(--accent,#8b72ff)}.advanced-device{grid-column:1/-1;padding-top:3px;font-size:11px}.advanced-device summary{margin-bottom:9px}.advanced-device .profile-check{margin-bottom:8px}.advanced-device small{display:block;margin-top:5px;line-height:1.5;color:var(--muted,#929baa)}`]
 })
 export class ModelsPage implements OnInit {
   readonly sources = signal<ModelSource[]>([]);
@@ -144,7 +161,8 @@ export class ModelsPage implements OnInit {
   readonly notice = signal('');
   readonly selectedModelId = signal('');
   readonly runtimeBusy = signal(false);
-  readonly runtimeStatus = signal('');
+  readonly runtimeStatus = signal<Record<string, unknown> | null>(null);
+  readonly showRuntimeJson = signal(false);
 
   readonly profiles = signal<ModelProfile[]>([]); readonly selectedProfileId=signal(''); readonly profileName=signal('');
   readonly profilePlacement=signal<RuntimePlacement>({}); readonly profileLoad=signal<RuntimeLoadOptions>({});
@@ -178,7 +196,7 @@ export class ModelsPage implements OnInit {
     const id = this.selectedModelId();
     return this.visibleModels().find(model => model.id === id);
   }
-  selectModel(model: ModelRecord): void { this.selectedModelId.set(model.id); this.runtimeStatus.set(''); this.error.set(''); void this.refreshProfiles(); }
+  selectModel(model: ModelRecord): void { this.selectedModelId.set(model.id); this.runtimeStatus.set(null); this.showRuntimeJson.set(false); this.error.set(''); void this.refreshProfiles(); }
 
   async loadModel(): Promise<void> {
     const model = this.selectedModel(); if (!model) return;
@@ -249,10 +267,25 @@ export class ModelsPage implements OnInit {
     this.profiles.set(current?this.profiles().map(p=>p.id===saved.id?saved:p):[...this.profiles(),saved]);this.selectProfile(saved.id);this.profileNotice.set('Model profile saved.');
   }catch(error){this.profileError.set(errorMessage(error));}finally{this.profileBusy.set(false);}}
   async deleteProfile():Promise<void>{const id=this.selectedProfileId();if(!id)return;this.profileBusy.set(true);this.profileError.set('');try{await this.profileApi.remove(id);this.profiles.set(this.profiles().filter(p=>p.id!==id));this.selectProfile('');this.profileNotice.set('Model profile deleted.');}catch(error){this.profileError.set(errorMessage(error));}finally{this.profileBusy.set(false);}}
+  runtimeStatusValue(key: string): unknown { return this.runtimeStatus()?.[key] ?? null; }
+  runtimeStatusJson(): string { return JSON.stringify(this.runtimeStatus(), null, 2); }
+  runtimeUptime(): string {
+    const seconds = this.runtimeStatusValue('uptime_seconds');
+    if (typeof seconds !== 'number' || !Number.isFinite(seconds)) return '—';
+    if (seconds < 60) return `${Math.floor(seconds)} sec`;
+    const minutes = Math.floor(seconds / 60);
+    return `${minutes} min ${Math.floor(seconds % 60)} sec`;
+  }
+  runtimePlacementSummary(): string {
+    const placement = this.runtimeStatusValue('placement');
+    if (!Array.isArray(placement) || !placement.length) return 'Runtime default';
+    return placement.map(item => typeof item === 'string' ? item : JSON.stringify(item)).join(' · ');
+  }
+
   private async runRuntimeAction(startMessage: string, action: () => Promise<unknown>): Promise<void> {
     this.runtimeBusy.set(true); this.error.set(''); this.notice.set(startMessage);
     try {
-      const result = await action(); this.runtimeStatus.set(JSON.stringify(result, null, 2));
+      const result = await action(); this.runtimeStatus.set(isRecord(result) ? result : { result }); this.showRuntimeJson.set(false);
       this.notice.set(startMessage ? (startMessage.startsWith('Loading') ? 'Model loaded.' : 'Model unloaded.') : 'Runtime status updated.');
     } catch (error) { this.notice.set(''); this.error.set(errorMessage(error)); }
     finally { this.runtimeBusy.set(false); }
@@ -313,5 +346,7 @@ export class ModelsPage implements OnInit {
     return `${(bytes / 1_000_000_000).toFixed(2)} GB`;
   }
 }
+
+function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value); }
 
 function errorMessage(error: unknown): string { return error instanceof Error ? error.message : 'The model catalog request failed.'; }
