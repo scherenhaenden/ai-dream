@@ -15,4 +15,12 @@ text = text.replace(
     "    await expect(page.getByRole('textbox', { name: 'Editable code canvas' })).toHaveValue('console.log(\"second block\");');",
 )
 path.write_text(text, encoding='utf-8')
-print('Fixed SSE smoke fixture and textarea assertions')
+
+model_path = Path('web/scripts/check-model-studio-ui.mjs')
+model_text = model_path.read_text(encoding='utf-8')
+model_text = model_text.replace(
+    "model('beta', 'Beta model', betaPath, { 'general.basename': 'bge-m3-embedding' }),",
+    "model('beta', 'Beta model', betaPath, { 'general.description': 'embedding model' }),",
+)
+model_path.write_text(model_text, encoding='utf-8')
+print('Fixed SSE fixture, textarea assertions, and kept model smoke fixture identity stable')
