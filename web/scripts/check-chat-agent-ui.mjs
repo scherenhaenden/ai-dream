@@ -166,11 +166,11 @@ const SCREENSHOT_DIR = path.resolve(__dirname, '../../artifacts/ui-smoke/chat-ag
     await page.route('**/api/chat', async route => {
       chatPayload = route.request().postDataJSON();
       chatMessages = [...chatMessages, { role: 'user', content: chatPayload.prompt },
-        { role: 'assistant', content: 'Mock answer\n\n```html\n<html><body>Hello</body></html>\n```' }];
+        { role: 'assistant', content: 'Mock answer\n\n```html\n<html><body><h1 id="preview-title">Hello</h1></body></html>\n```\n\n```js\nconsole.log("second block");\n```' }];
       await route.fulfill({
         status: 200,
         contentType: 'text/event-stream',
-        body: 'event: delta\ndata: {"text":"Mock answer\\n\\n```html\\n<html><body>Hello</body></html>\\n```"}\n\nevent: complete\ndata: {"assistant":"Mock answer\\n\\n```html\\n<html><body>Hello</body></html>\\n```"}\n\n'
+        body: ['event: delta', `data: ${JSON.stringify({ text: chatMessages.at(-1).content })}`, '', 'event: complete', `data: ${JSON.stringify({ assistant: chatMessages.at(-1).content })}`, '', ''].join('\n')
       });
     });
 
@@ -201,13 +201,23 @@ const SCREENSHOT_DIR = path.resolve(__dirname, '../../artifacts/ui-smoke/chat-ag
     await expect.poll(() => chatPayload?.model_id).toBe('mock-model-1');
     await expect.poll(() => Object.keys(chatPayload || {}).sort()).toEqual(['chat_id', 'model_id', 'prompt']);
     await expect(page.getByText('Mock answer')).toBeVisible();
+    await expect(page.locator('.code-canvas')).toHaveCount(0);
+    await expect(page.locator('.message-code-artifact')).toHaveCount(2);
+    await page.getByRole('button', { name: 'Open html · block 1 in Canvas' }).click();
     await expect(page.locator('.code-canvas')).toBeVisible();
-    await expect(page.locator('.code-scroll code')).toContainText('<html><body>Hello</body></html>');
-    await expect(page.locator('.message-content').filter({ hasText: '[html block is shown in Canvas]' })).toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'Editable code canvas' })).toHaveValue(/preview-title.*Hello/);
+    await page.getByRole('button', { name: '▣ Preview' }).click();
+    await expect(page.locator('.canvas-preview').contentFrame().locator('#preview-title')).toHaveText('Hello');
+    await page.getByRole('button', { name: '</> Code' }).click();
+    await page.getByRole('textbox', { name: 'Editable code canvas' }).fill('<!doctype html><html><body><h1 id="preview-title">Edited</h1></body></html>');
+    await page.getByRole('button', { name: '▣ Preview' }).click();
+    await expect(page.locator('.canvas-preview').contentFrame().locator('#preview-title')).toHaveText('Edited');
+    await page.getByRole('button', { name: 'Open js · block 2 in Canvas' }).click();
+    await expect(page.getByRole('textbox', { name: 'Editable code canvas' })).toHaveValue('console.log("second block");');
     await page.getByRole('button', { name: 'Hide Canvas' }).click();
     await expect(page.locator('.code-canvas')).toHaveCount(0);
     await page.getByRole('button', { name: 'Canvas · Code' }).click();
-    await expect(page.locator('.code-canvas')).toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'Editable code canvas' })).toHaveValue('console.log("second block");');
 
     await page.screenshot({ path: path.join(SCREENSHOT_DIR, 'chat.png') });
 
