@@ -108,11 +108,6 @@ export const Header: React.FC<HeaderProps> = ({
         </button>
       </div>
 
-      {/* Compact navigation control */}
-      {onToggleMobileNav && <button ref={menuTriggerRef} type="button" className="mobile-menu-trigger hidden" aria-label={mobileNavOpen ? 'Close navigation menu' : 'Open navigation menu'} aria-expanded={mobileNavOpen} aria-controls="primary-navigation-drawer" onClick={onToggleMobileNav}>
-        <span className="material-symbols-outlined" aria-hidden="true">{mobileNavOpen ? 'close' : 'menu'}</span>
-      </button>}
-
       {/* Right Controls */}
       <div className="flex items-center gap-3">
         {/* Model dropdown indicator */}
