@@ -1,12 +1,15 @@
 import { ChangeDetectionStrategy, Component, ElementRef, OnInit, effect, signal, viewChild, ViewEncapsulation } from '@angular/core';
 import { ApiService } from '../core/api.service';
+import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 
 type Model = { id: string; path?: string; format?: string };
 type ChatSummary = { id: string; title?: string; created_at?: string; updated_at?: string };
 type TranscriptMessage = { role: string; content: string; created_at?: string; key: string };
 type ChatEvent = { text?: string; chat_id?: string; incident_id?: string; assistant?: string | { role?: string; content?: string }; response?: string | { content?: string }; message?: string; error?: string };
 type RuntimeStatus = { loaded?: boolean; backend?: string; runtime_id?: string; model?: string; placement?: unknown[] };
-type CodeArtifact = { language: string; content: string; messageKey: string };
+type CodeArtifact = { id: string; language: string; content: string; messageKey: string; blockIndex: number };
+type MessagePart = { key: string; kind: 'text'; content: string } | { key: string; kind: 'code'; artifact: CodeArtifact };
+type CanvasMode = 'code' | 'preview';
 type ChatGeneration = { temperature: number; top_p: number | null; top_k: number | null; min_p: number | null; repeat_penalty: number | null; max_tokens: number | null };
 
 @Component({
@@ -54,7 +57,25 @@ type ChatGeneration = { temperature: number; top_p: number | null; top_k: number
         @for (message of messages(); track message.key) {
           <article class="message-row" [class.user-message]="message.role === 'user'" [class.assistant-message]="message.role !== 'user'">
             <div class="message-avatar" [class.user-avatar]="message.role === 'user'">{{ message.role === 'user' ? 'ED' : 'A' }}</div>
-            <div class="message-body"><div class="message-author">{{ message.role === 'user' ? 'You' : 'AI Dream' }} @if (message.created_at) {<time>{{ formatTime(message.created_at) }}</time>} @if (message.role !== 'user') {<button class="message-copy" (click)="copyMessage(message)" [attr.aria-label]="copiedKey() === message.key ? 'Copied response' : 'Copy response'">{{ copiedKey() === message.key ? 'Copied' : 'Copy' }}</button>}</div><div class="message-content">{{ messageDisplayContent(message) }}</div></div>
+            <div class="message-body"><div class="message-author">{{ message.role === 'user' ? 'You' : 'AI Dream' }} @if (message.created_at) {<time>{{ formatTime(message.created_at) }}</time>} @if (message.role !== 'user') {<button class="message-copy" (click)="copyMessage(message)" [attr.aria-label]="copiedKey() === message.key ? 'Copied response' : 'Copy response'">{{ copiedKey() === message.key ? 'Copied' : 'Copy' }}</button>}</div><div class="message-content">
+              @if (message.role === 'user') {
+                <span class="message-text-part">{{ message.content }}</span>
+              } @else {
+                @for (part of messageParts(message); track part.key) {
+                  @if (part.kind === 'text') {
+                    <span class="message-text-part">{{ part.content }}</span>
+                  } @else {
+                    <button type="button" class="message-code-artifact" [class.selected]="selectedArtifactId() === part.artifact.id" (click)="openArtifact(part.artifact)" [attr.aria-label]="'Open ' + artifactLabel(part.artifact) + ' in Canvas'">
+                      <span class="message-code-icon">&lt;/&gt;</span>
+                      <span class="message-code-copy"><b>{{ artifactLabel(part.artifact) }}</b><small>{{ part.artifact.content.split('\n').length }} lines · open in Canvas</small></span>
+                      <span class="message-code-open">↗</span>
+                    </button>
+                  }
+                } @empty {
+                  <span class="message-text-part">{{ message.content }}</span>
+                }
+              }
+            </div></div>
           </article>
         }
         @if (streaming()) {
@@ -81,13 +102,33 @@ type ChatGeneration = { temperature: number; top_p: number | null; top_k: number
           </footer>
         </section>
         @if (canvasOpen()) {<aside class="code-canvas" aria-label="Canvas and code view">
-          <div class="canvas-tabs"><span class="canvas-tab active">&lt;/&gt; Canvas / Code View</span><span class="canvas-indicator" [class.present]="latestCodeArtifact()"></span></div>
-          @if (latestCodeArtifact(); as artifact) {
-            <div class="canvas-filebar"><div><span class="file-symbol">▤</span><b>{{ artifact.language || 'Code artifact' }}</b><span class="artifact-source">from assistant response</span></div><span>{{ artifact.content.split('\n').length }} lines</span></div>
-            <div class="code-scroll"><div class="code-source"><ol aria-hidden="true">@for (line of artifact.content.split('\n'); track $index) { <li>{{ $index + 1 }}</li> }</ol><pre><code>{{ artifact.content }}</code></pre></div></div>
-            <footer class="canvas-footer"><span>READ ONLY</span><span>Extracted from {{ activeChatTitle() }}</span></footer>
+          <div class="canvas-tabs">
+            <button type="button" class="canvas-tab" [class.active]="canvasMode() === 'code'" (click)="canvasMode.set('code')">&lt;/&gt; Code</button>
+            @if (selectedCodeArtifact(); as selectedArtifact) {
+              @if (isHtmlArtifact(selectedArtifact)) { <button type="button" class="canvas-tab" [class.active]="canvasMode() === 'preview'" (click)="canvasMode.set('preview')">▣ Preview</button> }
+            }
+            <span class="canvas-indicator" [class.present]="selectedCodeArtifact()"></span>
+          </div>
+          @if (selectedCodeArtifact(); as artifact) {
+            <div class="canvas-filebar">
+              <div><span class="file-symbol">▤</span><b>{{ artifactLabel(artifact) }}</b><span class="artifact-source">assistant code block</span></div>
+              <div class="canvas-file-actions">
+                @if (allCodeArtifacts().length > 1) {
+                  <select aria-label="Select code block" [value]="artifact.id" (change)="selectArtifactById($any($event.target).value)">
+                    @for (item of allCodeArtifacts(); track item.id) { <option [value]="item.id">{{ artifactLabel(item) }}</option> }
+                  </select>
+                }
+                <button type="button" class="canvas-mini-button" (click)="resetCanvasDraft()" [disabled]="canvasDraft() === artifact.content">Reset</button>
+              </div>
+            </div>
+            @if (canvasMode() === 'preview' && isHtmlArtifact(artifact)) {
+              <div class="canvas-preview-wrap"><iframe class="canvas-preview" title="Sandboxed HTML preview" [srcdoc]="htmlPreviewDocument()" sandbox referrerpolicy="no-referrer"></iframe></div>
+            } @else {
+              <textarea class="canvas-editor" aria-label="Editable code canvas" [value]="canvasDraft()" (input)="setCanvasDraft($any($event.target).value)" spellcheck="false"></textarea>
+            }
+            <footer class="canvas-footer"><span>{{ canvasDraft() === artifact.content ? 'SOURCE' : 'EDITED DRAFT' }}</span><span>{{ isHtmlArtifact(artifact) ? 'Sandboxed preview · network blocked' : 'Canvas edits do not change the saved chat' }}</span></footer>
           } @else {
-            <div class="canvas-empty"><span class="canvas-empty-icon">&lt;/&gt;</span><b>No code artifact in this thread</b><p>Code blocks in assistant responses will appear here.</p></div>
+            <div class="canvas-empty"><span class="canvas-empty-icon">&lt;/&gt;</span><b>No code artifact in this thread</b><p>Code blocks stay attached to the response that produced them. Click one in chat to open it here.</p></div>
             <footer class="canvas-footer"><span>CANVAS</span><span>Waiting for a code block</span></footer>
           }
         </aside>}
@@ -161,6 +202,9 @@ export class ChatPage implements OnInit {
   readonly apiError = signal('');
   readonly copiedKey = signal('');
   readonly canvasOpen = signal(false);
+  readonly canvasMode = signal<CanvasMode>('code');
+  readonly selectedArtifactId = signal('');
+  readonly canvasDraft = signal('');
   readonly threadFilter = signal('');
   visibleChats = () => this.chats().filter(chat => (chat.title || 'New chat').toLowerCase().includes(this.threadFilter().toLowerCase()));
   activeChatTitle = () => this.chats().find(chat => chat.id === this.selectedChatId())?.title || (this.selectedChatId() ? 'New chat' : 'No conversation selected');
@@ -168,24 +212,11 @@ export class ChatPage implements OnInit {
   selectedModel = () => this.models().find(model => model.id === this.selectedModelId()) ?? null;
   canEditGeneration = () => this.api.connected() && !!this.selectedChatId() && !this.busy() && !this.savingGeneration() && !this.generationLoading();
   canEditKnowledge = () => this.api.connected() && !!this.selectedChatId() && !this.busy() && !this.savingKnowledge() && !this.generationLoading();
-  latestCodeArtifact = (): CodeArtifact | null => {
-    if (this.streamText()) {
-      const matches = [...this.streamText().matchAll(/(^|\n)(`{3,}|~{3,})([^\n]*)\n([\s\S]*?)(?:\n\2(?=\n|$)|$)/g)];
-      if (matches.length) {
-        const match = matches[matches.length - 1];
-        return { language: (match[3] || '').trim(), content: match[4].replace(/\n$/, ''), messageKey: 'streaming' };
-      }
-    }
-    for (let index = this.messages().length - 1; index >= 0; index--) {
-      const message = this.messages()[index];
-      if (message.role !== 'assistant') continue;
-      const matches = [...message.content.matchAll(/(^|\n)(`{3,}|~{3,})([^\n]*)\n([\s\S]*?)\n\2(?=\n|$)/g)];
-      if (matches.length) {
-        const match = matches[matches.length - 1];
-        return { language: (match[3] || '').trim(), content: match[4].replace(/\n$/, ''), messageKey: message.key };
-      }
-    }
-    return null;
+  allCodeArtifacts = (): CodeArtifact[] => this.messages().flatMap(message => message.role === 'assistant' ? extractCodeArtifacts(message.content, message.key) : []);
+  latestCodeArtifact = (): CodeArtifact | null => this.allCodeArtifacts().at(-1) ?? null;
+  selectedCodeArtifact = (): CodeArtifact | null => {
+    const artifacts = this.allCodeArtifacts();
+    return artifacts.find(artifact => artifact.id === this.selectedArtifactId()) ?? artifacts.at(-1) ?? null;
   };
   private selectionVersion = 0;
   private modelSelectionTouched = false;
@@ -193,19 +224,69 @@ export class ChatPage implements OnInit {
   private aborter: AbortController | null = null;
   private streamCompleted = false;
   private serverDiagnosticReceived = false;
-  private canvasManuallySet = false;
-  private lastCanvasArtifactKey = '';
+  private canvasSourceId = '';
+  private readonly canvasDrafts = new Map<string, string>();
   private readonly scrollAnchor = viewChild<ElementRef<HTMLElement>>('scrollAnchor');
 
-  constructor(readonly api: ApiService) { effect(() => { const artifact = this.latestCodeArtifact(); this.streaming(); this.messages(); if (artifact && artifact.messageKey !== this.lastCanvasArtifactKey) { this.lastCanvasArtifactKey = artifact.messageKey; if (!this.canvasManuallySet) this.canvasOpen.set(true); } this.scrollAnchor()?.nativeElement.scrollIntoView({ block: 'end' }); }); }
+  constructor(readonly api: ApiService, private readonly sanitizer: DomSanitizer) {
+    effect(() => {
+      const artifacts = this.allCodeArtifacts();
+      const selected = artifacts.find(artifact => artifact.id === this.selectedArtifactId()) ?? artifacts.at(-1) ?? null;
+      if (selected && this.selectedArtifactId() !== selected.id) this.selectedArtifactId.set(selected.id);
+      if (selected && this.canvasSourceId !== selected.id) {
+        this.canvasSourceId = selected.id;
+        this.canvasDraft.set(this.canvasDrafts.get(selected.id) ?? selected.content);
+        if (!this.isHtmlArtifact(selected) && this.canvasMode() === 'preview') this.canvasMode.set('code');
+      } else if (!selected && this.canvasSourceId) {
+        this.canvasSourceId = '';
+        this.selectedArtifactId.set('');
+        this.canvasDraft.set('');
+        this.canvasMode.set('code');
+      }
+      this.streaming();
+      this.scrollAnchor()?.nativeElement.scrollIntoView({ block: 'end' });
+    });
+  }
 
-  toggleCanvas(): void { this.canvasManuallySet = true; this.canvasOpen.update(open => !open); }
+  toggleCanvas(): void {
+    if (!this.canvasOpen()) {
+      const artifact = this.selectedCodeArtifact();
+      if (artifact) this.selectArtifact(artifact);
+    }
+    this.canvasOpen.update(open => !open);
+  }
 
-  messageDisplayContent(message: TranscriptMessage): string {
-    const artifact = this.latestCodeArtifact();
-    if (!artifact || artifact.messageKey !== message.key) return message.content;
-    const codeFence = /(^|\n)(`{3,}|~{3,})([^\n]*)\n([\s\S]*?)\n\2(?=\n|$)/g;
-    return message.content.replace(codeFence, (_block, prefix: string, _fence: string, language: string) => `${prefix}[${(language || 'Code').trim() || 'Code'} block is shown in Canvas]`);
+  messageParts(message: TranscriptMessage): MessagePart[] { return splitMessageParts(message); }
+  artifactLabel(artifact: CodeArtifact): string { return `${artifact.language || 'code'} · block ${artifact.blockIndex + 1}`; }
+  openArtifact(artifact: CodeArtifact): void { this.selectArtifact(artifact); this.canvasOpen.set(true); }
+  selectArtifactById(id: string): void {
+    const artifact = this.allCodeArtifacts().find(item => item.id === id);
+    if (artifact) this.selectArtifact(artifact);
+  }
+  setCanvasDraft(value: string): void {
+    this.canvasDraft.set(value);
+    const id = this.selectedArtifactId();
+    if (id) this.canvasDrafts.set(id, value);
+  }
+  resetCanvasDraft(): void {
+    const artifact = this.selectedCodeArtifact();
+    if (!artifact) return;
+    this.canvasDrafts.delete(artifact.id);
+    this.canvasDraft.set(artifact.content);
+  }
+  isHtmlArtifact(artifact: CodeArtifact): boolean {
+    const language = artifact.language.trim().toLowerCase();
+    return language === 'html' || language === 'htm' || language === 'xhtml' || /^\s*<!doctype html/i.test(artifact.content) || /<html(?:\s|>)/i.test(artifact.content);
+  }
+  htmlPreviewDocument(): SafeHtml {
+    const artifact = this.selectedCodeArtifact();
+    return this.sanitizer.bypassSecurityTrustHtml(artifact && this.isHtmlArtifact(artifact) ? sandboxHtml(this.canvasDraft()) : '');
+  }
+  private selectArtifact(artifact: CodeArtifact): void {
+    this.selectedArtifactId.set(artifact.id);
+    this.canvasSourceId = artifact.id;
+    this.canvasDraft.set(this.canvasDrafts.get(artifact.id) ?? artifact.content);
+    this.canvasMode.set('code');
   }
 
   ngOnInit(): void { void this.initialize(); }
@@ -292,9 +373,12 @@ export class ChatPage implements OnInit {
 
   selectChat(id: string): void {
     const version = ++this.selectionVersion;
-    this.canvasManuallySet = false;
-    this.lastCanvasArtifactKey = '';
     this.canvasOpen.set(false);
+    this.selectedArtifactId.set('');
+    this.canvasDraft.set('');
+    this.canvasMode.set('code');
+    this.canvasSourceId = '';
+    this.canvasDrafts.clear();
     this.generationLoadVersion++;
     this.selectedChatId.set(id);
     this.messages.set([]);
@@ -410,9 +494,12 @@ export class ChatPage implements OnInit {
         if (!chat?.id) { this.apiError.set('The server created a conversation but returned no chat ID.'); return; }
         this.selectedChatId.set(chat.id);
         this.messages.set([]);
-        this.canvasManuallySet = false;
-        this.lastCanvasArtifactKey = '';
         this.canvasOpen.set(false);
+        this.selectedArtifactId.set('');
+        this.canvasDraft.set('');
+        this.canvasMode.set('code');
+        this.canvasSourceId = '';
+        this.canvasDrafts.clear();
         this.loadChats(chat.id);
       },
       error: (error) => { this.creatingChat.set(false); this.apiError.set(error?.error?.error || error?.message || 'Could not create a conversation.'); }
@@ -633,6 +720,50 @@ export class ChatPage implements OnInit {
   }
   modelLabel(model: Model): string { return model.path?.split(/[\\/]/).pop() || model.id; }
   formatTime(value: string): string { const date = new Date(value); return Number.isNaN(date.valueOf()) ? '' : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
+}
+
+function extractCodeArtifacts(content: string, messageKey: string): CodeArtifact[] {
+  const artifacts: CodeArtifact[] = [];
+  const fence = /(?:^|\n)(`{3,}|~{3,})([^\n]*)\n([\s\S]*?)\n\1(?=\n|$)/g;
+  let match: RegExpExecArray | null;
+  while ((match = fence.exec(content)) !== null) {
+    const language = (match[2] || '').trim().split(/\s+/)[0] || 'code';
+    const blockIndex = artifacts.length;
+    artifacts.push({ id: `${messageKey}::code-${blockIndex}`, language, content: match[3].replace(/\n$/, ''), messageKey, blockIndex });
+  }
+  return artifacts;
+}
+
+function splitMessageParts(message: TranscriptMessage): MessagePart[] {
+  if (message.role !== 'assistant') return [{ key: `${message.key}:text`, kind: 'text', content: message.content }];
+  const parts: MessagePart[] = [];
+  const fence = /(?:^|\n)(`{3,}|~{3,})([^\n]*)\n([\s\S]*?)\n\1(?=\n|$)/g;
+  let cursor = 0;
+  let blockIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = fence.exec(message.content)) !== null) {
+    const before = message.content.slice(cursor, match.index);
+    if (before) parts.push({ key: `${message.key}:text-${blockIndex}`, kind: 'text', content: before });
+    const language = (match[2] || '').trim().split(/\s+/)[0] || 'code';
+    const artifact: CodeArtifact = { id: `${message.key}::code-${blockIndex}`, language, content: match[3].replace(/\n$/, ''), messageKey: message.key, blockIndex };
+    parts.push({ key: artifact.id, kind: 'code', artifact });
+    blockIndex += 1;
+    cursor = match.index + match[0].length;
+  }
+  const after = message.content.slice(cursor);
+  if (after) parts.push({ key: `${message.key}:text-${blockIndex}`, kind: 'text', content: after });
+  return parts.length ? parts : [{ key: `${message.key}:text`, kind: 'text', content: message.content }];
+}
+
+function sandboxHtml(source: string): string {
+  const policy = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; font-src data:; media-src data: blob:; form-action 'none'; base-uri 'none'">`;
+  const referrer = '<meta name="referrer" content="no-referrer">';
+  const trimmed = source.trim();
+  if (/<html(?:\s|>)/i.test(trimmed)) {
+    if (/<head(?:\s|>)/i.test(trimmed)) return trimmed.replace(/<head([^>]*)>/i, `<head$1>${policy}${referrer}`);
+    return trimmed.replace(/<html([^>]*)>/i, `<html$1><head>${policy}${referrer}</head>`);
+  }
+  return `<!doctype html><html><head>${policy}${referrer}<meta charset="utf-8"><style>html,body{margin:0;min-height:100%;font-family:system-ui,sans-serif}</style></head><body>${source}</body></html>`;
 }
 
 function unwrap(response: any): any { return response && typeof response === 'object' && 'data' in response ? response.data : response; }
