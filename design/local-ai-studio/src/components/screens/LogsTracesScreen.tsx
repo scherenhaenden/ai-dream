@@ -84,34 +84,35 @@ export const LogsTracesScreen: React.FC = () => {
   });
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[var(--ds-surface-container-lowest)] overflow-hidden p-6 space-y-4 font-mono">
+    <div className="flex-1 flex flex-col h-full bg-surface-container-lowest overflow-hidden p-6 space-y-4 font-mono">
+      <div role="note" className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs font-sans text-warning">
+        Static reference · all log entries, timestamps, metrics and security events are fictional examples. The current local API exposes no logs or traces endpoint.
+      </div>
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-[var(--ds-outline-variant)]">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-outline-variant">
         <div>
-          <h1 className="text-xl font-bold tracking-tight text-[var(--ds-on-surface)] flex items-center gap-2">
-            <span className="material-symbols-outlined text-[var(--ds-primary)]">terminal</span>
-            System Logs & Distributed Traces
+          <h1 className="text-xl font-bold tracking-tight text-on-surface flex items-center gap-2">
+            <span className="material-symbols-outlined text-primary">terminal</span>
+            Logs & Traces · sample data
           </h1>
-          <p className="text-xs text-[var(--ds-on-surface-variant)] mt-1 font-sans">
-            Real-time unified stdout/stderr stream from llama.cpp runtime, Vulkan driver, and OpenAI proxy.
+          <p className="text-xs text-on-surface-variant mt-1 font-sans">
+            Illustrative log rows only. Production currently has no logs or traces API endpoint.
           </p>
         </div>
 
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => setAutoScroll(!autoScroll)}
+          <button disabled title="Preview only · this reference has no live stream"
             className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors flex items-center gap-1.5 ${
               autoScroll
-                ? 'bg-blue-600/20 text-[var(--ds-primary)] border-blue-500/40'
-                : 'bg-[var(--ds-surface-container-low)] text-[var(--ds-on-surface-variant)] border-[var(--ds-outline-variant)]'
+                ? 'bg-primary-container/20 text-primary border-primary/40'
+                : 'bg-surface-container-low text-on-surface-variant border-outline-variant'
             }`}
           >
             <span className="material-symbols-outlined text-sm">vertical_align_bottom</span>
-            Auto-Scroll: {autoScroll ? 'ON' : 'PAUSED'}
+            Sample stream · unavailable
           </button>
-          <button
-            onClick={() => alert('Logs exported to local-ai-studio-session.log')}
-            className="px-3 py-1.5 bg-[var(--ds-surface-container-low)] hover:bg-[var(--ds-surface-container-high)] border border-[var(--ds-outline-variant)] rounded-lg text-xs text-on-surface flex items-center gap-1.5"
+          <button disabled title="Export is unavailable because these sample rows are not real logs"
+            className="px-3 py-1.5 bg-surface-container-low hover:bg-surface-container-high border border-outline-variant rounded-lg text-xs text-on-surface flex items-center gap-1.5"
           >
             <span className="material-symbols-outlined text-sm">download</span>
             Export .log
@@ -120,28 +121,28 @@ export const LogsTracesScreen: React.FC = () => {
       </div>
 
       {/* Filter Toolbar */}
-      <div className="bg-[var(--ds-surface-container-low)] border border-[var(--ds-outline-variant)] p-3 rounded-xl flex flex-wrap items-center justify-between gap-3 text-xs">
+      <div className="bg-surface-container-low border border-outline-variant p-3 rounded-xl flex flex-wrap items-center justify-between gap-3 text-xs">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-[var(--ds-on-surface-variant)] text-[11px]">Level:</span>
+          <span className="text-on-surface-variant text-[11px]">Level:</span>
           {(['ALL', 'INFO', 'WARN', 'ERROR'] as const).map((lvl) => (
             <button
               key={lvl}
               onClick={() => setLevelFilter(lvl)}
               className={`px-2.5 py-1 rounded font-bold text-[11px] ${
                 levelFilter === lvl
-                  ? 'bg-blue-600 text-on-surface'
-                  : 'bg-[var(--ds-surface-container-low)] text-[var(--ds-on-surface-variant)] hover:text-on-surface'
+                  ? 'bg-primary text-on-primary'
+                  : 'bg-surface-container-low text-on-surface-variant hover:text-on-surface'
               }`}
             >
               {lvl}
             </button>
           ))}
 
-          <span className="text-[var(--ds-on-surface-variant)] text-[11px] ml-2">Subsystem:</span>
+          <span className="text-on-surface-variant text-[11px] ml-2">Subsystem:</span>
           <select
             value={subsystemFilter}
             onChange={(e) => setSubsystemFilter(e.target.value)}
-            className="bg-[var(--ds-surface-container-low)] border border-[var(--ds-outline-variant)] rounded px-2.5 py-1 text-on-surface text-[11px] focus:outline-none"
+            className="bg-surface-container-low border border-outline-variant rounded px-2.5 py-1 text-on-surface text-[11px] focus:outline-none"
           >
             <option value="ALL">All Subsystems</option>
             <option value="LLAMA_CPP">LLAMA_CPP</option>
@@ -158,34 +159,34 @@ export const LogsTracesScreen: React.FC = () => {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Filter trace messages..."
-            className="bg-[var(--ds-surface-container-low)] border border-[var(--ds-outline-variant)] rounded-lg px-3 py-1.5 text-xs text-on-surface placeholder-[var(--ds-on-surface-variant)] w-56 focus:outline-none focus:border-[var(--ds-primary)]"
+            className="bg-surface-container-low border border-outline-variant rounded-lg px-3 py-1.5 text-xs text-on-surface placeholder-on-surface-variant w-56 focus:outline-none focus:border-primary"
           />
         </div>
       </div>
 
       {/* Terminal View */}
-      <div className="flex-1 bg-[var(--ds-surface-container-lowest)] border border-[var(--ds-outline-variant)] rounded-xl p-4 overflow-y-auto space-y-2 text-xs">
+      <div className="flex-1 bg-surface-container-lowest border border-outline-variant rounded-xl p-4 overflow-y-auto space-y-2 text-xs">
         {filteredLogs.map((log) => (
           <div
             key={log.id}
-            className="flex items-start gap-3 p-2 rounded hover:bg-[var(--ds-surface-container-low)] border border-transparent hover:border-[var(--ds-outline-variant)] transition-colors"
+            className="flex items-start gap-3 p-2 rounded hover:bg-surface-container-low border border-transparent hover:border-outline-variant transition-colors"
           >
-            <span className="text-[var(--ds-on-surface-variant)] select-none">{log.timestamp}</span>
+            <span className="text-on-surface-variant">{log.timestamp}</span>
             <span
-              className={`px-1.5 py-0.5 rounded text-[10px] font-bold select-none ${
+              className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
                 log.level === 'INFO'
-                  ? 'text-blue-400 bg-blue-500/10'
+                  ? 'text-primary bg-primary-container/10'
                   : log.level === 'WARN'
-                  ? 'text-amber-400 bg-amber-500/10'
+                  ? 'text-warning bg-warning/10'
                   : log.level === 'ERROR'
-                  ? 'text-red-400 bg-red-500/10'
-                  : 'text-purple-400 bg-purple-500/10'
+                  ? 'text-error bg-error/10'
+                  : 'text-secondary bg-secondary/10'
               }`}
             >
               {log.level}
             </span>
-            <span className="text-[var(--ds-primary)] text-[11px] font-bold select-none">[{log.subsystem}]</span>
-            <span className="text-[var(--ds-on-surface)] flex-1 leading-relaxed">{log.message}</span>
+            <span className="text-primary text-[11px] font-bold">[{log.subsystem}]</span>
+            <span className="text-on-surface flex-1 leading-relaxed">{log.message}</span>
           </div>
         ))}
       </div>

@@ -13,7 +13,8 @@ colors:
   on-surface-variant: '#c2c6d6'
   inverse-surface: '#dee2f1'
   inverse-on-surface: '#2b303b'
-  outline: '#8c909f'
+  outline: '#9ca3af'
+  scrim: '#000000'
   outline-variant: '#424754'
   surface-tint: '#adc6ff'
   primary: '#adc6ff'
@@ -30,6 +31,8 @@ colors:
   on-tertiary: '#003824'
   tertiary-container: '#00a572'
   on-tertiary-container: '#00311f'
+  warning: '#f59e0b'
+  on-warning: '#201200'
   error: '#ffb4ab'
   on-error: '#690005'
   error-container: '#93000a'
@@ -141,23 +144,63 @@ The design movement is **Technical Minimalist / Native High-Density IDE**:
 
 ## Colors
 
-The YAML `colors` map in this document is the canonical palette contract. Component examples below refer to those semantic tokens; they must not introduce a second set of palette values. Contrast has not yet been measured across all text, controls, and states, so WCAG AA/AAA compliance is not certified. Measure rendered foreground/background pairs before making an accessibility compliance claim.
+The YAML front matter at the top of this file is the canonical color-token source. The React reference exposes those values as Tailwind theme variables in `src/index.css`; use the corresponding `--color-*` variable in styles rather than copying a hex value. The prose below describes token roles, not a second palette.
 
-### Core Surfaces & Substrates
-- **Base Canvas:** `surface` (`#0e131d`) — Root workspace canvas and shell background.
-- **Lowest surface:** `surface-container-lowest` (`#090e18`) — Recessed backgrounds and scrollbar tracks.
-- **Panel surfaces:** `surface-container-low` through `surface-container-highest` — Dock panels, cards, hover and selected states, in ascending elevation.
-- **Structural borders:** `outline-variant` for quiet divisions and `outline` for stronger boundaries or focus where appropriate.
+### Token roles
+- **Canvas:** `surface` / `background`; lowest inset surfaces: `surface-container-lowest` and `surface-container-low`.
+- **Panels and cards:** `surface-container` through `surface-container-highest`; `surface-bright` is the brightest neutral surface.
+- **Primary text:** `on-surface`; secondary text: `on-surface-variant`.
+- **Structure:** `outline` for stronger boundaries and `outline-variant` for quiet dividers.
+- **Primary interaction:** `primary` with `on-primary`; containers use `primary-container` with `on-primary-container`. `surface-tint` is the tonal overlay accent.
+- **Secondary accent:** use `secondary` with `on-secondary` for secondary compute and selection states. Use `tertiary` for success/healthy status, `warning` with `on-warning` for caution, and the error family for destructive/error states.
+- **Fixed and inverse tokens:** use only for components that specifically require a stable light/dark scheme; do not substitute them for the standard surface/text pairs.
 
-### Accents & Telemetry Roles
-- **Primary technical accent:** `primary` and `primary-container` — Focus, primary actions, and active selections.
-- **Secondary compute accent:** `secondary` and `secondary-container` — Secondary data series and compute visualization.
-- **Success/online:** `tertiary` and `tertiary-container` — Healthy runtime and verified throughput states.
-- **Warning/throttling:** `warning` — memory pressure, thermal throttling, and non-blocking warnings.
-- **Critical/error:** `error` and `error-container` — Error and critical states.
+Use `scrim` with an explicit opacity for overlays. Do not claim WCAG conformance from palette names alone. Contrast depends on the actual foreground/background pair, opacity, font size, and rendered state; verify each used pair before making an accessibility claim.
 
-### Typography & Content Neutrals
-- Use `on-surface` for primary content and `on-surface-variant` for secondary content. Reserve disabled and decorative text for appropriately subdued variants only after their contrast is checked.
+### Verified opaque color pairs
+
+Ratios below are calculated from the YAML hex values using the WCAG 2.x sRGB relative-luminance formula. The dark-surface minimum is the lowest contrast against `surface-container-lowest`, `surface-container-low`, `surface`, `surface-container`, `surface-container-high`, `surface-container-highest`, and `surface-bright`. `surface-dim` and `background` duplicate `surface`; `surface-variant` duplicates `surface-container-highest`. These are solid-color checks with no opacity, gradients, or overlays.
+
+| Foreground role | Tested backgrounds | Minimum contrast | Minimum pair |
+|---|---|---:|---|
+| `on-surface` | Dark surfaces listed above | **8.96:1** | `surface-bright` |
+| `on-surface-variant` | Dark surfaces listed above | **6.80:1** | `surface-bright` |
+| `outline` | Dark surfaces listed above | **4.56:1** | `surface-bright` |
+| `primary` | Dark surfaces listed above | **6.78:1** | `surface-bright` |
+| `secondary` | Dark surfaces listed above | **6.79:1** | `surface-bright` |
+| `tertiary` | Dark surfaces listed above | **6.78:1** | `surface-bright` |
+| `warning` | Dark surfaces listed above | **5.39:1** | `surface-bright` |
+| `error` | Dark surfaces listed above | **6.82:1** | `surface-bright` |
+
+| Foreground label | Accent background | Contrast |
+|---|---|---:|
+| `on-primary` | `primary` | **7.69:1** |
+| `on-primary-container` | `primary-container` | **4.54:1** |
+| `on-secondary` | `secondary` | **7.72:1** |
+| `on-secondary-container` | `secondary-container` | **4.57:1** |
+| `on-tertiary` | `tertiary` | **7.73:1** |
+| `on-tertiary-container` | `tertiary-container` | **4.54:1** |
+| `on-warning` | `warning` | **8.52:1** |
+| `on-error` | `error` | **7.72:1** |
+| `on-error-container` | `error-container` | **7.24:1** |
+
+All listed foreground roles and accent-label pairs are at least 4.5:1 against the tested opaque colors. These calculations do not establish blanket WCAG conformance: translucent utility variants, gradients, focus states, icons, typography, and rendered components need their own checks.
+
+### Alpha, focus, and decorative-state audit (source-level)
+
+The following additional checks use sRGB alpha compositing followed by the WCAG 2.x relative-luminance formula. They cover the explicit source colors and surface tokens in this reference; they are not a browser screenshot audit.
+
+| Rendered case | Compositing/check | Result |
+|---|---|---:|
+| Fixed header (`surface-container-lowest/90`) | Composite over each of the seven dark surface tokens; check the header's `on-surface`, `on-surface-variant`, `outline`, `primary`, and `tertiary` text colors against the resulting header surface | **Minimum 6.50:1** (`outline` over header composited on `surface-bright`) |
+| Mobile navigation scrim (`scrim/60`) | Black scrim over dark surface tokens; no text is placed on the scrim | Decorative/dimming layer only |
+| Command palette scrim (`scrim/75`) | Black scrim over dark surface tokens; palette content is on an opaque `surface` panel | Decorative/dimming layer only |
+| Focus outline (`primary`) | Solid primary outline against the tested dark surface-token set | **Minimum 6.78:1** (`surface-bright`) |
+| Focus halo (`primary` at 20%) | `color-mix()` shadow around controls | Decorative halo; the solid 2px outline provides the focus indicator and is the contrast result above |
+| Hardware topology/SVG chart fills and connector gradients | SVG paths, dots, and chart areas use alpha/gradients; no text is painted into those SVG fills | Decorative/data marks; nearby text labels retain their own foreground/background pairs |
+| Tools screen disabled label (`on-surface-variant/60`) | 60% foreground over `surface-container-high` | **4.06:1 before correction**; CSS now resolves this class to opaque `on-surface-variant`, which is **8.45:1** on that surface and at least **6.80:1** across the dark surface set |
+
+The React stylesheet contains one alpha-colored text utility, for the disabled Tools refresh label; `index.css` now makes that label opaque so its disabled state is communicated by the native disabled attribute rather than reduced text contrast. Background alpha utilities remain in use for overlays, chips, and nested surfaces. Their underlying parent can vary by screen, so this audit does not claim a universal ratio for every possible composition. Whole-element opacity used on disabled controls is likewise not included in the text-pair figures; inactive-control styling and disabled reference panels still need rendered review. Gradients, SVG decoration, text over images, anti-aliasing, font-size/weight exceptions, and browser-specific color rendering are not certified by these source calculations.
 
 ## Typography
 
@@ -172,28 +215,24 @@ The typographic hierarchy distinguishes operational interface controls from tele
 The layout philosophy follows a **Dense Dock-and-Split Pane Grid** engineered for multi-monitor workstations and wide viewport configurations.
 
 ### Grid & Panel Rhythms
-- **Base Grid Unit:** `spacing.space-sm` (`0.25rem`) is the base 4px increment. Use the YAML spacing roles as the source of truth.
-- **Docking Architecture:** Continuous vertical and horizontal splitters using 1px visible boundaries padded with 4px hit targets. Dock zones consist of:
-  - Global Activity Bar (44px fixed width)
-  - Collapsible Tree/Asset Sidebar (240px–360px variable width)
-  - Central Editor/Chat Canvas (fluid flex container)
-  - Telemetry & Inspector Tray (280px–420px variable width)
-  - Bottom Terminal/Trace Console (200px–320px variable height, collapsible)
+- **Base Grid Unit:** 4px micro-grid. All paddings, pane dividers, status bars, and icon frames increment on multiples of `0.25rem` (4px).
+- **Application shell:** A fixed 18rem primary-navigation sidebar at desktop widths, a 3.5rem header, a flexible screen-content region, and a 1.5rem status footer. Individual screens may add their own columns or inspectors; there is no app-wide splitter/docking manager.
 
 ### Viewport Behaviors
-- **Desktop Ultrawide / Multi-Window (>1440px):** Simultaneous three-column architecture with perpetual hardware telemetry strip visible in the bottom status bar.
-- **Laptop / Compact Workstation (1024px–1439px):** Inspector and terminal docks shift to overlay drawer states or tabbed sub-decks.
-- **Minimal / Tiling Window Managers (<1023px):** Automatic collapse of all sidebars into modal popovers; active editor pane retains 100% canvas volume.
+- **Responsive breakpoints:** Screen content uses Tailwind `sm`, `md`, `lg`, and `xl` utilities to reflow grids and controls. Individual screens may retain wide or fixed-width panels, so check each screen at the target width.
+- **Below `lg`:** The primary navigation is an off-canvas drawer opened from the header, with a backdrop while open. Header and footer span the viewport.
+- **At `lg` and wider:** The sidebar remains visible at 18rem wide; the header and footer reserve that same left offset. Screen-specific columns reflow according to their own responsive classes.
+- There is no separate ultrawide layout or global rule that turns every inspector/terminal into a drawer; those behaviors are not implemented consistently across screens.
 
 ## Elevation & Depth
 
 This design system avoids heavy drop shadows and faux real-world lighting in favor of **Tonal Layering with Low-Contrast Precision Borders**. Depth establishes hierarchy without visual blur or perimeter bleed.
 
-1. **Level 0 (Root):** `surface`.
-2. **Level 1 (Dock panels):** `surface-container-low` or `surface-container` with a 1px `outline-variant` border.
-3. **Level 2 (Cards):** `surface-container-high` or `surface-container-highest`.
-4. **Level 3 (Overlays):** An elevated surface token and a restrained shadow; border uses `outline-variant`.
-5. **Level 4 (Modal):** An elevated surface token with a focus treatment using `primary`. Verify the rendered focus indicator independently for visibility.
+1. **Level 0 (Root Bedplate):** `surface` / `background`.
+2. **Level 1 (Dock Panels):** `surface-container-low` or `surface-container`, separated with `outline-variant`.
+3. **Level 2 (In-Panel Containers & Cards):** `surface-container-high`, separated with `outline-variant`.
+4. **Level 3 (Overlay Menus & Context Flyouts):** `surface-container-highest`; use restrained elevation and an `outline` boundary.
+5. **Level 4 (Modal Command Palette / Model Switcher):** `surface-container-highest` over a scrim; use `primary` for the focus accent.
 
 ## Shapes
 
@@ -207,25 +246,28 @@ The shape system uses the YAML `rounded` scale as its only radius contract, pres
 ## Components
 
 ### Buttons & Action Bars
-- **Primary Compute Button:** Background `primary`, foreground `on-primary`, Inter at the `headline-sm` weight, spacing from `gutter`/`margin`, radius `rounded.DEFAULT`. Derive hover and active treatments from palette surfaces; do not invent new color literals. Focus uses `primary` with a visible outline.
-- **Secondary Ghost Action:** Transparent background, `on-surface-variant` text, `outline-variant` border; hover uses `surface-container-high`.
-- **Destructive/Interrupt Action:** Use `error` and `error-container` roles with an `outline-variant` boundary.
+- **Primary Compute Button:** Background `primary`, text `on-primary`, font `Inter` 600, padding `4px 12px`, radius `rounded.DEFAULT`. Hover and pressed states use tonal variants from the `primary` family.
+- **Secondary Ghost Action:** Transparent background, text `on-surface-variant`, border `outline-variant`. Hover uses `surface-container-high` and `outline`.
+- **Destructive/Interrupt Action:** Background `error-container`, text `on-error-container`, border `error`. Keep hover treatment within the `error` family.
 
 ### Telemetry Meters & Hardware Gauges
-- **VRAM / Compute Linear Progress Bar:** Use a compact meter on `surface-container-low`, with `outline-variant` boundary and radius `rounded.sm`. Map healthy state to `tertiary`, warning to `warning`, and critical state to `error`; thresholds are product policy and must be specified separately.
-- **Numeric Stream Readout:** Use the `label-code-md` typography role, `on-surface` foreground, and right alignment; pair with `on-surface-variant` labels.
+- **VRAM / Compute Linear Progress Bar:** Height `6px`, background `surface-container-low`, border `outline-variant`, radius `rounded.sm`. Use `tertiary` for healthy status, `warning` for caution, and `error` for critical status; always pair color with a text or icon status.
+- **Numeric Stream Readout:** Monospaced `JetBrains Mono` 11px, `on-surface`, right-aligned, paired with `on-surface-variant` micro-label (e.g., `42.4 tok/s`, `11.8 / 16 GB`).
 
 ### Segmented Tabs & Switchers
-- **Dock Tabs:** Use `surface-container-low` for the active tab and `surface` for inactive tabs. Text uses `on-surface` / `on-surface-variant`; active indicator uses `primary`, dividers use `outline-variant`.
-- **Segmented Control (Quantization / Sampler Selector):** Use `surface` background, `gutter-compact` padding, `outline-variant` border and `rounded.DEFAULT`. Active segment uses `surface-container-high` and `primary` text.
+- **Dock Tabs:** Contiguous 32px bar. Active tab uses `surface-container-low`, `on-surface`, a `primary` top border, and `outline-variant` side borders. Inactive tab uses `surface` and `on-surface-variant`; hover text uses `on-surface`.
+- **Segmented Control (Quantization / Sampler Selector):** Background `surface`, padding `2px`, border `outline-variant`, radius `rounded.DEFAULT`. Active segment uses `surface-container-high`, `primary`, and `outline-variant`.
 
 ### Input Fields & Technical Knobs
-- **Parameter Inputs (Temperature, Top-P, Context Size):** Use `surface`, `outline-variant`, `on-surface`, and `label-code-md`; use spacing tokens for padding. Focus uses `primary` and a visible outline.
-- **Code & Prompt Input Buffer:** Use `surface-container-low`, `outline-variant`, spacing tokens for inset padding, `primary` caret and `on-surface-variant` line numbers.
+- **Parameter Inputs (Temperature, Top-P, Context Size):** Background `surface`, border `outline-variant`, text `on-surface`, font `JetBrains Mono` 12px, padding `4px 8px`. Focus uses `primary`. Number spinners feature embedded stepper icons.
+- **Code & Prompt Input Buffer:** Background `surface-container-low`, border `outline-variant`, inset padding `8px 12px`, caret color `primary`, line numbers in `on-surface-variant`.
 
 ### Status Indicators & Chips
-- **Node Status Indicator:** A small circular pip. Ready uses `tertiary`, warming uses `warning`, and offline uses `on-surface-variant`. State must also be conveyed by text or shape, not color alone.
-- **Model Signature Tag:** Use `surface-container-high`, `outline-variant`, `on-surface-variant`, `label-code-md`, spacing tokens, and `rounded.DEFAULT`.
+- **Node Status Indicator:** 6px circular pip. 
+  - Ready: `tertiary`.
+  - Compiling/Warming: `warning`.
+  - Offline: `on-surface-variant`.
+- **Model Signature Tag:** Background `surface-container-high`, border `outline-variant`, text `on-surface-variant`, font `JetBrains Mono` 11px, padding `2px 6px`, radius `rounded.DEFAULT`.
 
 ### Lists & Tree Views
-- **Model Weight Tree & File View:** Use the `body-md` line-height role. Inactive items use `on-surface-variant`; hover uses `surface-container-high`; selected rows use `surface-container-highest` and a `primary` leading indicator. Expansion controls need an adequate interactive hit target.
+- **Model Weight Tree & File View:** Line height `24px`. Inactive items use `on-surface-variant`. Hover row uses `surface-container-high`; selected row uses `surface-container-highest` with a `primary` left accent border. Expansion arrows have 12px bounding boxes with a 90-degree twist transition.

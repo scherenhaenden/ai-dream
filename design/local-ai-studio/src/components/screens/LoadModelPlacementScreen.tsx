@@ -1,12 +1,10 @@
 import React, { useState } from 'react';
 
 interface LoadModelPlacementScreenProps {
-  onDeploySuccess: () => void;
   onBack: () => void;
 }
 
 export const LoadModelPlacementScreen: React.FC<LoadModelPlacementScreenProps> = ({
-  onDeploySuccess,
   onBack,
 }) => {
   const [allocationMode, setAllocationMode] = useState<'auto' | 'manual'>('manual');
@@ -24,8 +22,6 @@ export const LoadModelPlacementScreen: React.FC<LoadModelPlacementScreenProps> =
   const [numaPin, setNumaPin] = useState<boolean>(false);
 
   // Launch state
-  const [isLaunching, setIsLaunching] = useState<boolean>(false);
-  const [isLaunched, setIsLaunched] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
@@ -59,21 +55,8 @@ export const LoadModelPlacementScreen: React.FC<LoadModelPlacementScreenProps> =
   const gpu1TotalGb = (0.3 + parseFloat(gpu1ModelGb)).toFixed(1);
   const gpu1FreeGb = Math.max(0, 16.0 - parseFloat(gpu1TotalGb)).toFixed(1);
 
-  const handleLaunch = () => {
-    setIsLaunching(true);
-    showToast('Allocating physical device memory via ROCm/Vulkan...');
-    setTimeout(() => {
-      setIsLaunching(false);
-      setIsLaunched(true);
-      showToast('Model Allocated & Initialized in VRAM!');
-      setTimeout(() => {
-        onDeploySuccess();
-      }, 1000);
-    }, 1500);
-  };
-
   return (
-    <div className="flex flex-col w-full text-on-surface select-none pb-12">
+    <div className="flex flex-col w-full text-on-surface pb-12">
       {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed bottom-12 right-6 z-50 px-3 py-2 rounded-lg bg-surface-container-high border border-primary/40 text-on-surface shadow-2xl flex items-center gap-2 text-[12px] font-mono animate-bounce">
@@ -146,7 +129,7 @@ export const LoadModelPlacementScreen: React.FC<LoadModelPlacementScreenProps> =
             <div className="bg-surface-container-high border border-primary/40 px-3.5 py-2 rounded-lg flex items-center justify-between shadow-sm relative overflow-hidden">
               <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary"></div>
               <div className="flex items-center gap-2 min-w-0 pl-1">
-                <span className="flex items-center justify-center w-5 h-5 rounded-full bg-primary text-on-primary text-[11px] font-semibold">
+                <span className="flex items-center justify-center w-5 h-5 rounded-full bg-primary text-on-surface text-[11px] font-semibold">
                   3
                 </span>
                 <div className="truncate">
@@ -704,40 +687,21 @@ export const LoadModelPlacementScreen: React.FC<LoadModelPlacementScreenProps> =
 
           <div className="flex items-center gap-3">
             <button
-              onClick={() => showToast('Saved topology split to hardware profile: "Dual_9070_Optimal"')}
-              className="px-3 py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface text-[12px] transition-colors flex items-center gap-1.5 border border-outline-variant/30 cursor-pointer"
+              disabled
+              title="Saving model profiles is available in the production Runtime Manager; this reference is not connected."
+              className="px-3 py-1.5 rounded-lg bg-surface-container text-on-surface-variant text-[12px] flex items-center gap-1.5 border border-outline-variant/30 cursor-not-allowed opacity-60"
               type="button"
             >
               <span className="material-symbols-outlined text-[16px]">bookmark</span>
               <span>Save as Hardware Profile...</span>
             </button>
             <button
-              onClick={handleLaunch}
-              className={`px-5 py-2 rounded-lg font-semibold text-[13px] transition-all flex items-center gap-2 shadow-md cursor-pointer ${
-                isLaunched
-                  ? 'bg-tertiary text-on-tertiary'
-                  : isLaunching
-                  ? 'bg-primary/80 text-on-primary'
-                  : 'bg-primary hover:bg-primary-fixed-dim text-on-primary'
-              }`}
+              disabled
+              title="Loading a model requires the production Runtime Manager; this reference is not connected."
+              className="px-5 py-2 rounded-lg bg-primary text-on-primary font-semibold text-[13px] flex items-center gap-2 shadow-md cursor-not-allowed opacity-60"
               type="button"
             >
-              {isLaunching ? (
-                <>
-                  <div className="w-4 h-4 rounded-full border-2 border-on-primary border-t-transparent animate-spin"></div>
-                  <span>Allocating Device Memory...</span>
-                </>
-              ) : isLaunched ? (
-                <>
-                  <span className="material-symbols-outlined text-[18px]">check_circle</span>
-                  <span>Allocated &amp; Initialized</span>
-                </>
-              ) : (
-                <>
-                  <span>Load Model &amp; Start Engine</span>
-                  <span className="material-symbols-outlined text-[18px]">play_arrow</span>
-                </>
-              )}
+              <span>Preview only · Load in Runtime Manager</span>
             </button>
           </div>
         </div>

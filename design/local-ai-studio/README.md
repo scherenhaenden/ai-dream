@@ -1,48 +1,22 @@
-# Local AI Studio — visual prototype
+# Local AI Studio design prototype
 
-This React/Vite application is a **visual and interaction prototype** for Local AI Studio. It helps review a possible workstation layout and screen vocabulary. It is not the production application, and its screens do not establish that the corresponding product features are implemented.
-
-The production application is the Angular app in [`web/`](../../web/). Its routes and behavior are the source of truth. This prototype currently has no connection to that app's API or runtime services.
-
-## Prototype screens and production routes
-
-| Prototype screen | Closest production route | Parity |
-| --- | --- | --- |
-| Chat | `/chat` | Visual reference only; prototype conversation and model state are local UI state. |
-| Models Library | `/models` | Visual reference only; prototype catalog/actions are not backed by the production model catalog. |
-| Model Hubs | `/hub` | Visual reference only; no verified provider or download operation is performed. |
-| Hardware Topology | `/hardware` | Visual reference only; displayed hardware/usage values are not live system readings. |
-| Load Model / Placement | `/load-model` | Visual reference only; its deploy action does not start a runtime. |
-| Providers & Runtimes | `/runtime` | Partial conceptual reference; production runtime management behavior is not wired to this screen. |
-| Local API Server | `/local-api` | Visual reference only; it does not start or inspect the production local API. |
-| Knowledge / RAG | `/knowledge` | Visual reference only; no production knowledge index is queried or changed. |
-| Tools & Security | `/tools-permissions` | Visual reference only; it does not change production permissions. |
-| Downloads | `/downloads` | Visual reference only; no download is initiated. |
-| Logs & Traces | `/logs` | Visual reference only; shown log/trace content is not a production log stream. |
-| Settings | `/settings` | Visual reference only; settings are not persisted to the production app. |
-
-There is **no Agent screen** in this prototype, while production has `/agent`. Production also exposes runtime management through `/runtime`; it has no separate Profiles route, and this prototype does not implement a profile-management flow. Production route definitions are in [`web/src/app/app.routes.ts`](../../web/src/app/app.routes.ts).
-
-## Prototype-only behavior
-
-Treat displayed values and success messages as illustrative. In particular, the prototype generates GPU and RAM percentages with a timer, uses hard-coded model/runtime examples, and keeps navigation and selections in browser memory. Load/deploy controls show local success notifications rather than loading a model or allocating hardware. Other screen actions and data are presentation scaffolding; they do not call the Angular control plane. Do not use this prototype to infer actual hardware status, service health, persistence, permission enforcement, or completed product capability.
+This directory contains a standalone React/Vite visual prototype for AI Dream. It is a design reference, not the production application: the shipped application is the Angular app in [`../../web`](../../web). The prototype does not connect to the local API, execute model operations, or persist changes. Counts, model cards, logs, connection states, dialogs, and action outcomes shown here are illustrative unless a screen explicitly says otherwise.
 
 ## Run locally
 
-Prerequisite: Node.js with npm.
-
-From this directory:
+Prerequisites: Node.js and npm.
 
 ```sh
 npm install
 npm run dev
 ```
 
-Vite prints the local development URL (the configured port is `3000`). To create a production bundle or preview that bundle:
+Vite prints the local URL. To create a static preview build, run `npm run build`, then `npm run preview`. No API key, cloud account, or environment file is required.
 
-```sh
-npm run build
-npm run preview
-```
+## Product parity
 
-`npm run lint` runs TypeScript's no-emit check. The npm scripts are defined in [`package.json`](./package.json). No API key or cloud service is required to run this visual prototype.
+See [`PARITY.md`](./PARITY.md) for the screen-to-route mapping, current Angular capabilities, and prototype-only gaps. Keep that map aligned with `web/src/app/app.routes.ts` when either application changes.
+
+## Readiness and QA boundary
+
+The parity map and token/contrast calculations are source-level evidence; they do not by themselves establish visual, accessibility, or behavioral approval. Before calling the reference UX-ready, run it in a browser and check each screen at compact, tablet, and desktop widths; confirm there is no clipped content or horizontal overflow; exercise the navigation drawer and command palette with keyboard only (including focus entry, containment, Escape, and focus restoration); inspect visible focus and disabled states; and verify contrast for the rendered foreground/background pairs, including alpha overlays. Include at least one screen-reader pass for landmarks, names, and state announcements. Record browser, viewport sizes, and any exceptions alongside the readiness score. The prototype has no automated browser/assistive-technology result recorded by these documents.

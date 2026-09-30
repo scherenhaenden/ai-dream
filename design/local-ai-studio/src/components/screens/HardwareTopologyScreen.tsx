@@ -1,75 +1,20 @@
-import React, { useState } from 'react';
+import React from 'react';
 
 export const HardwareTopologyScreen: React.FC = () => {
-  const [benchmarking, setBenchmarking] = useState(false);
-  const [testingVram, setTestingVram] = useState(false);
-  const [resettingDrivers, setResettingDrivers] = useState(false);
-  const [traceLogs, setTraceLogs] = useState([
+  const traceLogs = [
     '[14:42:01] ROCm P2P Direct: DMA map validated.',
     '[14:42:02] GPU0 BAR1 mapped to GPU1 (16 GB aperture).',
     '[14:42:04] Benchmark: 28.02 GB/s verified.',
-  ]);
-
-  const runBenchmark = () => {
-    setBenchmarking(true);
-    setTraceLogs((prev) => [...prev, '[14:42:15] Stressing GPU0 ↔ GPU1 Ring Bus with 8GB buffer...']);
-    setTimeout(() => {
-      setBenchmarking(false);
-      setTraceLogs((prev) => [
-        ...prev,
-        '[14:42:17] PCIe Gen4 x16 Direct P2P: Peak 28.04 GB/s, Mean Latency 0.42µs.',
-      ]);
-    }, 1500);
-  };
-
-  const runVramTest = () => {
-    setTestingVram(true);
-    setTraceLogs((prev) => [...prev, '[14:42:20] Scanning VRAM sectors on GPU0 & GPU1...']);
-    setTimeout(() => {
-      setTestingVram(false);
-      setTraceLogs((prev) => [...prev, '[14:42:22] 32.0 GB tested. 0 Parity bitflips detected. Clean.']);
-    }, 1400);
-  };
-
-  const runResetDrivers = () => {
-    if (confirm('Rebind amdgpu driver stack? Active inference contexts will be paused.')) {
-      setResettingDrivers(true);
-      setTraceLogs((prev) => [...prev, '[14:42:30] Unbinding amdgpu PCI nodes...']);
-      setTimeout(() => {
-        setResettingDrivers(false);
-        setTraceLogs((prev) => [
-          ...prev,
-          '[14:42:32] ROCm 6.2 and Mesa RADV 24.3.1 successfully re-initialized.',
-        ]);
-      }, 1600);
-    }
-  };
-
-  const exportProfile = () => {
-    const data = {
-      timestamp: new Date().toISOString(),
-      cluster: 'Dual AMD Radeon RX 9070',
-      p2p_interconnect: 'PCIe Gen4 x16 Direct (28.0 GB/s)',
-      host_cpu: 'AMD Ryzen 9 7950X (16C/32T)',
-      vram_allocated_gb: 22.0,
-      vram_total_gb: 32.0,
-    };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'topology_profile.json';
-    a.click();
-  };
+  ];
 
   return (
-    <div className="flex flex-col w-full text-on-surface select-none pb-12 p-6 gap-6">
+    <div className="flex flex-col w-full min-w-0 text-on-surface pb-8 sm:pb-12 p-3 sm:p-4 2xl:p-6 gap-4 sm:gap-6">
       {/* Header Area */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-surface-container-low border border-outline-variant/30 p-5 rounded-xl shadow-sm">
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-2">
+      <div className="flex flex-col 2xl:flex-row 2xl:items-center justify-between gap-4 bg-surface-container-low border border-outline-variant/30 p-4 sm:p-5 rounded-xl shadow-sm min-w-0">
+        <div className="flex flex-col gap-1 min-w-0">
+          <div className="flex items-start gap-2 min-w-0">
             <span className="material-symbols-outlined text-primary text-[20px]">hub</span>
-            <h1 className="text-[20px] font-semibold text-on-surface tracking-tight">
+            <h1 className="text-[18px] sm:text-[20px] font-semibold text-on-surface tracking-tight min-w-0">
               Hardware Orchestration &amp; PCIe Topology
             </h1>
           </div>
@@ -78,7 +23,7 @@ export const HardwareTopologyScreen: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 font-mono text-[11px]">
+        <div className="flex flex-wrap items-center gap-2 font-mono text-[11px] min-w-0">
           <div className="flex items-center gap-1.5 px-3 py-1 bg-surface-container-high rounded-lg border border-outline-variant/20 text-tertiary">
             <span className="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse"></span>
             <span>System Ready • 2 Compute GPUs Active • 1 Display GPU Excluded</span>
@@ -95,21 +40,21 @@ export const HardwareTopologyScreen: React.FC = () => {
       </div>
 
       {/* Main Grid: 2-Column Workstation Layout */}
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+      <div className="grid grid-cols-1 2xl:grid-cols-12 gap-4 sm:gap-6 min-w-0">
         {/* Left 9 Columns: Graph & Detailed Spec Cards */}
-        <div className="xl:col-span-9 flex flex-col gap-6">
+        <div className="2xl:col-span-9 flex flex-col gap-4 sm:gap-6 min-w-0">
           {/* Interactive Node-Based Workstation Topology Diagram */}
-          <div className="relative bg-surface-container-lowest border border-outline-variant/30 p-5 rounded-xl overflow-hidden shadow-sm flex flex-col">
+          <div className="relative bg-surface-container-lowest border border-outline-variant/30 p-3 sm:p-5 rounded-xl shadow-sm flex flex-col min-w-0">
             {/* Canvas Legend */}
-            <div className="flex flex-wrap items-center justify-between pb-4 gap-2 border-b border-outline-variant/20">
-              <div className="flex items-center gap-2">
+            <div className="flex flex-col items-start pb-4 gap-3 border-b border-outline-variant/20">
+              <div className="flex flex-wrap items-center gap-2 min-w-0">
                 <span className="material-symbols-outlined text-outline text-[16px]">account_tree</span>
                 <span className="text-[14px] font-semibold text-on-surface">Physical Interconnect Fabric</span>
                 <span className="font-mono text-[10px] text-outline bg-surface-container-high px-2 py-0.5 rounded border border-outline-variant/20">
                   Topology: Tree-Direct P2P
                 </span>
               </div>
-              <div className="flex items-center gap-4 font-mono text-[11px]">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 font-mono text-[11px]">
                 <span className="flex items-center gap-1.5 text-tertiary">
                   <span className="w-3 h-0.5 bg-tertiary inline-block rounded"></span>
                   PCIe Gen4 x16 (64 GB/s)
@@ -130,36 +75,36 @@ export const HardwareTopologyScreen: React.FC = () => {
             </div>
 
             {/* Topology Diagram Canvas with SVG */}
-            <div className="relative w-full min-h-[500px] bg-surface-container-low/50 rounded-lg p-6 flex flex-col justify-between overflow-hidden mt-4 border border-outline-variant/20">
+            <div className="relative w-full min-h-[420px] 2xl:min-h-[500px] bg-surface-container-low/50 rounded-lg p-3 sm:p-4 2xl:p-6 flex flex-col justify-start 2xl:justify-between gap-4 overflow-x-auto mt-4 border border-outline-variant/20">
               {/* SVG Background Grid and Interconnect Traces */}
-              <svg className="absolute inset-0 w-full h-full pointer-events-none" xmlns="http://www.w3.org/2000/svg">
+              <svg className="absolute inset-0 w-full h-full pointer-events-none hidden 2xl:block" xmlns="http://www.w3.org/2000/svg">
                 <defs>
                   <pattern id="grid-dots" width="24" height="24" patternUnits="userSpaceOnUse">
-                    <circle cx="2" cy="2" r="0.75" fill="var(--ds-outline-variant)" fillOpacity="0.4"></circle>
+                    <circle cx="2" cy="2" r="0.75" fill="var(--color-outline-variant)" fillOpacity="0.4"></circle>
                   </pattern>
                   <linearGradient id="p2p-glow" x1="0%" y1="0%" x2="100%" y2="0%">
-                    <stop offset="0%" stopColor="var(--ds-tertiary)" stopOpacity="0.9"></stop>
-                    <stop offset="50%" stopColor="var(--ds-secondary)" stopOpacity="1"></stop>
-                    <stop offset="100%" stopColor="var(--ds-primary)" stopOpacity="0.9"></stop>
+                    <stop offset="0%" stopColor="var(--color-tertiary)" stopOpacity="0.9"></stop>
+                    <stop offset="50%" stopColor="var(--color-secondary)" stopOpacity="1"></stop>
+                    <stop offset="100%" stopColor="var(--color-primary)" stopOpacity="0.9"></stop>
                   </linearGradient>
                 </defs>
                 <rect width="100%" height="100%" fill="url(#grid-dots)"></rect>
 
                 {/* SVG bus lines */}
                 {/* CPU to GPU 0 */}
-                <path d="M 320 130 V 220 H 160 V 275" fill="none" stroke="var(--ds-tertiary)" strokeWidth="2.5" strokeDasharray="4 2" className="opacity-80" />
+                <path d="M 320 130 V 220 H 160 V 275" fill="none" stroke="var(--color-tertiary)" strokeWidth="2.5" strokeDasharray="4 2" className="opacity-80" />
                 {/* CPU to GPU 1 */}
-                <path d="M 400 130 V 220 H 460 V 275" fill="none" stroke="var(--ds-primary)" strokeWidth="2.5" strokeDasharray="4 2" className="opacity-80" />
+                <path d="M 400 130 V 220 H 460 V 275" fill="none" stroke="var(--color-primary)" strokeWidth="2.5" strokeDasharray="4 2" className="opacity-80" />
                 {/* CPU to GPU 2 */}
-                <path d="M 480 130 V 220 H 760 V 275" fill="none" stroke="var(--ds-outline-variant)" strokeWidth="1.5" strokeDasharray="6 4" className="opacity-50" />
+                <path d="M 480 130 V 220 H 760 V 275" fill="none" stroke="var(--color-outline-variant)" strokeWidth="1.5" strokeDasharray="6 4" className="opacity-50" />
                 {/* Peer-to-Peer Interconnect Bus GPU 0 <-> GPU 1 */}
                 <path d="M 270 365 H 350" fill="none" stroke="url(#p2p-glow)" strokeWidth="4" className="animate-pulse" />
               </svg>
 
               {/* Level 1: Host Subsystems (CPU, RAM, NVMe) */}
-              <div className="relative z-10 grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+              <div className="relative z-10 grid grid-cols-1 2xl:grid-cols-12 gap-3 sm:gap-4 items-stretch 2xl:items-center">
                 {/* Host CPU & Memory */}
-                <div className="md:col-span-8 bg-surface-container border border-outline-variant/30 p-4 rounded-lg shadow-sm flex flex-col md:flex-row gap-4 justify-between">
+                <div className="2xl:col-span-8 bg-surface-container border border-outline-variant/30 p-3 sm:p-4 rounded-lg shadow-sm flex flex-col 2xl:flex-row gap-4 justify-between min-w-0">
                   <div className="flex items-start gap-3">
                     <div className="w-10 h-10 rounded-lg bg-primary-container/20 border border-primary/30 flex items-center justify-center shrink-0">
                       <span className="material-symbols-outlined text-primary text-[22px]">memory</span>
@@ -177,7 +122,7 @@ export const HardwareTopologyScreen: React.FC = () => {
                   </div>
 
                   {/* Host RAM Meter */}
-                  <div className="flex flex-col justify-center bg-surface-container-low border border-outline-variant/20 px-3 py-2 rounded-lg min-w-[200px]">
+                  <div className="flex flex-col justify-center bg-surface-container-low border border-outline-variant/20 px-3 py-2 rounded-lg min-w-0 2xl:min-w-[200px]">
                     <div className="flex items-center justify-between font-mono text-[11px]">
                       <span className="text-on-surface-variant font-medium">Host DDR5-6000</span>
                       <span className="text-primary font-semibold">78.4 GB/s</span>
@@ -195,7 +140,7 @@ export const HardwareTopologyScreen: React.FC = () => {
                 </div>
 
                 {/* Storage NVMe */}
-                <div className="md:col-span-4 bg-surface-container border border-outline-variant/30 p-4 rounded-lg shadow-sm flex items-center justify-between">
+                <div className="2xl:col-span-4 bg-surface-container border border-outline-variant/30 p-3 sm:p-4 rounded-lg shadow-sm flex items-center justify-between min-w-0">
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="w-9 h-9 rounded-lg bg-surface-container-high flex items-center justify-center shrink-0 border border-outline-variant/20">
                       <span className="material-symbols-outlined text-primary text-[20px]">hard_drive</span>
@@ -218,14 +163,14 @@ export const HardwareTopologyScreen: React.FC = () => {
               </div>
 
               {/* Interconnect Bus Strip */}
-              <div className="relative z-10 py-4 flex flex-wrap items-center justify-between px-4 gap-2">
+              <div className="relative z-10 py-1 2xl:py-4 flex flex-wrap items-center justify-start 2xl:justify-between px-0 sm:px-2 gap-2">
                 <div className="bg-surface-container-lowest/90 px-3 py-1 rounded-md font-mono text-[11px] text-tertiary flex items-center gap-1 border border-outline-variant/20 shadow-sm">
                   <span className="material-symbols-outlined text-[13px]">arrow_downward</span>
                   <span>PCIe 4.0 x16 Link (Direct Root)</span>
                 </div>
 
                 {/* Center P2P Direct Bridge Badge */}
-                <div className="bg-secondary-container px-4 py-1.5 rounded-full flex items-center gap-2 shadow-md border border-secondary/40">
+                <div className="bg-secondary-container px-3 sm:px-4 py-1.5 rounded-full flex items-center gap-2 shadow-md border border-secondary/40 max-w-full">
                   <span className="material-symbols-outlined text-on-secondary-container text-[16px] animate-pulse">
                     compare_arrows
                   </span>
@@ -241,7 +186,7 @@ export const HardwareTopologyScreen: React.FC = () => {
               </div>
 
               {/* Level 2: Discrete Accelerators (GPU 0, GPU 1, GPU 2) */}
-              <div className="relative z-10 grid grid-cols-1 md:grid-cols-3 gap-4 items-stretch">
+              <div className="relative z-10 grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-3 gap-3 sm:gap-4 items-stretch">
                 {/* GPU 0: Primary Compute */}
                 <div className="bg-surface-container border border-outline-variant/30 p-4 rounded-lg shadow-sm flex flex-col justify-between gap-3">
                   <div>
@@ -360,7 +305,7 @@ export const HardwareTopologyScreen: React.FC = () => {
           </div>
 
           {/* Technical Specs 4-Card Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-3 sm:gap-4">
             {/* GPU 0 Detail */}
             <div className="bg-surface-container-low border border-outline-variant/30 p-4 rounded-xl shadow-sm flex flex-col justify-between">
               <div className="space-y-1">
@@ -500,7 +445,7 @@ export const HardwareTopologyScreen: React.FC = () => {
         </div>
 
         {/* Right 3 Columns: Action Suite & Real-Time Performance Drawer */}
-        <div className="xl:col-span-3 flex flex-col gap-6">
+        <div className="2xl:col-span-3 flex flex-col gap-4 sm:gap-6 min-w-0">
           {/* Action Drawer: Hardware Diagnostic Suite */}
           <div className="bg-surface-container-low border border-outline-variant/30 p-4 rounded-xl shadow-sm flex flex-col gap-4">
             <div className="flex items-center justify-between">
@@ -513,12 +458,13 @@ export const HardwareTopologyScreen: React.FC = () => {
 
             <div className="flex flex-col gap-2">
               <button
-                onClick={runBenchmark}
-                className="w-full flex items-center justify-between p-3 bg-surface-container hover:bg-surface-container-high transition-colors rounded-lg text-left border border-outline-variant/20 cursor-pointer"
+                disabled
+                title="Sample action only; hardware diagnostics are not connected in this reference."
+                className="w-full flex items-center justify-between p-3 bg-surface-container rounded-lg text-left border border-outline-variant/20 cursor-not-allowed opacity-60"
                 type="button"
               >
                 <div className="flex items-center gap-2.5">
-                  <span className={`material-symbols-outlined text-secondary text-[18px] ${benchmarking ? 'animate-spin' : ''}`}>
+                  <span className="material-symbols-outlined text-secondary text-[18px]">
                     speed
                   </span>
                   <div>
@@ -530,12 +476,13 @@ export const HardwareTopologyScreen: React.FC = () => {
               </button>
 
               <button
-                onClick={runVramTest}
-                className="w-full flex items-center justify-between p-3 bg-surface-container hover:bg-surface-container-high transition-colors rounded-lg text-left border border-outline-variant/20 cursor-pointer"
+                disabled
+                title="Sample action only; hardware diagnostics are not connected in this reference."
+                className="w-full flex items-center justify-between p-3 bg-surface-container rounded-lg text-left border border-outline-variant/20 cursor-not-allowed opacity-60"
                 type="button"
               >
                 <div className="flex items-center gap-2.5">
-                  <span className={`material-symbols-outlined text-tertiary text-[18px] ${testingVram ? 'animate-spin' : ''}`}>
+                  <span className="material-symbols-outlined text-tertiary text-[18px]">
                     memory_alt
                   </span>
                   <div>
@@ -547,12 +494,13 @@ export const HardwareTopologyScreen: React.FC = () => {
               </button>
 
               <button
-                onClick={runResetDrivers}
-                className="w-full flex items-center justify-between p-3 bg-surface-container hover:bg-surface-container-high transition-colors rounded-lg text-left border border-outline-variant/20 cursor-pointer"
+                disabled
+                title="Driver controls are not part of AI Dream's current hardware page."
+                className="w-full flex items-center justify-between p-3 bg-surface-container rounded-lg text-left border border-outline-variant/20 cursor-not-allowed opacity-60"
                 type="button"
               >
                 <div className="flex items-center gap-2.5">
-                  <span className={`material-symbols-outlined text-error text-[18px] ${resettingDrivers ? 'animate-pulse' : ''}`}>
+                  <span className="material-symbols-outlined text-error text-[18px]">
                     restart_alt
                   </span>
                   <div>
@@ -564,8 +512,9 @@ export const HardwareTopologyScreen: React.FC = () => {
               </button>
 
               <button
-                onClick={exportProfile}
-                className="w-full flex items-center justify-between p-3 bg-surface-container hover:bg-surface-container-high transition-colors rounded-lg text-left border border-outline-variant/20 cursor-pointer"
+                disabled
+                title="The topology is sample data and cannot be exported as a real hardware profile."
+                className="w-full flex items-center justify-between p-3 bg-surface-container rounded-lg text-left border border-outline-variant/20 cursor-not-allowed opacity-60"
                 type="button"
               >
                 <div className="flex items-center gap-2.5">
@@ -615,8 +564,8 @@ export const HardwareTopologyScreen: React.FC = () => {
               </div>
               <div className="w-full h-10 overflow-hidden">
                 <svg className="w-full h-full" preserveAspectRatio="none" viewBox="0 0 200 40">
-                  <path d="M0,35 Q 25,32 50,22 T 100,10 T 150,15 T 180,6 L 200,4" fill="none" stroke="var(--ds-error)" strokeWidth="2"></path>
-                  <path d="M0,35 Q 25,32 50,22 T 100,10 T 150,15 T 180,6 L 200,4 L 200,40 L 0,40 Z" fill="var(--ds-error)" fillOpacity="0.15"></path>
+                  <path d="M0,35 Q 25,32 50,22 T 100,10 T 150,15 T 180,6 L 200,4" fill="none" stroke="var(--color-error)" strokeWidth="2"></path>
+                  <path d="M0,35 Q 25,32 50,22 T 100,10 T 150,15 T 180,6 L 200,4 L 200,40 L 0,40 Z" fill="var(--color-error)" fillOpacity="0.15"></path>
                 </svg>
               </div>
               <div className="flex items-center justify-between font-mono text-[10px] text-outline">
@@ -633,8 +582,8 @@ export const HardwareTopologyScreen: React.FC = () => {
               </div>
               <div className="w-full h-10 overflow-hidden">
                 <svg className="w-full h-full" preserveAspectRatio="none" viewBox="0 0 200 40">
-                  <path d="M0,30 Q 30,28 60,18 T 120,22 T 160,12 L 200,8" fill="none" stroke="var(--ds-tertiary)" strokeWidth="2"></path>
-                  <path d="M0,30 Q 30,28 60,18 T 120,22 T 160,12 L 200,8 L 200,40 L 0,40 Z" fill="var(--ds-tertiary)" fillOpacity="0.15"></path>
+                  <path d="M0,30 Q 30,28 60,18 T 120,22 T 160,12 L 200,8" fill="none" stroke="var(--color-tertiary)" strokeWidth="2"></path>
+                  <path d="M0,30 Q 30,28 60,18 T 120,22 T 160,12 L 200,8 L 200,40 L 0,40 Z" fill="var(--color-tertiary)" fillOpacity="0.15"></path>
                 </svg>
               </div>
               <div className="flex items-center justify-between font-mono text-[10px] text-outline">
@@ -651,8 +600,8 @@ export const HardwareTopologyScreen: React.FC = () => {
               </div>
               <div className="w-full h-10 overflow-hidden">
                 <svg className="w-full h-full" preserveAspectRatio="none" viewBox="0 0 200 40">
-                  <path d="M0,24 Q 40,24 80,23 T 140,22 T 180,21 L 200,21" fill="none" stroke="var(--ds-primary)" strokeWidth="2"></path>
-                  <path d="M0,24 Q 40,24 80,23 T 140,22 T 180,21 L 200,21 L 200,40 L 0,40 Z" fill="var(--ds-primary)" fillOpacity="0.15"></path>
+                  <path d="M0,24 Q 40,24 80,23 T 140,22 T 180,21 L 200,21" fill="none" stroke="var(--color-primary)" strokeWidth="2"></path>
+                  <path d="M0,24 Q 40,24 80,23 T 140,22 T 180,21 L 200,21 L 200,40 L 0,40 Z" fill="var(--color-primary)" fillOpacity="0.15"></path>
                 </svg>
               </div>
               <div className="flex items-center justify-between font-mono text-[10px] text-outline">
@@ -679,7 +628,7 @@ export const HardwareTopologyScreen: React.FC = () => {
                 {[8, 9, 10, 11].map((core) => (
                   <div
                     key={core}
-                    className="h-5 bg-primary-container rounded flex items-center justify-center font-mono text-[10px] text-on-primary-container font-bold"
+                    className="h-5 bg-primary-container rounded flex items-center justify-center font-mono text-[10px] text-on-surface-container font-bold"
                     title={`Core ${core} - Memory Stream`}
                   >
                     {core}

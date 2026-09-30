@@ -1,6 +1,5 @@
 {
-  "name": "Local AI Studio",
-  "description": "Visual React/Vite prototype for the Local AI Studio workstation interface. The production application is Angular in web/; prototype telemetry and actions are illustrative and are not connected to production services.",
-  "requestFramePermissions": [],
-  "majorCapabilities": []
+  "name": "AI Dream design prototype",
+  "description": "A static React/Vite design reference for AI Dream. It does not connect to the production Angular application or its local API and requires no service credentials.",
+  "requestFramePermissions": []
 }

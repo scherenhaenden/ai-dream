@@ -133,7 +133,7 @@ void main() {
   };
 
   return (
-    <div className="flex flex-col w-full text-on-surface select-none pb-8">
+    <div className="flex flex-col w-full text-on-surface pb-8">
       {/* Toast popup */}
       {toastMessage && (
         <div className="fixed bottom-12 right-6 z-50 px-3 py-2 rounded-lg bg-surface-container-high border border-primary/40 text-on-surface shadow-2xl flex items-center gap-2 text-[12px] font-mono animate-bounce">
@@ -142,9 +142,13 @@ void main() {
         </div>
       )}
 
+      <div role="note" className="mx-4 mt-3 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+        Static reference · conversation, model, runtime, GPU metrics, token counts and benchmarks below are illustrative. Chat is not connected to the local API.
+      </div>
+
       {/* TOP MODEL TELEMETRY HEADER BANNER */}
       <div className="w-full bg-surface-container-low px-4 py-2.5 flex flex-col gap-2 border-b border-outline-variant/30 shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
           {/* Title & Main Identifiers */}
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="w-8 h-8 rounded-lg bg-surface-container-high flex items-center justify-center text-primary shrink-0 shadow-sm border border-outline-variant/30">
@@ -157,7 +161,7 @@ void main() {
                 </span>
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-tertiary-container/20 border border-tertiary/30 text-tertiary font-mono text-[11px] font-semibold">
                   <span className="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse"></span>
-                  Status: Loaded &amp; Hot
+                  Example status: loaded (sample)
                 </span>
               </div>
               <span className="font-mono text-[11px] text-outline truncate">
@@ -167,9 +171,9 @@ void main() {
           </div>
 
           {/* Quick Action Controls */}
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-wrap items-center gap-2 min-w-0">
             {/* View Mode Switcher: Standard Inspector vs Split Canvas */}
-            <div className="flex items-center bg-surface-container-lowest p-0.5 rounded-lg border border-outline-variant/30 text-[11px] font-mono">
+            <div className="flex flex-wrap items-center bg-surface-container-lowest p-0.5 rounded-lg border border-outline-variant/30 text-[11px] font-mono">
               <button
                 onClick={() => setViewMode('standard')}
                 className={`px-2.5 py-1 rounded transition-colors ${
@@ -193,7 +197,7 @@ void main() {
             </div>
 
             <button
-              onClick={() => showToast('Opening Model Settings...')}
+              disabled title="Preview only · settings are not connected to the local runtime"
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface text-[12px] transition-colors border border-outline-variant/30"
               type="button"
             >
@@ -201,7 +205,7 @@ void main() {
               <span>Model Settings</span>
             </button>
             <button
-              onClick={() => showToast('Model unallocated from dual RX 9070')}
+              disabled title="Preview only · model loading and unloading are not connected"
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-error-container/30 hover:bg-error-container/50 text-error text-[12px] transition-colors border border-error/30"
               type="button"
             >
@@ -247,7 +251,7 @@ void main() {
             </span>
           </div>
 
-          {/* Realtime Metric Readouts */}
+          {/* Illustrative metric readouts */}
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-surface-container border border-outline-variant/20">
               <span className="text-outline">CTX:</span>
@@ -272,15 +276,15 @@ void main() {
       </div>
 
       {/* MAIN WORKSPACE BODY */}
-      <div className="flex w-full min-h-[calc(100vh-190px)] relative">
+      <div className="flex flex-col xl:flex-row w-full min-h-[calc(100vh-190px)] relative">
         {/* CENTER COLUMN: CHAT CANVAS AREA */}
         <div className="flex flex-col flex-1 min-w-0 bg-surface">
-          {/* IN-FLIGHT COMPUTE TELEMETRY STRIP (LIVE) */}
-          <div className="px-4 py-1.5 bg-surface-container-lowest flex items-center justify-between font-mono text-[11px] text-outline-variant border-b border-outline-variant/20 shadow-inner">
-            <div className="flex items-center gap-3">
+          {/* SAMPLE COMPUTE TELEMETRY (NOT LIVE) */}
+          <div className="px-4 py-2 bg-surface-container-lowest flex flex-wrap items-center justify-between gap-x-4 gap-y-2 font-mono text-[11px] text-outline-variant border-b border-outline-variant/20 shadow-inner">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 min-w-0">
               <div className="flex items-center gap-1.5 text-tertiary">
                 <span className="w-2 h-2 rounded-full bg-tertiary animate-ping"></span>
-                <span className="text-on-surface font-semibold font-mono">Stream Active</span>
+                <span className="text-on-surface font-semibold font-mono">Example stream (not live)</span>
               </div>
               <span className="text-outline">|</span>
               <span className="text-on-surface-variant font-mono">
@@ -292,7 +296,7 @@ void main() {
               <span className="text-outline">|</span>
               <span className="text-on-surface-variant font-mono">PCIe Bus: Gen4 x16 P2P Enabled</span>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <span className="text-primary font-mono">Tokens/sec: {streamSpeed}</span>
               <span className="text-tertiary font-mono">TTFT: 142ms</span>
             </div>
@@ -319,7 +323,7 @@ void main() {
                 </div>
                 <div className="mt-1 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button
-                    onClick={() => showToast('Editing prompt...')}
+                    disabled title="Preview only · this is a sample transcript"
                     className="text-outline hover:text-on-surface font-mono text-[11px] inline-flex items-center gap-1"
                     type="button"
                   >
@@ -341,7 +345,7 @@ void main() {
 
             {/* ASSISTANT MESSAGE ITEM */}
             <div className="flex gap-3 items-start">
-              <div className="w-8 h-8 rounded-lg bg-primary text-on-primary flex items-center justify-center shrink-0 shadow-md">
+              <div className="w-8 h-8 rounded-lg bg-primary text-on-surface flex items-center justify-center shrink-0 shadow-md">
                 <span className="material-symbols-outlined text-[18px]">terminal</span>
               </div>
               <div className="flex-1 min-w-0 space-y-3">
@@ -431,7 +435,7 @@ void main() {
                   </div>
 
                   {/* BENCHMARK TABLE */}
-                  <p>Simulated throughput benchmarks across your configured dual RX 9070 arrangement:</p>
+                  <p>Illustrative benchmark sample · not measured on this device:</p>
                   <div className="w-full overflow-x-auto rounded-xl bg-surface-container border border-outline-variant/30 shadow-sm">
                     <table className="w-full text-left font-mono text-[11px]">
                       <thead className="bg-surface-container-high text-on-surface-variant uppercase tracking-wider text-[10px]">
@@ -478,11 +482,11 @@ void main() {
                   </div>
                 </div>
 
-                {/* INFERENCE RUN METADATA FOOTER & ACTION TOOLBAR */}
+                {/* Illustrative response metadata; not runtime measurements. */}
                 <div className="p-3 rounded-lg bg-surface-container-low border border-outline-variant/30 flex flex-wrap items-center justify-between gap-3 text-outline">
                   <div className="flex items-center gap-3 font-mono text-[11px] flex-wrap">
                     <span className="text-tertiary font-medium">
-                      Generated {tokenCount} tokens in 11.26s
+                      Example response · {tokenCount} sample tokens
                     </span>
                     <span>•</span>
                     <span className="text-on-surface font-semibold font-mono">{streamSpeed} tok/s</span>
@@ -511,17 +515,15 @@ void main() {
                       <span className="material-symbols-outlined text-[16px]">content_copy</span>
                     </button>
                     <button
-                      onClick={handleGenerate}
+                      disabled title="Regenerate with seed · preview only; inference is not connected to the local API"
                       className="p-1 hover:text-on-surface text-outline transition-colors"
-                      title="Regenerate with seed"
                       type="button"
                     >
                       <span className="material-symbols-outlined text-[16px]">refresh</span>
                     </button>
                     <button
-                      onClick={() => showToast('Created conversation branch')}
+                      disabled title="Preview only · conversation branching is unavailable"
                       className="p-1 hover:text-on-surface text-outline transition-colors"
-                      title="Branch Conversation"
                       type="button"
                     >
                       <span className="material-symbols-outlined text-[16px]">fork_right</span>
@@ -538,8 +540,7 @@ void main() {
               {/* QUICK CONTEXT SELECTORS & PRESETS TOOLBAR */}
               <div className="flex items-center justify-between gap-2 overflow-x-auto pb-1 text-on-surface-variant font-mono text-[11px]">
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => showToast('Context file picker opened')}
+                  <button disabled title="Attachments are not available in this reference"
                     className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-surface-container hover:bg-surface-container-high text-on-surface border border-outline-variant/30 transition-colors"
                     type="button"
                   >
@@ -573,6 +574,8 @@ void main() {
               {/* MULTILINE INPUT BUFFER CONTAINER */}
               <div className="relative rounded-xl bg-surface-container-low border border-outline-variant/30 focus-within:bg-surface-container transition-colors shadow-inner flex flex-col">
                 <textarea
+                  disabled
+                  aria-label="Sample prompt; sending is unavailable in this static reference"
                   value={promptText}
                   onChange={(e) => setPromptText(e.target.value)}
                   onKeyDown={(e) => {
@@ -581,31 +584,28 @@ void main() {
                     }
                   }}
                   className="w-full bg-transparent px-3.5 py-3 text-[13px] text-on-surface placeholder:text-outline focus:outline-none resize-none font-sans"
-                  placeholder="Send message to Qwen3.8-27B (Shift+Enter for newline, / for commands, @ for files)..."
+                  placeholder="Static reference · local chat is not connected"
                   rows={3}
                 />
                 <div className="flex items-center justify-between px-3 py-2 bg-surface-container-lowest/60 rounded-b-xl border-t border-outline-variant/20">
                   <div className="flex items-center gap-1">
                     <button
-                      onClick={() => showToast('Available slash commands: /benchmark, /rag, /vram, /reset')}
+                      disabled title="Preview only · slash commands are not implemented here"
                       className="p-1.5 text-outline hover:text-on-surface rounded hover:bg-surface-container-high transition-colors"
-                      title="Slash Commands"
                       type="button"
                     >
                       <span className="material-symbols-outlined text-[16px]">data_array</span>
                     </button>
                     <button
-                      onClick={() => showToast('Opening prompt history...')}
+                      disabled title="Preview only · prompt history is not connected"
                       className="p-1.5 text-outline hover:text-on-surface rounded hover:bg-surface-container-high transition-colors"
-                      title="Prompt History"
                       type="button"
                     >
                       <span className="material-symbols-outlined text-[16px]">history</span>
                     </button>
                     <button
-                      onClick={() => showToast('Formatted code')}
+                      disabled title="Preview only · code formatting is unavailable"
                       className="p-1.5 text-outline hover:text-on-surface rounded hover:bg-surface-container-high transition-colors"
-                      title="Format JSON / Code"
                       type="button"
                     >
                       <span className="material-symbols-outlined text-[16px]">integration_instructions</span>
@@ -614,7 +614,7 @@ void main() {
                   <div className="flex items-center gap-2">
                     {isGenerating && (
                       <button
-                        onClick={handleGenerate}
+                        disabled title="Preview only · inference is not connected to the local API"
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-error font-body-sm text-[12px] border border-error/30 transition-colors"
                         type="button"
                       >
@@ -623,8 +623,8 @@ void main() {
                       </button>
                     )}
                     <button
-                      onClick={handleGenerate}
-                      className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-primary text-on-primary font-semibold text-[13px] hover:bg-primary-fixed-dim transition-all shadow-md cursor-pointer"
+                      disabled title="Preview only · inference is not connected to the local API"
+                      className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-primary text-on-surface font-semibold text-[13px] hover:bg-primary-fixed-dim transition-all shadow-md cursor-pointer"
                       type="button"
                     >
                       <span>{isGenerating ? 'Stop' : 'Generate'}</span>
@@ -642,7 +642,7 @@ void main() {
         {/* RIGHT PANEL: INSPECTOR OR SPLIT CANVAS */}
         {viewMode === 'split-canvas' ? (
           /* Split Canvas / Code View (From Image 19 / HTML 9) */
-          <aside className="w-[450px] lg:w-[500px] xl:w-[550px] bg-surface-container-lowest border-l border-outline-variant/30 flex flex-col shrink-0 overflow-hidden shadow-xl">
+          <aside className="w-full xl:w-[min(42vw,550px)] bg-surface-container-lowest border-t xl:border-t-0 xl:border-l border-outline-variant/30 flex flex-col min-w-0 xl:shrink-0 overflow-hidden shadow-xl">
             {/* Split Pane Head */}
             <div className="h-10 px-4 bg-surface-container-low border-b border-outline-variant/30 flex items-center justify-between">
               <div className="flex items-center h-full gap-2">
@@ -668,9 +668,8 @@ void main() {
               </div>
               <div className="flex items-center gap-1">
                 <button
-                  onClick={() => showToast('Popped out code editor window')}
+                  disabled title="Preview only · pop-out editor is unavailable"
                   className="p-1 text-on-surface-variant hover:text-on-surface rounded"
-                  title="Pop Out Window"
                 >
                   <span className="material-symbols-outlined text-[16px]">open_in_new</span>
                 </button>
@@ -693,7 +692,7 @@ void main() {
                   Editor
                 </button>
                 <button
-                  onClick={() => showToast('Running Vulkan SPIR-V validator: 0 errors')}
+                  disabled title="Preview only · no validator runs in this reference"
                   className="px-2 py-0.5 text-outline hover:text-on-surface rounded"
                 >
                   Diagnostics (0)
@@ -728,8 +727,8 @@ void main() {
                   <span>Save</span>
                 </button>
                 <button
-                  onClick={() => showToast('Benchmark started: 67.5 TFLOPs verified')}
-                  className="flex items-center gap-1 px-3 py-1.5 bg-primary text-on-primary rounded font-mono text-[11px] font-semibold hover:bg-primary-fixed-dim transition-colors"
+                  disabled title="Preview only · no benchmark is run by this reference"
+                  className="flex items-center gap-1 px-3 py-1.5 bg-primary text-on-surface rounded font-mono text-[11px] font-semibold hover:bg-primary-fixed-dim transition-colors"
                 >
                   <span className="material-symbols-outlined text-[15px]">speed</span>
                   <span>Benchmark Dual RX 9070</span>
@@ -740,12 +739,12 @@ void main() {
           </aside>
         ) : inspectorOpen ? (
           /* RIGHT INSPECTOR PANEL (ADVANCED RUNTIME CONTROLS) */
-          <div className="w-80 lg:w-96 bg-surface-container-low border-l border-outline-variant/30 flex flex-col shrink-0 overflow-y-auto">
+          <div className="w-full xl:w-80 2xl:w-96 bg-surface-container-low border-t xl:border-t-0 xl:border-l border-outline-variant/30 flex flex-col min-w-0 xl:shrink-0 overflow-y-auto">
             {/* INSPECTOR HEADER & MODE TOGGLE */}
             <div className="h-11 px-4 flex items-center justify-between bg-surface-container border-b border-outline-variant/30">
               <div className="flex items-center gap-2">
                 <span className="material-symbols-outlined text-primary text-[17px]">tune</span>
-                <span className="font-semibold text-on-surface text-[13px]">Runtime Inspector</span>
+                <span className="font-semibold text-on-surface text-[13px]">Runtime Inspector · sample</span>
               </div>
               {/* Segmented Mode Switcher */}
               <div className="flex items-center p-0.5 rounded-lg bg-surface-container-lowest border border-outline-variant/30 font-mono text-[11px]">
