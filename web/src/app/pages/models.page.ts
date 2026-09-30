@@ -3,9 +3,13 @@ import { ModelSourcesService } from '../core/model-sources.service';
 import { ModelProfile, ModelRecord, ModelSource, RuntimeCapabilities, RuntimeDevice, RuntimeInstallation, RuntimeLoadOptions, RuntimePlacement } from '../core/control-plane.types';
 import { RuntimeBackend, RuntimeService } from '../core/runtime.service';
 import { ModelProfilesService } from '../core/model-profiles.service';
+import { CapabilityService } from '../core/capability.service';
+import type { ModelCapabilityEvidence } from '../core/capability.service';
 
 type ProfileTab = 'placement' | 'load';
 type ModelSortKey = 'name' | 'size' | 'architecture' | 'quantization' | 'context';
+type ProfileClass = 'safe/default' | 'balanced' | 'fast' | 'max-context' | 'low-vram' | 'multi-gpu' | 'capability-specific' | 'user' | 'verified' | 'portable' | 'hardware-bound' | 'adapted';
+const PROFILE_CLASSES: ProfileClass[] = ['safe/default', 'balanced', 'fast', 'max-context', 'low-vram', 'multi-gpu', 'capability-specific', 'user', 'verified', 'portable', 'hardware-bound', 'adapted'];
 
 @Component({
   standalone: true,
@@ -63,7 +67,7 @@ type ModelSortKey = 'name' | 'size' | 'architecture' | 'quantization' | 'context
           <div class="model-browser-layout">
           <section class="model-browser" aria-label="Local models">
             <div class="section-heading model-heading"><div><div class="eyebrow">LOCAL FILES</div><h2 id="models-title">Models in this folder</h2></div><span class="count" title="Models matching the current folder and filter">{{ visibleModels().length }}</span></div>
-            <div class="model-controls"><label class="model-search" title="Filter by model name, path, GGUF architecture, or metadata"><span aria-hidden="true">⌕</span><input type="search" placeholder="Filter by name, architecture, or quantization" [value]="modelFilter()" (input)="modelFilter.set($any($event.target).value)" title="Filter this folder’s indexed models"></label><div class="model-sort"><label title="Choose the catalog field used to order models">Sort by<select aria-label="Sort models by" [value]="modelSortKey()" (change)="setModelSort($any($event.target).value)" title="Name, file size, GGUF architecture, quantization, or available context length"><option value="name">Name</option><option value="size">Size</option><option value="architecture">Architecture</option><option value="quantization">Quantization</option><option value="context">Context length</option></select></label><button type="button" (click)="toggleModelSortDirection()" [attr.aria-label]="modelSortDirection() === 'asc' ? 'Sort descending' : 'Sort ascending'" [title]="modelSortDirection() === 'asc' ? 'Reverse order: descending' : 'Reverse order: ascending'">{{ modelSortDirection() === 'asc' ? 'Ascending ↑' : 'Descending ↓' }}</button></div></div>
+            <div class="model-controls"><label class="model-search" title="Filter by model name, path, GGUF architecture, or metadata"><span aria-hidden="true">⌕</span><input type="search" aria-label="Filter models in this folder" placeholder="Filter by name, architecture, or quantization" [value]="modelFilter()" (input)="modelFilter.set($any($event.target).value)" title="Filter this folder’s indexed models"></label><div class="model-sort"><label title="Choose the catalog field used to order models">Sort by<select aria-label="Sort models by" [value]="modelSortKey()" (change)="setModelSort($any($event.target).value)" title="Name, file size, GGUF architecture, quantization, or available context length"><option value="name">Name</option><option value="size">Size</option><option value="architecture">Architecture</option><option value="quantization">Quantization</option><option value="context">Context length</option></select></label><button type="button" (click)="toggleModelSortDirection()" [attr.aria-label]="modelSortDirection() === 'asc' ? 'Sort descending' : 'Sort ascending'" [title]="modelSortDirection() === 'asc' ? 'Reverse order: descending' : 'Reverse order: ascending'">{{ modelSortDirection() === 'asc' ? 'Ascending ↑' : 'Descending ↓' }}</button></div></div>
             @if (!source.exists || !source.readable) { <div class="empty"><b>Folder cannot be scanned</b><span>Check that this directory exists and is readable.</span></div> }
             @else if (loading()) { <p class="muted" aria-live="polite">Loading model catalog…</p> }
             @else if (!visibleModels().length) { <div class="empty"><b>No GGUF models found</b><span>Rescan after adding files to this folder.</span></div> }
@@ -76,6 +80,33 @@ type ModelSortKey = 'name' | 'size' | 'architecture' | 'quantization' | 'context
                       @if (modelQuantization(model); as quant) { <span [title]="'Quantization inferred from GGUF metadata or filename: ' + quant">{{ quant }}</span> }
                       @if (modelContextLength(model); as contextLength) { <span [title]="'Context length read from available GGUF metadata: ' + contextLength">{{ contextLength }} ctx</span> }
                     </div>
+                    <div class="semantic-tags" role="group" aria-label="Capability and modality declarations">
+                      <span class="semantic-label">PURPOSE</span>
+                      @if (selectedModelId() === model.id && profileDetailsLoadedFor() !== model.id && profileError()) { <span class="semantic-missing">Profile details unavailable</span> }
+                      @else if (selectedModelId() === model.id && profileDetailsLoadedFor() !== model.id) { <span class="semantic-missing">Loading profile details</span> }
+                      @else if (selectedModelId() === model.id && selectedProfile(); as profile) {
+                        @for (purpose of profilePurpose(profile); track purpose) { <span class="semantic-chip">{{ purpose }}</span> }
+                        @if (!profilePurpose(profile).length) { <span class="semantic-missing">Not set on profile</span> }
+                      } @else if (selectedModelId() === model.id && profiles().length) { <span class="semantic-missing">Select a profile</span> }
+                      @else if (selectedModelId() === model.id) { <span class="semantic-missing">No saved profile</span> }
+                      @else { <span class="semantic-missing">Select model to inspect</span> }
+                      <span class="semantic-label">INPUT / OUTPUT</span>
+                      @if (selectedModelId() === model.id && modelEvidence()) {
+                        @for (kind of modelInputKinds(); track kind) { <span class="semantic-chip">In · {{ kind }}</span> }
+                        @for (kind of modelOutputKinds(); track kind) { <span class="semantic-chip">Out · {{ kind }}</span> }
+                        @if (!modelInputKinds().length && !modelOutputKinds().length) { <span class="semantic-missing">Not reported</span> }
+                      } @else { <span class="semantic-missing">Select model to inspect</span> }
+                    </div>
+                    @if (selectedModelId() === model.id && profileDetailsLoadedFor() === model.id) {
+                      <div class="card-profile-summary" role="group" aria-label="Selected profile metadata">
+                        <span class="semantic-label">PROFILE</span>
+                        @if (selectedProfile(); as profile) {
+                          <span class="profile-name-chip">{{ profile.name }}</span>
+                          @if (profileCategory(profile); as category) { <span class="profile-meta-chip">{{ category }}</span> }
+                          <span class="profile-meta-chip">Verification: {{ profileVerification(profile) || 'Not recorded' }}</span>
+                        } @else { <span class="semantic-missing">{{ profiles().length ? 'No profile selected' : 'No saved profiles' }}</span> }
+                      </div>
+                    }
                     <details><summary title="Show fields read from this GGUF header">Model metadata</summary><dl>@for (entry of metadataEntries(model); track entry[0]) {<dt [title]="entry[0]">{{ entry[0] }}</dt><dd [title]="entry[0] + ': ' + display(entry[1])">{{ display(entry[1]) }}</dd>}</dl></details>
                     <button class="secondary-button configure-model-button" (click)="selectModel(model)" [attr.aria-pressed]="selectedModelId() === model.id" title="Select this model and load its saved runtime profile">{{ selectedModelId() === model.id ? 'Configuring this model' : 'Configure model' }}</button>
                   </div></article></li>
@@ -86,15 +117,68 @@ type ModelSortKey = 'name' | 'size' | 'architecture' | 'quantization' | 'context
           @if (selectedModel(); as model) {
             <aside class="load-panel" aria-label="Model runtime actions">
               <div><div class="eyebrow">MODEL SETUP</div><b>{{ modelName(model) }}</b><small>{{ model.path }}</small><p class="setup-hint">Choose a saved profile or configure placement and load settings for this model, then load it into the runtime.</p></div>
+              <section class="model-evidence" aria-label="Model capabilities and provenance">
+                <header><div><div class="eyebrow">CAPABILITY EVIDENCE</div><b>What this model can do</b></div><button type="button" class="secondary-button evidence-refresh" (click)="refreshModelEvidence(model.id)" [disabled]="evidenceLoading()" aria-label="Refresh model capability evidence">{{ evidenceLoading() ? 'Loading…' : '↻' }}</button></header>
+                @if (evidenceLoading() && !modelEvidence()) { <p class="evidence-muted" role="status">Checking model manifest and runtime routes…</p> }
+                @if (modelEvidenceError()) { <p class="evidence-error" role="alert">{{ modelEvidenceError() }}</p> }
+                @if (modelEvidence(); as evidence) {
+                  <div class="evidence-provenance">
+                    <span class="evidence-label">MANIFEST</span>
+                    @if (evidence.manifest; as manifest) {
+                      <b>{{ manifest.display_name }}</b><span>{{ evidenceStatus(manifest.provenance) }} · {{ manifest.provenance?.source || 'source not reported' }}@if (manifest.provenance?.verified_at) { · {{ manifest.provenance?.verified_at }} }</span>
+                      @if (manifest.provenance?.details) { <p>{{ manifest.provenance?.details }}</p> }
+                      @if (manifest.modalities?.inputs?.length || manifest.modalities?.outputs?.length) { <div class="evidence-io">@for (kind of manifest.modalities?.inputs ?? []; track kind) { <span>In · {{ kind }}</span> } @for (kind of manifest.modalities?.outputs ?? []; track kind) { <span>Out · {{ kind }}</span> }</div> }
+                      @if (manifest.capabilities?.length) { <div class="manifest-claims"><span class="evidence-label">MANIFEST CLAIMS</span>@for (claim of manifest.capabilities; track claim.id) { <div><code>{{ claim.id }}</code><span>{{ evidenceStatus(claim.evidence) }} · {{ claim.evidence?.source || 'source not reported' }}</span></div> } }</div> }
+                    } @else { <b>Manifest not reported</b><span>There is no manifest linked to this model in the current API response.</span> }
+                  </div>
+                  <div class="evidence-routes">
+                    <span class="evidence-label">DISCOVERED ROUTES</span>
+                    @if (evidence.routes.length) {
+                      @for (capability of evidence.routes; track capability.id) {
+                        <article class="route-evidence"><header><b>{{ capability.id }}</b><span>{{ capability.status }}</span></header><div class="evidence-io">@for (input of capability.inputs; track input.kind) { <span>In · {{ input.kind }}</span> } @for (output of capability.outputs; track output.kind) { <span>Out · {{ output.kind }}</span> }</div>
+                          @for (item of capability.evidence; track $index) { <p>{{ evidenceStatus(item) }} · {{ item.source }}@if (item.confidence) { · {{ item.confidence }} }</p>@if (item.details) { <small>{{ item.details }}</small> } }
+                          @for (route of modelRoutes(capability, model.id); track route.id) { <small>Runtime {{ route.runtime_id || 'not reported' }} · compatible route {{ route.id }}</small> }
+                        </article>
+                      }
+                      <p class="runnable-reason">Runtime discovery reports these compatible routes. This indicates declared/load compatibility, not successful inference verification.</p>
+                    } @else { <p class="runnable-reason unknown">No compatible runtime route is currently reported for this model. This is not proof that the model cannot run; this API has not discovered a route.</p> }
+                  </div>
+                }
+              </section>
               <section class="profile-panel" aria-label="Model profile">
                 <div class="profile-title"><div><div class="eyebrow">CONFIGURATION PROFILE</div><b>Settings saved specifically for this model</b></div><button class="secondary-button" (click)="refreshProfiles()" [disabled]="profileBusy()" aria-label="Refresh profiles" title="Reload saved profiles and runtime capabilities for this model">↻</button></div>
                 <div class="profile-grid">
-                  <label title="Choose a profile saved for this model, or configure unsaved values">Saved profile<select [value]="selectedProfileId()" (change)="selectProfile($any($event.target).value)" title="Selecting a profile fills the model-specific runtime settings"><option value="">Unsaved settings</option>@for(profile of profiles();track profile.id){<option [value]="profile.id">{{profile.name}}</option>}</select></label>
+                  <label title="Choose a profile saved for this model, or configure unsaved values">Saved profile<select [value]="selectedProfileId()" (change)="selectProfile($any($event.target).value)" title="Selecting a profile fills the model-specific runtime settings"><option value="">Unsaved settings</option>@for(profile of profiles();track profile.id){<option [value]="profile.id">{{profileOptionLabel(profile)}}</option>}</select></label>
                   <label title="Name used to save this model’s placement and load options">Profile name<input [value]="profileName()" (input)="profileName.set($any($event.target).value)" placeholder="e.g. Balanced on two GPUs" title="Enter a name before saving this profile"></label>
                   <label title="Select an available backend; options come from runtime discovery">Backend<select [value]="profileBackend()" (change)="profileBackend.set($any($event.target).value);refreshProfileCapabilities()" title="Runtime capability controls update when the backend changes"><option value="">Runtime default</option>@for(backend of profileBackends();track backend.name){<option [value]="backend.name" [disabled]="!backend.available">{{backend.name}}</option>}</select></label>
                   <label title="Choose an installed runtime compatible with the selected backend">Runtime<select [value]="profileRuntimeId()" (change)="profileRuntimeId.set($any($event.target).value);refreshProfileCapabilities()" title="Only enabled and available runtime installations can be selected"><option value="">Backend default</option>@for(runtime of profileInstallations();track runtime.id){<option [value]="runtime.id" [disabled]="!runtime.enabled||!runtime.available">{{runtime.name}} · {{runtime.backend||runtime.kind}}</option>}</select></label>
                 </div>
-                <nav class="profile-tabs" aria-label="Profile settings" role="tablist"><button role="tab" [attr.aria-selected]="profileTab()==='placement'" [class.active]="profileTab()==='placement'" (click)="profileTab.set('placement')" title="Configure device placement supported by the selected runtime">Placement</button><button role="tab" [attr.aria-selected]="profileTab()==='load'" [class.active]="profileTab()==='load'" (click)="profileTab.set('load')" title="Configure model loading options supported by the selected runtime">Load settings</button></nav>
+                <section class="profile-metadata-editor" aria-label="Profile purpose and bindings">
+                  <div class="profile-metadata-heading"><b>Profile metadata</b><small>These labels describe this saved configuration. They do not verify model capability.</small></div>
+                  <div class="profile-metadata-grid">
+                    <label>Purpose / capability IDs<textarea rows="3" [value]="profilePurposeInput()" (input)="profilePurposeInput.set($any($event.target).value)" placeholder="text.chat&#10;text.reason" aria-describedby="profile-purpose-help"></textarea><small id="profile-purpose-help">One namespaced ID per line (lowercase, with a dot, e.g. <code>text.chat</code>); maximum 128 characters and 32 unique IDs.</small></label>
+                    <label>Profile category<select [value]="profileClass()" (change)="profileClass.set($any($event.target).value)">
+                      @for(category of profileClasses;track category){<option [value]="category" [disabled]="profileClassDisabled(category)">{{category}}</option>}
+                    </select><small>Choose the intended loading profile. “Verified” and “Hardware-bound” require existing verification or hardware metadata.</small></label>
+                    <label>Companion artifact IDs<textarea rows="3" [value]="profileCompanionArtifactsInput()" (input)="profileCompanionArtifactsInput.set($any($event.target).value)" placeholder="artifact-id&#10;projector-id" aria-describedby="profile-companions-help"></textarea><small id="profile-companions-help">Optional opaque IDs for files already bound to this model; one per line, maximum 128 characters and 32 unique IDs.</small></label>
+                  </div>
+                  @if (profileMetadataError()) { <p class="profile-metadata-error" role="alert">{{ profileMetadataError() }}</p> }
+                  @if (selectedProfile()?.verification; as verification) { <p class="verification-readonly"><span>VERIFICATION · READ ONLY</span><b>{{ verification.status }}</b>@if (verification.verified_at) { <small>Recorded {{ verification.verified_at }}</small> }</p> }
+                </section>
+                @if (selectedProfile(); as profile) {
+                  <section class="profile-semantic-summary" aria-label="Profile purpose and verification">
+                    <div class="profile-summary-heading"><b>{{ profile.name }}</b><span>{{ profile.runtime_id || profile.backend_name || 'Runtime not specified' }}</span></div>
+                    <div class="profile-summary-fields">
+                      <div><span>Purpose</span><div>@for (purpose of profilePurpose(profile); track purpose) { <code>{{ purpose }}</code> } @empty { <small>Not specified</small> }</div></div>
+                      <div><span>Category</span><b>{{ profileCategory(profile) || 'Not specified' }}</b></div>
+                      <div><span>Verification</span><b [class.verified]="profileVerification(profile) === 'verified'">{{ profileVerification(profile) || 'Not recorded' }}</b></div>
+                    </div>
+                  </section>
+                } @else {
+                  <p class="profile-semantic-empty">Choose a saved profile to inspect purpose and recorded verification. Unsaved settings have no profile metadata.</p>
+                }
+                <nav class="profile-tabs" aria-label="Profile settings" role="tablist" (keydown)="onProfileTabKey($event)"><button id="profile-placement-tab" type="button" role="tab" aria-controls="profile-settings-panel" [attr.aria-selected]="profileTab()==='placement'" [attr.tabindex]="profileTab()==='placement'?0:-1" [class.active]="profileTab()==='placement'" (click)="profileTab.set('placement')" title="Configure device placement supported by the selected runtime">Placement</button><button id="profile-load-tab" type="button" role="tab" aria-controls="profile-settings-panel" [attr.aria-selected]="profileTab()==='load'" [attr.tabindex]="profileTab()==='load'?0:-1" [class.active]="profileTab()==='load'" (click)="profileTab.set('load')" title="Configure model loading options supported by the selected runtime">Load settings</button></nav>
+                <div id="profile-settings-panel" role="tabpanel" tabindex="0" [attr.aria-labelledby]="profileTab()==='placement'?'profile-placement-tab':'profile-load-tab'">
                 @if(profileTab()==='placement'){
                   <div class="profile-grid placement-grid">
                   @if(profileSupports('gpu_layers')){<label title="Number of model layers to offload to the selected device; blank uses runtime behavior">GPU layers<input type="number" [value]="profilePlacement().gpu_layers??''" (input)="setProfilePlacement('gpu_layers',$any($event.target).value)" placeholder="Runtime default" title="Enter a layer count; leave blank for the runtime default"></label>}
@@ -112,8 +196,9 @@ type ModelSortKey = 'name' | 'size' | 'architecture' | 'quantization' | 'context
                   @for(field of profileBoolFields;track field.key){@if(profileSupports(field.key)){<label class="profile-check" [title]="profileFieldHelp(field.key)"><input type="checkbox" [checked]="profileBoolValue(field.key)" [disabled]="field.key==='mmap'&&!profileSupports('mmap_disable')||field.key==='continuous_batching'&&!profileSupports('continuous_batching_disable')" (change)="setProfileLoad(field.key,$any($event.target).checked)" [title]="profileFieldHelp(field.key)">{{field.label}}</label>}}
                   </div>
                 }
+                </div>
                 @if(profileError()){<p class="error" role="alert">{{profileError()}}</p>}@if(profileNotice()){<p class="profile-notice" role="status">{{profileNotice()}}</p>}
-                <div class="load-actions"><button class="secondary-button" (click)="saveProfile()" [disabled]="profileBusy()||!profileName().trim()||!canUseProfile()" title="Save this model’s backend, placement, and load settings under the profile name">{{profileBusy()?'Saving…':selectedProfileId()?'Save profile':'Create profile'}}</button>@if(selectedProfileId()){<button class="danger-button" (click)="deleteProfile()" [disabled]="profileBusy()" title="Delete the saved profile; this does not delete the model">Delete profile</button>}</div>
+                <div class="load-actions"><button class="secondary-button" (click)="saveProfile()" [disabled]="profileBusy()||!profileName().trim()||!canUseProfile()||!!profileMetadataError()||!profileListReady()" title="Save this model’s runtime settings and profile metadata">{{profileBusy()?'Saving…':!profileListReady()?'Loading profiles…':selectedProfileId()?'Save profile':'Create profile'}}</button>@if(selectedProfileId()){<button class="danger-button" (click)="deleteProfile()" [disabled]="profileBusy()" title="Delete the saved profile; this does not delete the model">Delete profile</button>}</div>
               </section>
               <div class="load-actions">
                 <button class="primary-button" (click)="loadModel()" [disabled]="runtimeBusy()||!canUseProfile()" title="Load this local model with the selected profile and placement">{{ runtimeBusy() ? 'Loading…' : 'Load model' }}</button>
@@ -150,6 +235,7 @@ type ModelSortKey = 'name' | 'size' | 'architecture' | 'quantization' | 'context
     </div>
   `,
   styles: [`
+    .semantic-tags,.card-profile-summary{display:flex;align-items:center;flex-wrap:wrap;gap:5px;margin-top:7px}.semantic-label{color:#78869c;font:8px ui-monospace,monospace;letter-spacing:.04em}.semantic-chip,.profile-name-chip,.profile-meta-chip{padding:3px 6px;border:1px solid #344257;border-radius:3px;background:#182131;color:#bbceeb;font:8px ui-monospace,monospace}.semantic-missing{padding:3px 6px;border:1px dashed #39404c;border-radius:3px;color:#7f899a;font:8px ui-monospace,monospace}.card-profile-summary{padding-top:6px;border-top:1px solid #29313d}.profile-meta-chip{border-color:#333c49;background:#171d27;color:#aab5c7}.profile-semantic-summary{display:grid;gap:8px;padding:10px;border:1px solid #2c3747;border-radius:4px;background:#111721}.profile-summary-heading{display:flex;justify-content:space-between;align-items:center;gap:8px}.profile-summary-heading b{font-size:10px;color:#d3dbea}.profile-summary-heading span{font:8px ui-monospace,monospace;color:#8692a5}.profile-summary-fields{display:grid;grid-template-columns:1.2fr .8fr .8fr;gap:8px}.profile-summary-fields>div{display:grid;align-content:start;gap:5px;min-width:0}.profile-summary-fields>div>span{color:#7f8ba0;font:8px ui-monospace,monospace;text-transform:uppercase}.profile-summary-fields>div>div{display:flex;flex-wrap:wrap;gap:4px}.profile-summary-fields code{padding:3px 5px;border-radius:2px;background:#192334;color:#b9cbea;font:8px ui-monospace,monospace}.profile-summary-fields b,.profile-summary-fields small{color:#b5bfce;font:9px ui-monospace,monospace;overflow-wrap:anywhere}.profile-summary-fields small{color:#79859a}.profile-summary-fields b.verified{color:#70d6a3}.profile-semantic-empty{margin:0;color:#8792a4;font-size:9px;line-height:1.45}.profile-metadata-editor{display:grid;gap:9px;padding:10px;border:1px solid #2c3747;border-radius:4px;background:#111721}.profile-metadata-heading{display:grid;gap:4px}.profile-metadata-heading b{font-size:10px;color:#d3dbea}.profile-metadata-heading small,.profile-metadata-grid small{color:#8792a4;font-size:9px;line-height:1.45}.profile-metadata-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:9px}.profile-metadata-grid label{display:grid;align-content:start;gap:5px;color:#bdc4d2;font-size:9px}.profile-metadata-grid textarea{box-sizing:border-box;width:100%;min-width:0;resize:vertical;padding:7px 8px;border:1px solid #363f4e;border-radius:4px;background:#10151e;color:#d9e0ec;font:9px/1.4 ui-monospace,monospace}.profile-metadata-grid textarea:focus-visible{outline:2px solid #6da3ff;outline-offset:1px}.profile-metadata-grid select{box-sizing:border-box;width:100%;min-width:0;padding:7px 8px;border:1px solid #363f4e;border-radius:4px;background:#10151e;color:#d9e0ec;font:9px ui-monospace,monospace}.profile-metadata-grid code{color:#bbceeb}.profile-metadata-error{margin:0;color:#ffb4ab;font-size:9px}.verification-readonly{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:0;padding-top:8px;border-top:1px solid #29313d}.verification-readonly span{color:#78869c;font:8px ui-monospace,monospace}.verification-readonly b{color:#b7c3d5;font:9px ui-monospace,monospace}.verification-readonly small{color:#8792a4;font:8px ui-monospace,monospace}@media(max-width:520px){.profile-summary-fields{grid-template-columns:1fr 1fr}.profile-summary-heading{align-items:flex-start;flex-direction:column}.profile-metadata-grid{grid-template-columns:1fr}}
     :host{display:block}.page-head{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:22px}.page-head h1{margin:4px 0;font-size:30px}.page-head p,.add-source p,.detail-head p{margin:5px 0;color:var(--muted,#929baa)}
     .eyebrow{font-size:10px;letter-spacing:.14em;font-weight:700;color:var(--muted,#929baa)}h2{font-size:17px;margin:5px 0}.surface{background:var(--surface,#171a20);border:1px solid var(--border,#292d35);border-radius:12px;padding:18px}.add-source{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:18px}.add-source form{display:flex;gap:8px;width:min(620px,58%)}input{flex:1;min-width:120px;background:var(--bg,#101216);border:1px solid var(--border,#353943);border-radius:7px;padding:10px 12px;color:inherit;font:inherit}.primary-button,.secondary-button,.danger-button{border:1px solid var(--border,#353943);border-radius:7px;padding:9px 12px;color:inherit;background:var(--surface,#171a20);font:inherit;font-weight:600;cursor:pointer}.primary-button{background:var(--accent,#8b72ff);border-color:transparent;color:#fff}.danger-button{color:#ff9696}.primary-button:disabled,.secondary-button:disabled,.danger-button:disabled{opacity:.55;cursor:wait}.library-layout{display:grid;grid-template-columns:minmax(250px,.8fr) minmax(0,1.7fr);gap:16px;align-items:start}.section-heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}.count{font-size:12px;background:var(--bg,#101216);border-radius:20px;padding:4px 9px;color:var(--muted,#929baa)}.source-list,.model-list{list-style:none;padding:0;margin:0}.source-list li+li,.model-list li+li{border-top:1px solid var(--border,#292d35)}.source-item{display:flex;align-items:center;gap:10px;width:100%;padding:12px 8px;text-align:left;border:0;background:transparent;color:inherit;border-radius:8px;cursor:pointer}.source-item.selected{background:color-mix(in srgb,var(--accent,#8b72ff) 15%,transparent)}.folder-icon{color:var(--accent,#a28eff)}.source-copy{min-width:0;flex:1}.source-copy b,.source-copy small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.source-copy b{font-size:12px}.source-copy small,.arrow,.muted{color:var(--muted,#929baa);font-size:12px;margin-top:4px}.arrow{font-size:22px}.detail-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.detail-head h2{overflow-wrap:anywhere}.summary{display:flex;gap:26px;padding:14px 0;border-bottom:1px solid var(--border,#292d35);margin:8px 0 16px}.summary div{display:grid;gap:3px}.summary b{font-size:16px}.summary span{font-size:11px;color:var(--muted,#929baa)}.model-heading{margin-top:8px}.model-card{display:flex;gap:12px;padding:14px 4px}.model-icon{color:var(--accent,#a28eff);font-size:19px}.model-copy{min-width:0;flex:1}.model-copy h3{margin:0;font-size:14px}.model-copy p{font-size:11px;color:var(--muted,#929baa);overflow-wrap:anywhere;margin:4px 0 8px}.model-tags{display:flex;flex-wrap:wrap;gap:6px}.model-tags span{font-size:10px;padding:4px 7px;border-radius:12px;background:var(--bg,#101216);color:var(--muted,#c0c4ce)}details{margin-top:9px;font-size:11px}summary{cursor:pointer;color:var(--muted,#aeb4c0)}dl{display:grid;grid-template-columns:minmax(130px,.6fr) minmax(0,1fr);gap:5px 12px}dt{color:var(--muted,#929baa);overflow-wrap:anywhere}dd{margin:0;overflow-wrap:anywhere}.empty{padding:30px 12px;text-align:center;display:grid;gap:7px;color:var(--muted,#929baa);font-size:12px}.empty b{color:var(--text,#e8eaf0);font-size:14px}.empty.large{min-height:260px;place-content:center}.empty-icon{font-size:30px;color:var(--accent,#a28eff)}.notice{padding:11px 14px;border-radius:8px;margin-bottom:14px;font-size:13px}.error{background:#3a2024;color:#ffb4bb}.success{background:#1d382c;color:#9be0b5}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
     @media(max-width:820px){.library-layout{grid-template-columns:1fr}.add-source{align-items:stretch;flex-direction:column}.add-source form{width:100%}.page-head{align-items:flex-start}.detail-head{flex-direction:column}}
@@ -168,6 +254,9 @@ export class ModelsPage implements OnInit {
   readonly error = signal('');
   readonly notice = signal('');
   readonly selectedModelId = signal('');
+  readonly modelEvidence = signal<ModelCapabilityEvidence | null>(null);
+  readonly evidenceLoading = signal(false);
+  readonly modelEvidenceError = signal('');
   readonly modelFilter = signal('');
   readonly modelSortKey = signal<ModelSortKey>('name');
   readonly modelSortDirection = signal<'asc' | 'desc'>('asc');
@@ -177,6 +266,9 @@ export class ModelsPage implements OnInit {
   toggleRuntimeJson(): void { this.showRuntimeJson.update(value => !value); }
 
   readonly profiles = signal<ModelProfile[]>([]); readonly selectedProfileId=signal(''); readonly profileName=signal('');
+  readonly profileDetailsLoadedFor=signal('');
+  readonly profilePurposeInput=signal(''); readonly profileCompanionArtifactsInput=signal(''); readonly profileClass=signal<ProfileClass>('user');
+  readonly profileClasses=PROFILE_CLASSES;
   readonly profilePlacement=signal<RuntimePlacement>({}); readonly profileLoad=signal<RuntimeLoadOptions>({});
   readonly profileCapabilities=signal<RuntimeCapabilities|null>(null); readonly profileDevices=signal<RuntimeDevice[]>([]); readonly splitModes=signal<string[]>([]);
   readonly profileBackends=signal<RuntimeBackend[]>([]); readonly profileInstallations=signal<RuntimeInstallation[]>([]);
@@ -191,7 +283,21 @@ export class ModelsPage implements OnInit {
     {key:'offload_kv_cache',label:'Offload KV cache'},{key:'mmap',label:'Memory map'},{key:'keep_model_in_memory',label:'Keep model in memory'},{key:'fit',label:'Fit to available memory'}];
   readonly profileStringFields: {key:'numa'|'kv_cache_type_k'|'kv_cache_type_v';label:string}[]=[
     {key:'numa',label:'NUMA policy'},{key:'kv_cache_type_k',label:'KV cache type K'},{key:'kv_cache_type_v',label:'KV cache type V'}];
-  constructor(private readonly library: ModelSourcesService, private readonly runtime: RuntimeService, private readonly profileApi: ModelProfilesService) {}
+  constructor(private readonly library: ModelSourcesService, private readonly runtime: RuntimeService, private readonly profileApi: ModelProfilesService, private readonly capabilityApi: CapabilityService) {}
+
+  onProfileTabKey(event: KeyboardEvent): void {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    const tabs = Array.from((event.currentTarget as HTMLElement).querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+    if (!tabs.length) return;
+    const index = tabs.indexOf(event.target as HTMLButtonElement);
+    if (index < 0) return;
+    event.preventDefault();
+    const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1
+      : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+    const nextTab = tabs[nextIndex];
+    nextTab.focus();
+    this.profileTab.set(nextTab.id === 'profile-load-tab' ? 'load' : 'placement');
+  }
 
   ngOnInit(): void { void this.refresh(); }
 
@@ -242,7 +348,69 @@ export class ModelsPage implements OnInit {
     const id = this.selectedModelId();
     return this.visibleModels().find(model => model.id === id);
   }
-  selectModel(model: ModelRecord): void { this.selectedModelId.set(model.id); this.runtimeStatus.set(null); this.showRuntimeJson.set(false); this.error.set(''); void this.refreshProfiles(); }
+  selectModel(model: ModelRecord): void {
+    this.selectedModelId.set(model.id); this.profiles.set([]); this.profileDetailsLoadedFor.set('');
+    this.selectedProfileId.set(''); this.profileName.set(''); this.profilePlacement.set({}); this.profileLoad.set({});
+    this.profilePurposeInput.set(''); this.profileCompanionArtifactsInput.set(''); this.profileClass.set('user');
+    this.profileBackend.set(''); this.profileRuntimeId.set(''); this.profileError.set('');
+    this.profileCapabilities.set(null); this.profileDevices.set([]); this.modelEvidence.set(null); this.modelEvidenceError.set('');
+    this.runtimeStatus.set(null); this.showRuntimeJson.set(false); this.error.set(''); void this.refreshProfiles(); void this.refreshModelEvidence(model.id);
+  }
+
+  async refreshModelEvidence(modelId: string): Promise<void> {
+    if (this.selectedModelId() !== modelId) return;
+    this.evidenceLoading.set(true); this.modelEvidenceError.set('');
+    try {
+      const evidence = await this.capabilityApi.getModelEvidence(modelId);
+      if (this.selectedModelId() !== modelId) return;
+      this.modelEvidence.set(evidence);
+      this.modelEvidenceError.set(evidence.error);
+    } catch (error) {
+      if (this.selectedModelId() !== modelId) return;
+      this.modelEvidence.set(null);
+      this.modelEvidenceError.set(error instanceof Error ? error.message : 'Model capability evidence could not be loaded.');
+    } finally { if (this.selectedModelId() === modelId) this.evidenceLoading.set(false); }
+  }
+  evidenceStatus(evidence: { status?: string } | null | undefined): string { return evidence?.status || 'unknown'; }
+  modelRoutes(capability: { routes?: { id: string; model_id?: string; runtime_id?: string | null }[] }, modelId: string) {
+    return (capability.routes || []).filter(route => route.model_id === modelId);
+  }
+  modelInputKinds(): string[] {
+    const evidence = this.modelEvidence();
+    return [...new Set([...(evidence?.manifest?.modalities?.inputs || []), ...(evidence?.manifest?.capabilities || []).flatMap(item => (item.inputs || []).map(value => value.kind)), ...(evidence?.routes || []).flatMap(item => (item.inputs || []).map(value => value.kind))])].sort();
+  }
+  modelOutputKinds(): string[] {
+    const evidence = this.modelEvidence();
+    return [...new Set([...(evidence?.manifest?.modalities?.outputs || []), ...(evidence?.manifest?.capabilities || []).flatMap(item => (item.outputs || []).map(value => value.kind)), ...(evidence?.routes || []).flatMap(item => (item.outputs || []).map(value => value.kind))])].sort();
+  }
+
+  selectedProfile(): ModelProfile | undefined { return this.profiles().find(profile => profile.id === this.selectedProfileId()); }
+
+  profilePurpose(profile: ModelProfile): string[] {
+    const purpose = (profile as ModelProfile & {purpose?: unknown}).purpose;
+    return Array.isArray(purpose) ? purpose.filter((item): item is string => typeof item === 'string' && !!item.trim()) : [];
+  }
+
+  profileCategory(profile: ModelProfile): string {
+    const value = profile as ModelProfile & {profile_class?: unknown; category?: unknown};
+    const category = typeof value.profile_class === 'string' ? value.profile_class : value.category;
+    return typeof category === 'string' && category.trim() ? category : '';
+  }
+
+  profileVerification(profile: ModelProfile): string {
+    const verification = (profile as ModelProfile & {verification?: unknown}).verification;
+    if (!verification || typeof verification !== 'object' || Array.isArray(verification)) return '';
+    const status = (verification as {status?: unknown}).status;
+    return typeof status === 'string' && status.trim() ? status : '';
+  }
+
+  profileOptionLabel(profile: ModelProfile): string {
+    const purpose = this.profilePurpose(profile);
+    const category = this.profileCategory(profile) || (purpose.length ? purpose.join(', ') : 'Purpose not set');
+    const runtime = profile.runtime_id || profile.backend_name || 'Runtime not set';
+    const verification = this.profileVerification(profile) || 'Verification not recorded';
+    return `${profile.name} · ${category} · ${runtime} · ${verification}`;
+  }
 
   profileFieldHelp(key: string): string {
     const help: Record<string, string> = {
@@ -305,14 +473,40 @@ export class ModelsPage implements OnInit {
   selectProfile(id:string):void {
     this.selectedProfileId.set(id);const profile=this.profiles().find(item=>item.id===id);
     this.profileName.set(profile?.name||'');this.profilePlacement.set(profile?structuredClone(profile.placement):{});this.profileLoad.set(profile?structuredClone(profile.load):{});
+    this.profilePurposeInput.set((profile?.purpose||[]).join('\n'));
+    this.profileCompanionArtifactsInput.set((profile?.companion_artifacts||[]).join('\n'));
+    const profileClass=profile?.profile_class;
+    this.profileClass.set(typeof profileClass==='string'&&PROFILE_CLASSES.includes(profileClass as ProfileClass)?profileClass as ProfileClass:'user');
     this.profileBackend.set(profile?.backend_name||'');this.profileRuntimeId.set(profile?.runtime_id||'');
     this.manualDevice.set(Boolean(profile?.placement?.device&&!this.profileDevices().some(device=>(device.runtime_id||device.id)===profile.placement.device)));
     this.profileNotice.set('');this.profileError.set('');
     this.refreshProfileCapabilities();
   }
+  private profileLines(value:string):string[]{return value.split(/\r?\n/).map(item=>item.trim()).filter(Boolean);}
+  profileMetadataError():string {
+    const purpose=this.profileLines(this.profilePurposeInput());
+    if(purpose.length>32)return 'Purpose accepts at most 32 capability IDs.';
+    const capabilityId=/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$/;
+    if(purpose.some(item=>item.length>128||!capabilityId.test(item)))return 'Use namespaced IDs such as text.chat, with lowercase letters, numbers, dots, or hyphens.';
+    if(new Set(purpose).size!==purpose.length)return 'Purpose capability IDs must be unique.';
+    const companions=this.profileLines(this.profileCompanionArtifactsInput());
+    if(companions.length>32)return 'Companion artifacts accepts at most 32 IDs.';
+    const artifactId=/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+    if(companions.some(item=>!artifactId.test(item)))return 'Companion IDs must start with a letter or number and contain only letters, numbers, dots, underscores, or hyphens.';
+    if(new Set(companions).size!==companions.length)return 'Companion artifact IDs must be unique.';
+    if(this.profileClass()==='verified'&&this.selectedProfile()?.verification?.status!=='verified')return 'A profile can only keep the “verified” category when its recorded verification is verified.';
+    if(this.profileClass()==='hardware-bound'&&!this.selectedProfile()?.hardware_signature)return 'Hardware-bound profiles require a recorded hardware signature.';
+    return '';
+  }
+  profileListReady():boolean{return this.profileDetailsLoadedFor()===this.selectedModelId()||!!this.profileError();}
+  profileClassDisabled(category:ProfileClass):boolean {
+    if(category==='verified')return this.selectedProfile()?.verification?.status!=='verified';
+    if(category==='hardware-bound')return !this.selectedProfile()?.hardware_signature;
+    return false;
+  }
   async refreshProfiles():Promise<void> {
     const model=this.selectedModel();if(!model)return;this.profileError.set('');
-    try{const profiles=await this.profileApi.list(model.id);this.profiles.set(profiles);if(!profiles.some(p=>p.id===this.selectedProfileId()))this.selectProfile('');
+    try{const profiles=await this.profileApi.list(model.id);if(this.selectedModelId()!==model.id)return;this.profiles.set(profiles);this.profileDetailsLoadedFor.set(model.id);if(!profiles.some(p=>p.id===this.selectedProfileId()))this.selectProfile('');
       const [{runtime},installations]=await Promise.all([this.runtime.snapshot(),this.runtime.installations().catch(()=>[])]);
       this.profileBackends.set(runtime.backends);this.profileInstallations.set(installations);
       if(!this.selectedProfileId()){this.profileBackend.set('');this.profileRuntimeId.set('');}
@@ -329,8 +523,8 @@ export class ModelsPage implements OnInit {
     const runtimeWithModes=installation as (RuntimeInstallation&{split_modes?:string[];split_mode_options?:string[]})|undefined;
     this.splitModes.set(runtimeWithModes?.split_modes||runtimeWithModes?.split_mode_options||[]);
   }
-  async saveProfile():Promise<void>{const model=this.selectedModel();if(!model)return;this.profileBusy.set(true);this.profileError.set('');this.profileNotice.set('');try{
-    const current=this.profiles().find(p=>p.id===this.selectedProfileId());const patch={name:this.profileName().trim(),backend_name:this.profileBackend()||null,runtime_id:this.profileRuntimeId()||null,placement:this.profilePlacement(),load:this.profileLoad()};
+  async saveProfile():Promise<void>{const model=this.selectedModel();if(!model||!this.profileListReady()||this.profileMetadataError())return;this.profileBusy.set(true);this.profileError.set('');this.profileNotice.set('');try{
+    const current=this.profiles().find(p=>p.id===this.selectedProfileId());const patch={name:this.profileName().trim(),backend_name:this.profileBackend()||null,runtime_id:this.profileRuntimeId()||null,placement:this.profilePlacement(),load:this.profileLoad(),purpose:this.profileLines(this.profilePurposeInput()),profile_class:this.profileClass(),companion_artifacts:this.profileLines(this.profileCompanionArtifactsInput())};
     const saved=current?await this.profileApi.update(current.id,patch):await this.profileApi.create({model_id:model.id,...patch});
     this.profiles.set(current?this.profiles().map(p=>p.id===saved.id?saved:p):[...this.profiles(),saved]);this.selectProfile(saved.id);this.profileNotice.set('Model profile saved.');
   }catch(error){this.profileError.set(errorMessage(error));}finally{this.profileBusy.set(false);}}

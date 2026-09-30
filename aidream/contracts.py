@@ -127,6 +127,13 @@ class ModelProfile(TypedDict, total=False):
     placement: RuntimePlacement
     load: RuntimeLoadOptions
     generation: GenerationOptions
+    purpose: list[str]
+    companion_artifacts: list[str]
+    hardware_signature: str | None
+    profile_class: str
+    verification: dict[str, Any] | None
+    # Accepted on profile input for migration; stores normalize to `verification`.
+    verification_summary: dict[str, Any] | None
     created_at: str
     updated_at: str
 

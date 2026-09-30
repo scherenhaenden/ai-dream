@@ -96,12 +96,33 @@ skill           call another skill as a bounded sub-run
 tool            invoke a registered deterministic tool
 transform       deterministic local conversion/map/filter/template
 router          select one branch from typed conditions
-parallel        run independent child branches concurrently
+parallel        declare a typed fan-in barrier over independent graph branches
 join            combine branch results
 loop            bounded iteration with explicit max iterations
 input           expose skill input artifact
 output          publish a skill output artifact
 ```
+
+The initial static `parallel` contract uses `in` to map at least two branch
+names to outputs of distinct nodes, `accepts` to declare each artifact kind,
+and `out` to republish the same names and kinds after the barrier. Branch nodes
+that are ready together execute concurrently only when
+`policy.max_parallel_nodes` is at least two; the limit is bounded to eight.
+The executor emits lifecycle events in stable graph order even when branch
+completion timing differs. This contract does not yet reserve multiple model
+runtimes as one resource transaction.
+
+An initial `fallback` node may name two to four ordered, distinct registered
+transform candidates. Each candidate receives the same typed inputs and must
+produce the node's declared output types. The executor tries candidates in
+declaration order and stops at the first valid result; manifest data can name
+registered transforms but cannot import or construct executable code. A
+fallback node requires a typed trace callback. Its `FallbackTrace` contains the
+base plan revision, attempted and selected candidate IDs, sanitized failure
+class names, and a deterministic revision ID when a later candidate succeeds.
+Exhaustion emits a trace event without creating a new plan revision. Callers
+should pass the concrete resolved plan ID as `plan_revision`; otherwise the
+executor uses a manifest and graph fingerprint as the base revision.
 
 Do not add arbitrary shell/script nodes to the default schema.
 
@@ -320,6 +341,16 @@ research.local-folder
 ```
 
 Sub-skills inherit run permissions and resource limits. The run trace should show the hierarchy rather than flattening everything into one opaque list.
+
+The executor supports bounded typed subskill calls for children that use only
+registered local tools/transforms. It validates exact child input/output ports,
+rejects cycles and nesting deeper than four, charges the child's worst-case
+steps to the parent budget, and emits hierarchical node events. Nested
+capability/model nodes are rejected because route planning and reservation are
+currently top-level only. Inherited permission/resource enforcement and
+multi-runtime reservations remain open. The assisted-planner draft gate can
+only select an already installed skill and must match its declared
+capability/model nodes; it cannot synthesize a sub-skill graph.
 
 ## 15. State and memory
 

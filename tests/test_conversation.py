@@ -22,6 +22,18 @@ class ChatStoreTests(unittest.TestCase):
         self.assertEqual([m["role"] for m in loaded["messages"]], ["user", "assistant"])
         self.assertEqual(self.store.list_sessions()[0]["id"], session["id"])
 
+    def test_assistant_turn_can_reference_orchestration_run_while_legacy_turns_stay_valid(self):
+        session = self.store.create()
+        run_id = "a" * 32
+        session = self.store.append(session["id"], "user", "Hello")
+        session = self.store.append(session["id"], "assistant", "Hi", run_id=run_id)
+        self.assertEqual(session["messages"][-1]["run_id"], run_id)
+        self.assertTrue(_valid_message({"role": "assistant", "content": "legacy"}))
+        with self.assertRaises(ValueError):
+            self.store.append(session["id"], "user", "Not allowed", run_id=run_id)
+        with self.assertRaises(ValueError):
+            self.store.append(session["id"], "assistant", "Bad id", run_id="bad")
+
     def test_persists_bounded_local_attachment_references_and_legacy_messages(self):
         session = self.store.create()
         image = Path(self.temp.name) / "photo.png"

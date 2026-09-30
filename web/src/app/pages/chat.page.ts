@@ -1,9 +1,16 @@
-import { ChangeDetectionStrategy, Component, ElementRef, OnInit, effect, signal, viewChild, ViewEncapsulation } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, OnInit, effect, inject, signal, viewChild, ViewEncapsulation } from '@angular/core';
 import { ApiService } from '../core/api.service';
+import { firstValueFrom } from 'rxjs';
+import { ArtifactService, MAX_ARTIFACT_UPLOAD_BYTES } from '../core/artifact.service';
+import type { ArtifactEnvelope, UploadArtifactKind } from '../core/artifact.types';
+import { SkillService } from '../core/skill.service';
+import type { SkillCatalogItem } from '../core/skill.types';
 
 type Model = { id: string; path?: string; format?: string };
 type ChatSummary = { id: string; title?: string; created_at?: string; updated_at?: string };
-type TranscriptMessage = { role: string; content: string; created_at?: string; key: string };
+type TranscriptMessage = { role: string; content: string; created_at?: string; run_id?: string; key: string };
+type ChatProfile = { id: string; name: string; model_id: string };
+type ChatAttachment = { artifact: ArtifactEnvelope; suggestedSkillIds: string[] };
 type ChatEvent = { text?: string; chat_id?: string; incident_id?: string; assistant?: string | { role?: string; content?: string }; response?: string | { content?: string }; message?: string; error?: string };
 type RuntimeStatus = { loaded?: boolean; backend?: string; runtime_id?: string; model?: string; placement?: unknown[] };
 type CodeArtifact = { language: string; content: string; messageKey: string };
@@ -21,6 +28,7 @@ type ChatGeneration = { temperature: number; top_p: number | null; top_k: number
           <label class="model-picker"><span>{{ activeLoadedModel() ? 'LOADED MODEL' : 'MODEL' }}</span><select id="chat-model" [value]="selectedModelId()" (change)="selectModel($any($event.target).value)" [disabled]="modelsLoading() || models().length === 0 || busy()">
             <option value="" [selected]="!selectedModelId()">{{ modelsLoading() ? 'Loading models…' : models().length ? 'Select a model' : 'No local models' }}</option>@for (model of models(); track model.id) {<option [value]="model.id" [selected]="model.id === selectedModelId()">{{ modelLabel(model) }}{{ activeLoadedModel()?.id === model.id ? ' · LOADED' : '' }}</option>}
           </select></label>
+          @if (selectedModelId()) {<label class="model-picker profile-picker"><span>PROFILE</span><select [value]="selectedProfileId()" (change)="selectedProfileId.set($any($event.target).value)" [disabled]="busy() || profilesLoading()"><option value="">Automatic profile</option>@for (profile of profiles(); track profile.id) {<option [value]="profile.id">{{ profile.name }}</option>}</select></label>}
           <button class="chat-new-button" (click)="createChat()" [disabled]="busy() || !api.connected()" title="Start a new conversation">＋ <span>New thread</span></button>
         </div>
       </header>
@@ -54,7 +62,7 @@ type ChatGeneration = { temperature: number; top_p: number | null; top_k: number
         @for (message of messages(); track message.key) {
           <article class="message-row" [class.user-message]="message.role === 'user'" [class.assistant-message]="message.role !== 'user'">
             <div class="message-avatar" [class.user-avatar]="message.role === 'user'">{{ message.role === 'user' ? 'ED' : 'A' }}</div>
-            <div class="message-body"><div class="message-author">{{ message.role === 'user' ? 'You' : 'AI Dream' }} @if (message.created_at) {<time>{{ formatTime(message.created_at) }}</time>} @if (message.role !== 'user') {<button class="message-copy" (click)="copyMessage(message)" [attr.aria-label]="copiedKey() === message.key ? 'Copied response' : 'Copy response'">{{ copiedKey() === message.key ? 'Copied' : 'Copy' }}</button>}</div><div class="message-content">{{ messageDisplayContent(message) }}</div></div>
+            <div class="message-body"><div class="message-author">{{ message.role === 'user' ? 'You' : 'AI Dream' }} @if (message.created_at) {<time>{{ formatTime(message.created_at) }}</time>} @if (message.role !== 'user' && message.run_id) {<span class="message-run-link" title="Associated orchestration run">Run · {{ message.run_id.slice(0, 8) }}</span>} @if (message.role !== 'user') {<button class="message-copy" (click)="copyMessage(message)" [attr.aria-label]="copiedKey() === message.key ? 'Copied response' : 'Copy response'">{{ copiedKey() === message.key ? 'Copied' : 'Copy' }}</button>}</div><div class="message-content">{{ messageDisplayContent(message) }}</div></div>
           </article>
         }
         @if (streaming()) {
@@ -70,6 +78,50 @@ type ChatGeneration = { temperature: number; top_p: number | null; top_k: number
           <div class="model-warning" role="status">No local models are available. Add a model in the Models screen before sending.</div>
         }
         <div class="composer surface">
+          <div class="orchestration-strip" aria-label="Chat execution plan">
+            <div class="orchestration-strip-heading"><span class="eyebrow">EXECUTION</span><div class="execution-mode"><button [class.active]="chatExecutionMode() === 'orchestrated'" (click)="setChatExecutionMode('orchestrated')" [disabled]="busy()">Plan + run</button><button [class.active]="chatExecutionMode() === 'legacy'" (click)="setChatExecutionMode('legacy')" [disabled]="busy()">Direct chat</button></div></div>
+            @if (chatExecutionMode() === 'orchestrated') {
+              <div class="orchestration-route">@if (orchestrationPlan()) {<span class="route-ready">PLAN READY</span><span>{{ orchestrationRouteLabel() }}</span>} @else if (planningChat()) {<span>Resolving a local route…</span>} @else {<span>Preview route for {{ selectedModel()?.id || 'the selected model' }}</span>}</div>
+              @if (orchestrationError()) {<div class="orchestration-error" role="status">{{ orchestrationError() }}</div>}
+              @if (planNotice()) {<div class="plan-notice" role="status">{{ planNotice() }}</div>}
+              @if (orchestrationPlan()) {<button class="plan-preview-button inspector-toggle" (click)="togglePlanInspector()" [attr.aria-expanded]="planInspectorOpen()">{{ planInspectorOpen() ? 'Close plan' : 'Inspect plan' }}</button>}
+              @if (chatRunId()) {<div class="orchestration-route"><span class="run-state">{{ chatRunState() }}</span><span>Run {{ chatRunId().slice(0, 8) }}</span></div>}
+              <button class="plan-preview-button" (click)="previewChatPlan()" [disabled]="!prompt().trim() || !selectedModelId() || planningChat() || busy()">{{ planningChat() ? 'Resolving…' : 'Preview plan' }}</button>
+              @if (planInspectorOpen() && orchestrationPlan(); as plan) {
+                <section class="chat-plan-inspector" aria-label="Resolved chat plan">
+                  <header><div><b>Plan inspector</b><small>Resolved locally · no inference started</small></div><span>{{ plan.mode || 'automatic' }}</span></header>
+                  @for (node of orchestrationNodes(); track node.node_id) {
+                    <article class="plan-node">
+                      <div class="plan-node-heading"><b>{{ node.node_id }}</b><span>RESOLVED</span></div>
+                      <dl><div><dt>Capability</dt><dd>{{ node.capability_id }}</dd></div><div><dt>Model</dt><dd>{{ node.selected?.model_id || 'Not reported' }}</dd></div><div><dt>Profile</dt><dd>{{ profileNameFor(node.selected?.profile_id) }}</dd></div><div><dt>Runtime</dt><dd>{{ node.selected?.runtime_id || 'Not reported' }}</dd></div><div><dt>Types</dt><dd>{{ node.capability_id === 'text.chat' ? 'Prompt · Text → Response · Text' : 'Not reported by plan' }}</dd></div><div><dt>Timing</dt><dd>Not started</dd></div><div><dt>Resources</dt><dd>Not estimated by this plan</dd></div></dl>
+                      @if (selectedRouteWhy(node); as why) {<p class="route-why"><b>Selection reason:</b> {{ why.reasons?.join(', ') || 'No reason details reported' }}@if (why.ranking?.length) { · ranking: {{ why.ranking.join(' → ') }}}</p>}
+                      @if (node.alternatives?.length) {<div class="plan-alternatives"><span>ALTERNATIVES · SELECT TO PIN FOR THIS TURN</span>@for (route of node.alternatives; track route.id) {<div><button type="button" (click)="replacePlanRoute(route)" [disabled]="busy()">Use {{ route.model_id }} · {{ route.runtime_id }}@if (route.profile_id) { · {{ profileNameFor(route.profile_id) }}</button><small>{{ alternativeReason(node, route.id) }}</small></div>}</div>}
+                      @else {<small class="no-alternatives">No compatible alternatives reported.</small>}
+                    </article>
+                  }
+                </section>
+              }
+            }
+          </div>
+          <div class="chat-attachments">
+            <label class="attachment-picker" for="chat-attachments">＋ Attach files</label>
+            <input id="chat-attachments" class="sr-only" type="file" multiple [accept]="attachmentAccept" (change)="selectChatAttachments($event)" [disabled]="busy() || uploadingAttachments()" aria-label="Select image, audio, or document attachments">
+            <span class="attachment-help">Images, audio, PDF, TXT, Markdown or CSV · up to 32 MiB each</span>
+            @if (uploadingAttachments()) {<span class="attachment-uploading" role="status">Uploading selected files…</span>}
+            @for (item of chatAttachments(); track item.artifact.id) {
+              <div class="chat-attachment-card">
+                <div class="attachment-file"><span class="attachment-kind">{{ item.artifact.kind }}</span><b>{{ item.artifact.name }}</b><small>{{ formatBytes(item.artifact.size_bytes) }}</small></div>
+                <div class="attachment-suggestions"><span class="eyebrow">SUGGESTED SKILLS</span>
+                  @for (skill of suggestedSkills(item); track skill.id) {<div class="skill-suggestion"><span><b>{{ skill.name }}</b><small [class.suggestion-ready]="skill.status === 'ready'" [class.suggestion-unknown]="skill.status === 'unknown'">{{ skill.status === 'ready' ? 'READY' : skill.status === 'unknown' ? 'READINESS UNKNOWN' : 'NOT READY' }}</small></span><p>{{ skill.status === 'ready' ? skill.description : (skill.not_ready_reasons?.[0] || skill.alternatives?.[0] || 'This skill needs a compatible local capability route.') }}</p></div>}
+                  @if (!suggestedSkills(item).length) {<span class="attachment-help">No matching skill is registered. Browse <a href="/skills">Skills</a>.</span>}
+                  @else {<a class="browse-skills" href="/skills">Open Skills catalog</a><small class="attachment-reupload-note">Select the file again in the Skills workspace to use it there.</small>}
+                </div>
+                <button type="button" class="remove-attachment" (click)="removeChatAttachment(item)" [disabled]="busy() || uploadingAttachments()" [attr.aria-label]="'Remove ' + item.artifact.name">Remove</button>
+              </div>
+            }
+            @if (attachmentError()) {<span class="attachment-error" role="alert">{{ attachmentError() }}</span>}
+            @if (chatAttachments().length) {<span class="attachment-help">Attachments are staged for the suggested skills; sending a chat message remains text-only.</span>}
+          </div>
           <label class="sr-only" for="chat-prompt">Message</label>
           <textarea id="chat-prompt" rows="2" placeholder="Message your local model…" [value]="prompt()" (input)="prompt.set($any($event.target).value)" (keydown)="onComposerKey($event)" [disabled]="!canCompose()" [attr.aria-describedby]="'composer-hint'"></textarea>
           <div class="composer-bottom"><div class="composer-options"><span id="composer-hint">Local inference · generation settings are saved per thread</span></div>
@@ -77,7 +129,7 @@ type ChatGeneration = { temperature: number; top_p: number | null; top_k: number
           @else { <button class="send-button" (click)="send()" [disabled]="!canSend()" [attr.aria-label]="sending() ? 'Sending message' : 'Send message'">{{ sending() ? 'Sending…' : 'Send' }} <span>↗</span></button> }
           </div>
         </div>
-        <p class="composer-footnote">Responses can be incorrect. Attachments are not available in this web chat yet.</p>
+        <p class="composer-footnote">Responses can be incorrect. Selected files are offered to matching skills; chat turns remain text-only.</p>
           </footer>
         </section>
         @if (canvasOpen()) {<aside class="code-canvas" aria-label="Canvas and code view">
@@ -124,6 +176,53 @@ type ChatGeneration = { temperature: number; top_p: number | null; top_k: number
   `,
   styles: [`
     :host { display: block; height: 100%; }
+    .chat-attachments { display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:5px 8px;border-bottom:1px solid #303744; }
+    .attachment-picker { display:inline-flex;align-items:center;border:1px solid #3b485c;border-radius:4px;background:#171f2b;color:#c1d2ee;padding:5px 8px;font:9px ui-monospace,monospace;cursor:pointer; }
+    .attachment-help { color:#8794a8;font-size:9px; }
+    .attachment-uploading { color:#d6bf7d;font-size:9px; }
+    .chat-attachment-card { display:grid;grid-template-columns:minmax(125px,.7fr) minmax(200px,1.5fr) auto;align-items:center;gap:10px;width:100%;padding:8px;border:1px solid #354153;border-radius:4px;background:#101722; }
+    .attachment-file { display:grid;grid-template-columns:auto 1fr;align-items:center;gap:2px 6px;min-width:0; }
+    .attachment-file b { overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#d0d8e5;font-size:9px; }
+    .attachment-kind { grid-row:span 2;color:#a6bee9;font:8px ui-monospace,monospace;text-transform:uppercase; }
+    .attachment-file small { color:#8490a1;font-size:8px; }
+    .attachment-suggestions { display:grid;gap:4px; }
+    .skill-suggestion { display:grid;grid-template-columns:minmax(105px,.55fr) 1fr;gap:7px;padding-top:4px;border-top:1px solid #2b3441; }
+    .skill-suggestion>span { display:grid;gap:2px;color:#cbd6e8;font-size:9px; }
+    .skill-suggestion small { color:#ffb4ab;font:7px ui-monospace,monospace; }
+    .skill-suggestion small.suggestion-ready { color:#87d5a7; }
+    .skill-suggestion small.suggestion-unknown { color:#e4c699; }
+    .skill-suggestion p { margin:0;color:#96a2b3;font-size:8px;line-height:1.35; }
+    .browse-skills { color:#9db7e8;font-size:8px;text-decoration:none; }
+    .attachment-reupload-note { color:#8490a2;font-size:8px; }
+    .browse-skills:hover { text-decoration:underline; }
+    .remove-attachment { border:1px solid #614342;border-radius:3px;background:#2a2022;color:#e2b3ac;padding:4px 6px;font-size:8px;cursor:pointer; }
+    .remove-attachment:disabled { opacity:.5;cursor:not-allowed; }
+    .attachment-error { width:100%;color:#ffaaa2;font-size:9px; }
+    .profile-picker select { min-width:150px;max-width:220px; }
+    .orchestration-strip { display:grid;grid-template-columns:minmax(130px,auto) 1fr auto;align-items:center;gap:9px;padding:8px 10px;margin:0 0 8px;border-bottom:1px solid #303744;background:#111823;color:#9aa8bc;font-size:10px; }
+    .orchestration-strip-heading { display:flex;align-items:center;gap:10px; }
+    .execution-mode { display:flex;gap:3px;padding:2px;border:1px solid #343e4f;border-radius:5px;background:#10151e; }
+    .execution-mode button,.plan-preview-button { border:1px solid transparent;border-radius:4px;background:transparent;color:#92a0b5;padding:4px 7px;font:9px ui-monospace,monospace;cursor:pointer; }
+    .execution-mode button.active { border-color:#455b7d;background:#202d40;color:#d3e2ff; }
+    .execution-mode button:disabled,.plan-preview-button:disabled { opacity:.5;cursor:not-allowed; }
+    .orchestration-route { display:flex;align-items:center;gap:8px;min-width:0;overflow-wrap:anywhere;font:9px ui-monospace,monospace;color:#c0cada; }
+    .route-ready { flex:none;color:#83d8b0; }
+    .run-state { color:#a9c5ff;text-transform:uppercase; }
+    .orchestration-error { grid-column:2 / 4;color:#ffaaa2;font-size:10px; }
+    .plan-notice { grid-column:1 / -1;color:#d4bf91;font-size:9px; }
+    .plan-preview-button { justify-self:end;border-color:#3d4e68;background:#1c293b;color:#cbdcff; }
+    .chat-plan-inspector { grid-column:1 / -1;display:grid;gap:7px;max-height:260px;overflow:auto;padding:8px;border:1px solid #35445a;border-radius:4px;background:#0d131d; }
+    .chat-plan-inspector>header { display:flex;justify-content:space-between;align-items:center;gap:9px;padding-bottom:6px;border-bottom:1px solid #2a3443; }
+    .chat-plan-inspector>header div { display:grid;gap:3px; }.chat-plan-inspector>header b { color:#d5dfee;font-size:10px; }.chat-plan-inspector>header small,.chat-plan-inspector>header span { color:#8e9bb0;font:8px ui-monospace,monospace; }
+    .plan-node { display:grid;gap:6px;padding:7px;border:1px solid #2e3949;border-radius:3px;background:#111924; }
+    .plan-node-heading { display:flex;justify-content:space-between;color:#cbd6e8;font:9px ui-monospace,monospace; }.plan-node-heading span { color:#88d6aa;font-size:7px; }
+    .plan-node dl { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px 12px;margin:0; }
+    .plan-node dl>div { display:grid;grid-template-columns:62px minmax(0,1fr);gap:5px;min-width:0; }.plan-node dt { color:#8290a4;font:8px ui-monospace,monospace;text-transform:uppercase; }.plan-node dd { margin:0;color:#bdc9dc;font:8px ui-monospace,monospace;overflow-wrap:anywhere; }
+    .route-why { margin:0;color:#b5c4dc;font-size:8px;line-height:1.45; }.route-why b { color:#e1d0ad; }
+    .plan-alternatives { display:grid;gap:4px;padding-top:5px;border-top:1px solid #2a3443; }.plan-alternatives>span,.no-alternatives { color:#8492a7;font:7px ui-monospace,monospace; }
+    .plan-alternatives>div { display:flex;align-items:center;gap:7px;flex-wrap:wrap; }.plan-alternatives button { border:1px solid #394a63;border-radius:3px;background:#192435;color:#bed0ef;padding:4px 6px;font:8px ui-monospace,monospace;cursor:pointer; }.plan-alternatives button:disabled { opacity:.5;cursor:not-allowed; }.plan-alternatives small { color:#8f9cb0;font-size:8px; }
+    .message-run-link { border:1px solid #34435a;border-radius:3px;padding:2px 5px;color:#9db7e8;font:8px ui-monospace,monospace; }
+    @media(max-width:700px) { .orchestration-strip { grid-template-columns:1fr auto; }.orchestration-route { grid-column:1 / 3;grid-row:2; }.orchestration-error,.plan-notice { grid-column:1 / 3; }.chat-attachment-card { grid-template-columns:1fr auto; }.attachment-suggestions { grid-column:1 / 3;grid-row:2; }.remove-attachment { grid-column:2;grid-row:1; }.plan-node dl { grid-template-columns:1fr; } }
     .generation-control>span button{padding:0;border:0;background:none;color:#a0caff;font:inherit;text-decoration:underline;cursor:pointer}
     .generation-control>span button:disabled{opacity:.5;cursor:wait}
     .knowledge-control label{display:flex;align-items:center;gap:7px;margin-top:9px;color:#c2c6d6;font-size:11px;cursor:pointer}
@@ -133,8 +232,27 @@ type ChatGeneration = { temperature: number; top_p: number | null; top_k: number
   `]
 })
 export class ChatPage implements OnInit {
+  private readonly artifactService = inject(ArtifactService);
+  private readonly skillService = inject(SkillService);
   readonly chats = signal<ChatSummary[]>([]);
   readonly models = signal<Model[]>([]);
+  readonly profiles = signal<ChatProfile[]>([]);
+  readonly selectedProfileId = signal('');
+  readonly profilesLoading = signal(false);
+  readonly chatExecutionMode = signal<'orchestrated'|'legacy'>('orchestrated');
+  readonly orchestrationPlan = signal<any>(null);
+  readonly planInspectorOpen = signal(false);
+  readonly orchestrationError = signal('');
+  readonly planNotice = signal('');
+  readonly planningChat = signal(false);
+  readonly chatRunId = signal('');
+  readonly chatRunState = signal('');
+  readonly chatAttachments = signal<ChatAttachment[]>([]);
+  readonly skills = signal<SkillCatalogItem[]>([]);
+  readonly uploadingAttachments = signal(false);
+  readonly attachmentError = signal('');
+  readonly attachmentAccept = '.png,.jpg,.jpeg,.webp,.wav,.mp3,.ogg,.oga,.webm,.flac,.m4a,.pdf,.txt,.md,.markdown,.csv';
+  readonly maxAttachmentBytes = MAX_ARTIFACT_UPLOAD_BYTES;
   readonly runtimeStatus = signal<RuntimeStatus | null>(null);
   readonly generationSettings = signal<ChatGeneration>({ temperature: 0.7, top_p: null, top_k: null, min_p: null, repeat_penalty: null, max_tokens: null });
   readonly generationLoading = signal(false);
@@ -217,6 +335,58 @@ export class ChatPage implements OnInit {
     this.loadModels();
     this.loadChats();
     this.loadRuntimeStatus();
+    void this.loadSkills();
+  }
+
+  private async loadSkills(): Promise<void> {
+    try { this.skills.set(await this.skillService.list()); }
+    catch { this.skills.set([]); }
+  }
+
+  async selectChatAttachments(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const files = Array.from(input.files ?? []);
+    input.value = '';
+    if (!files.length) return;
+    if (files.length + this.chatAttachments().length > 4) {
+      this.attachmentError.set('A chat draft can stage up to four attachments. Remove one before adding more.');
+      return;
+    }
+    this.attachmentError.set('');
+    this.uploadingAttachments.set(true);
+    try {
+      for (const file of files) {
+        const kind = attachmentKind(file);
+        if (!kind) throw new Error(`Unsupported attachment format: ${file.name}`);
+        if (file.size > this.maxAttachmentBytes) throw new Error(`${file.name} exceeds the 32 MiB upload limit.`);
+        const artifact = await this.artifactService.upload(file, kind);
+        this.chatAttachments.update(items => [...items, { artifact, suggestedSkillIds: suggestedSkillIds(kind) }]);
+      }
+    } catch (error) {
+      this.attachmentError.set(error instanceof Error ? error.message : 'Could not upload the selected attachment.');
+    } finally { this.uploadingAttachments.set(false); }
+  }
+
+  suggestedSkills(item: ChatAttachment): SkillCatalogItem[] {
+    const byId = new Map(this.skills().map(skill => [skill.id, skill]));
+    return item.suggestedSkillIds.map(id => byId.get(id)).filter((skill): skill is SkillCatalogItem => !!skill);
+  }
+
+  async removeChatAttachment(item: ChatAttachment): Promise<void> {
+    this.attachmentError.set('');
+    try {
+      await this.artifactService.delete(item.artifact.id);
+      this.chatAttachments.update(items => items.filter(candidate => candidate.artifact.id !== item.artifact.id));
+    } catch (error) {
+      this.attachmentError.set(error instanceof Error ? error.message : 'Could not remove the staged attachment.');
+    }
+  }
+
+  formatBytes(value: number): string {
+    if (!Number.isFinite(value) || value < 0) return 'size unknown';
+    if (value < 1024) return `${value} B`;
+    if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`;
+    return `${(value / (1024 * 1024)).toFixed(1)} MiB`;
   }
 
   retry(): void { void this.initialize(); }
@@ -243,6 +413,7 @@ export class ChatPage implements OnInit {
         this.models.set(models.filter((model: any) => typeof model?.id === 'string' && model.id.length > 0));
         this.selectLoadedModelWhenUntouched();
         if (!this.selectedModelId() && this.models().length) this.selectedModelId.set(this.models()[0].id);
+        if (this.selectedModelId()) this.loadProfiles(this.selectedModelId());
         this.modelsLoading.set(false);
       },
       error: (error) => { this.modelsLoading.set(false); this.apiError.set(error?.error?.error || error?.message || 'Could not load local models.'); }
@@ -252,6 +423,73 @@ export class ChatPage implements OnInit {
   selectModel(modelId: string): void {
     this.modelSelectionTouched = true;
     this.selectedModelId.set(modelId);
+    this.selectedProfileId.set('');
+    this.orchestrationPlan.set(null);
+    this.planInspectorOpen.set(false);
+    this.planNotice.set('');
+    this.loadProfiles(modelId);
+  }
+
+  replacePlanRoute(route: any): void {
+    if (!route || typeof route.model_id !== 'string' || !route.model_id || this.busy()) return;
+    this.modelSelectionTouched = true;
+    this.selectedModelId.set(route.model_id);
+    this.profiles.set([]);
+    this.selectedProfileId.set(typeof route.profile_id === 'string' ? route.profile_id : '');
+    this.loadProfiles(route.model_id);
+    this.orchestrationPlan.set(null);
+    this.planInspectorOpen.set(false);
+    this.orchestrationError.set('');
+    this.planNotice.set('Alternative selected for this turn. The next plan will pin this model and profile.');
+  }
+
+  setChatExecutionMode(mode: 'orchestrated'|'legacy'): void {
+    this.chatExecutionMode.set(mode);
+    this.orchestrationError.set('');
+    this.planNotice.set('');
+    this.orchestrationPlan.set(null);
+    this.planInspectorOpen.set(false);
+  }
+
+  private loadProfiles(modelId: string): void {
+    this.profilesLoading.set(true);
+    this.api.get<unknown>(`/api/model-profiles?model_id=${encodeURIComponent(modelId)}`).subscribe({
+      next: value => { const data = unwrap(value) as any; this.profiles.set(Array.isArray(data?.profiles) ? data.profiles.filter((p: any) => p?.model_id === modelId && typeof p.id === 'string') : []); this.profilesLoading.set(false); },
+      error: () => { this.profiles.set([]); this.profilesLoading.set(false); }
+    });
+  }
+
+  orchestrationRouteLabel(): string {
+    const plan = this.orchestrationPlan();
+    const selected = plan?.nodes?.find((node: any) => node?.capability_id === 'text.chat')?.selected;
+    if (!selected) return 'Plan resolved';
+    const profile = this.profiles().find(item => item.id === selected.profile_id);
+    return `${selected.model_id}${profile ? ` · ${profile.name}` : ''} · ${selected.runtime_id}`;
+  }
+
+  togglePlanInspector(): void { this.planInspectorOpen.update(open => !open); }
+
+  orchestrationNodes(): any[] {
+    const nodes = this.orchestrationPlan()?.nodes;
+    return Array.isArray(nodes) ? nodes.filter((node: any) => !!node && typeof node === 'object') : [];
+  }
+
+  selectedRouteWhy(node: any): any | null {
+    const rows = Array.isArray(node?.why) ? node.why : [];
+    return rows.find((row: any) => row?.route_id === node?.selected?.id && row?.selected === true) ?? null;
+  }
+
+  alternativeReason(node: any, routeId: string): string {
+    const rows = Array.isArray(node?.why) ? node.why : [];
+    const row = rows.find((item: any) => item?.route_id === routeId);
+    if (!row) return 'No route explanation reported.';
+    if (row.eligible) return row.reasons?.join(', ') || 'Compatible alternative.';
+    return row.reasons?.join(', ') || 'Not eligible for this plan.';
+  }
+
+  profileNameFor(profileId?: string | null): string {
+    if (!profileId) return 'Automatic profile';
+    return this.profiles().find(profile => profile.id === profileId)?.name || profileId;
   }
 
   activeLoadedModel(): Model | null {
@@ -313,7 +551,7 @@ export class ChatPage implements OnInit {
         const data = unwrap(response) as any;
         const chat = data?.chat || data;
         if (!chat || chat.id !== id || !Array.isArray(chat.messages)) { this.generationLoading.set(false); this.apiError.set('The conversation response has an unexpected shape.'); return; }
-        this.messages.set(chat.messages.map((message: any, index: number) => ({ role: message.role === 'user' ? 'user' : 'assistant', content: typeof message.content === 'string' ? message.content : '', created_at: message.created_at, key: `${id}:${index}:${message.created_at || ''}` })));
+        this.messages.set(chat.messages.map((message: any, index: number) => ({ role: message.role === 'user' ? 'user' : 'assistant', content: typeof message.content === 'string' ? message.content : '', created_at: message.created_at, run_id: typeof message.run_id === 'string' ? message.run_id : undefined, key: `${id}:${index}:${message.created_at || ''}` })));
         this.loadChatGeneration(id);
         this.apiError.set('');
       },
@@ -465,7 +703,7 @@ export class ChatPage implements OnInit {
 
   busy(): boolean { return this.streaming() || this.sending() || this.creatingChat() || this.mutatingChat(); }
   canCompose(): boolean { return this.api.connected() && !!this.selectedChatId() && !this.busy(); }
-  canSend(): boolean { return this.canCompose() && !!this.selectedModelId() && !!this.prompt().trim() && !this.modelsLoading(); }
+  canSend(): boolean { return this.canCompose() && !!this.selectedModelId() && !!this.prompt().trim() && !this.modelsLoading() && !this.planningChat(); }
 
   onComposerKey(event: KeyboardEvent): void {
     if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); this.send(); }
@@ -477,6 +715,10 @@ export class ChatPage implements OnInit {
     const chatId = this.selectedChatId();
     const modelId = this.selectedModelId();
     if (!text || !chatId || !modelId || this.busy()) return;
+    if (this.chatExecutionMode() === 'orchestrated') {
+      await this.sendOrchestrated(text, chatId, modelId);
+      return;
+    }
     const previousMessages = this.messages();
     const incidentId = crypto.randomUUID().replaceAll('-', '');
     this.lastIncidentId.set('');
@@ -520,6 +762,87 @@ export class ChatPage implements OnInit {
         if (!this.serverDiagnosticReceived) await this.saveClientDiagnostic(incidentId, error);
       }
       this.streamText.set('');
+    }
+  }
+
+  private async resolveChatPlan(text: string, modelId = this.selectedModelId()): Promise<any> {
+    const selection: Record<string, string> = { mode: 'manual', pinned_model_id: modelId };
+    if (this.selectedProfileId()) selection['pinned_profile_id'] = this.selectedProfileId();
+    const request = { inputs: { prompt: { kind: 'text', text } }, selection };
+    const response = await firstValueFrom(this.api.post<unknown>('/api/skills/chat.general/plan', request));
+    const data = unwrap(response) as any;
+    if (!data?.plan || !Array.isArray(data.plan.nodes)) throw new Error('The local API returned an invalid chat plan.');
+    return data.plan;
+  }
+
+  async previewChatPlan(): Promise<void> {
+    if (this.planningChat() || !this.prompt().trim() || !this.selectedModelId()) return;
+    this.planningChat.set(true);
+    this.orchestrationError.set('');
+    this.planNotice.set('');
+    this.orchestrationPlan.set(null);
+    try { this.orchestrationPlan.set(await this.resolveChatPlan(this.prompt().trim())); }
+    catch (error) { this.orchestrationError.set(error instanceof Error ? error.message : 'Could not resolve a local chat route.'); }
+    finally { this.planningChat.set(false); }
+  }
+
+  private async sendOrchestrated(text: string, chatId: string, modelId: string): Promise<void> {
+    const previousMessages = this.messages();
+    const draft = this.prompt();
+    const temporaryUser: TranscriptMessage = { role: 'user', content: text, key: `pending-user-${Date.now()}` };
+    this.prompt.set('');
+    this.turnError.set('');
+    this.orchestrationError.set('');
+    this.chatRunId.set('');
+    this.chatRunState.set('Planning');
+    this.sending.set(true);
+    this.planningChat.set(true);
+    this.messages.update(messages => [...messages, temporaryUser]);
+    try {
+      const plan = await this.resolveChatPlan(text, modelId);
+      this.orchestrationPlan.set(plan);
+      this.planNotice.set('');
+      this.planningChat.set(false);
+      const selection: Record<string, string> = { mode: 'manual', pinned_model_id: modelId };
+      if (this.selectedProfileId()) selection['pinned_profile_id'] = this.selectedProfileId();
+      const response = await firstValueFrom(this.api.post<unknown>('/api/skills/chat.general/run', {
+        chat_id: chatId, inputs: { prompt: { kind: 'text', text } }, selection
+      }));
+      const data = unwrap(response) as any;
+      const run = data?.run;
+      if (!run || typeof run.id !== 'string') throw new Error('The local API did not create a chat run.');
+      this.chatRunId.set(run.id);
+      this.chatRunState.set(run.state || 'queued');
+      this.sending.set(false);
+      this.streaming.set(true);
+      const deadline = Date.now() + 300_000;
+      while (Date.now() < deadline) {
+        const snapshotResponse = await firstValueFrom(this.api.get<unknown>(`/api/runs/${encodeURIComponent(run.id)}`));
+        const snapshot = (unwrap(snapshotResponse) as any)?.run;
+        if (!snapshot || snapshot.id !== run.id) throw new Error('The local API returned an invalid run status.');
+        this.chatRunState.set(snapshot.state);
+        if (snapshot.state === 'succeeded') {
+          this.streaming.set(false);
+          this.aborter = null;
+          await this.refreshTranscript(chatId, temporaryUser);
+          this.loadRuntimeStatus();
+          return;
+        }
+        if (snapshot.state === 'failed' || snapshot.state === 'cancelled') {
+          throw new Error(snapshot.error?.message || `Chat run ${snapshot.state}.`);
+        }
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      throw new Error('The chat run is still active; open Runs to inspect its current state.');
+    } catch (error) {
+      this.sending.set(false);
+      this.streaming.set(false);
+      this.planningChat.set(false);
+      this.prompt.set(draft);
+      this.messages.set(previousMessages);
+      const message = error instanceof Error ? error.message : 'The orchestration run failed.';
+      this.orchestrationError.set(message);
+      this.turnError.set(message);
     }
   }
 
@@ -596,7 +919,7 @@ export class ChatPage implements OnInit {
       const data = unwrap(await response.json()) as any;
       const chat = data?.chat || data;
       if (Array.isArray(chat?.messages)) {
-        this.messages.set(chat.messages.map((message: any, index: number) => ({ role: message.role === 'user' ? 'user' : 'assistant', content: typeof message.content === 'string' ? message.content : '', created_at: message.created_at, key: `${chatId}:${index}:${message.created_at || ''}` })));
+        this.messages.set(chat.messages.map((message: any, index: number) => ({ role: message.role === 'user' ? 'user' : 'assistant', content: typeof message.content === 'string' ? message.content : '', created_at: message.created_at, run_id: typeof message.run_id === 'string' ? message.run_id : undefined, key: `${chatId}:${index}:${message.created_at || ''}` })));
       } else {
         this.messages.update(messages => [...messages.filter(item => item.key !== fallbackUser.key), { ...fallbackUser, key: `${chatId}:user:${Date.now()}` }, { role: 'assistant', content: this.streamText(), key: `${chatId}:assistant:${Date.now()}` }]);
       }
@@ -610,7 +933,11 @@ export class ChatPage implements OnInit {
     }
   }
 
-  cancel(): void { this.aborter?.abort(); }
+  cancel(): void {
+    const runId = this.chatRunId();
+    if (runId) { this.chatRunState.set('cancelling'); this.api.post<unknown>(`/api/runs/${encodeURIComponent(runId)}/cancel`, {}).subscribe({ error: () => this.orchestrationError.set('Could not cancel the active orchestration run.') }); }
+    else this.aborter?.abort();
+  }
   async copyMessage(message: TranscriptMessage): Promise<void> {
     try {
       await navigator.clipboard.writeText(message.content);
@@ -640,6 +967,18 @@ function finiteNumber(value: unknown, fallback: number): number { return typeof 
 function finiteNumberOrNull(value: unknown): number | null { return typeof value === 'number' && Number.isFinite(value) ? value : null; }
 function integerNumberOrNull(value: unknown): number | null { return typeof value === 'number' && Number.isInteger(value) ? value : null; }
 function safeFilename(value: string): string { return value.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 72) || 'conversation'; }
+function attachmentKind(file: File): UploadArtifactKind | null {
+  const extension = file.name.split('.').pop()?.toLowerCase() ?? '';
+  if (['png', 'jpg', 'jpeg', 'webp'].includes(extension)) return 'image';
+  if (['wav', 'mp3', 'ogg', 'oga', 'webm', 'flac', 'm4a'].includes(extension)) return 'audio';
+  if (['pdf', 'txt', 'md', 'markdown', 'csv'].includes(extension)) return 'document';
+  return null;
+}
+function suggestedSkillIds(kind: UploadArtifactKind): string[] {
+  if (kind === 'image') return ['image.describe'];
+  if (kind === 'audio') return ['voice.transcribe'];
+  return ['document.summarize', 'document.extract-text'];
+}
 async function responseMessage(response: Response): Promise<string> {
   try { const body = await response.json(); return body?.error || body?.message || `Local API returned HTTP ${response.status}`; }
   catch { return `Local API returned HTTP ${response.status}`; }

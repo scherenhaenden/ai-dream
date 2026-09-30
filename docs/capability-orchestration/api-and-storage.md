@@ -173,13 +173,10 @@ For a locally selected file through a native desktop picker, the backend may hol
 ```text
 GET  /api/resources
 GET  /api/models/residency
-POST /api/models/<id>/load
-POST /api/models/<id>/unload
-POST /api/models/<id>/pin
-POST /api/models/<id>/unpin
+POST /api/models/residency/actions
 ```
 
-Existing runtime load/unload APIs can back these operations initially. The new endpoints are semantic orchestration wrappers.
+The residency action accepts exactly a server-discovered `route_id` and one of `pin`, `unpin`, or `unload`. It can only affect an already loaded orchestration-owned resident, requires an idle unpinned model for unload, and never starts a load. Arbitrary model IDs cannot select a runtime target.
 
 Resource snapshot:
 
