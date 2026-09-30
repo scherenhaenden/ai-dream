@@ -135,23 +135,23 @@ export const HardwareTopologyScreen: React.FC = () => {
               <svg className="absolute inset-0 w-full h-full pointer-events-none" xmlns="http://www.w3.org/2000/svg">
                 <defs>
                   <pattern id="grid-dots" width="24" height="24" patternUnits="userSpaceOnUse">
-                    <circle cx="2" cy="2" r="0.75" fill="#424754" fillOpacity="0.4"></circle>
+                    <circle cx="2" cy="2" r="0.75" fill="var(--ds-outline-variant)" fillOpacity="0.4"></circle>
                   </pattern>
                   <linearGradient id="p2p-glow" x1="0%" y1="0%" x2="100%" y2="0%">
-                    <stop offset="0%" stopColor="#4edea3" stopOpacity="0.9"></stop>
-                    <stop offset="50%" stopColor="#c0c1ff" stopOpacity="1"></stop>
-                    <stop offset="100%" stopColor="#adc6ff" stopOpacity="0.9"></stop>
+                    <stop offset="0%" stopColor="var(--ds-tertiary)" stopOpacity="0.9"></stop>
+                    <stop offset="50%" stopColor="var(--ds-secondary)" stopOpacity="1"></stop>
+                    <stop offset="100%" stopColor="var(--ds-primary)" stopOpacity="0.9"></stop>
                   </linearGradient>
                 </defs>
                 <rect width="100%" height="100%" fill="url(#grid-dots)"></rect>
 
                 {/* SVG bus lines */}
                 {/* CPU to GPU 0 */}
-                <path d="M 320 130 V 220 H 160 V 275" fill="none" stroke="#4edea3" strokeWidth="2.5" strokeDasharray="4 2" className="opacity-80" />
+                <path d="M 320 130 V 220 H 160 V 275" fill="none" stroke="var(--ds-tertiary)" strokeWidth="2.5" strokeDasharray="4 2" className="opacity-80" />
                 {/* CPU to GPU 1 */}
-                <path d="M 400 130 V 220 H 460 V 275" fill="none" stroke="#adc6ff" strokeWidth="2.5" strokeDasharray="4 2" className="opacity-80" />
+                <path d="M 400 130 V 220 H 460 V 275" fill="none" stroke="var(--ds-primary)" strokeWidth="2.5" strokeDasharray="4 2" className="opacity-80" />
                 {/* CPU to GPU 2 */}
-                <path d="M 480 130 V 220 H 760 V 275" fill="none" stroke="#424754" strokeWidth="1.5" strokeDasharray="6 4" className="opacity-50" />
+                <path d="M 480 130 V 220 H 760 V 275" fill="none" stroke="var(--ds-outline-variant)" strokeWidth="1.5" strokeDasharray="6 4" className="opacity-50" />
                 {/* Peer-to-Peer Interconnect Bus GPU 0 <-> GPU 1 */}
                 <path d="M 270 365 H 350" fill="none" stroke="url(#p2p-glow)" strokeWidth="4" className="animate-pulse" />
               </svg>
@@ -615,8 +615,8 @@ export const HardwareTopologyScreen: React.FC = () => {
               </div>
               <div className="w-full h-10 overflow-hidden">
                 <svg className="w-full h-full" preserveAspectRatio="none" viewBox="0 0 200 40">
-                  <path d="M0,35 Q 25,32 50,22 T 100,10 T 150,15 T 180,6 L 200,4" fill="none" stroke="#ffb4ab" strokeWidth="2"></path>
-                  <path d="M0,35 Q 25,32 50,22 T 100,10 T 150,15 T 180,6 L 200,4 L 200,40 L 0,40 Z" fill="#ffb4ab" fillOpacity="0.15"></path>
+                  <path d="M0,35 Q 25,32 50,22 T 100,10 T 150,15 T 180,6 L 200,4" fill="none" stroke="var(--ds-error)" strokeWidth="2"></path>
+                  <path d="M0,35 Q 25,32 50,22 T 100,10 T 150,15 T 180,6 L 200,4 L 200,40 L 0,40 Z" fill="var(--ds-error)" fillOpacity="0.15"></path>
                 </svg>
               </div>
               <div className="flex items-center justify-between font-mono text-[10px] text-outline">
@@ -633,8 +633,8 @@ export const HardwareTopologyScreen: React.FC = () => {
               </div>
               <div className="w-full h-10 overflow-hidden">
                 <svg className="w-full h-full" preserveAspectRatio="none" viewBox="0 0 200 40">
-                  <path d="M0,30 Q 30,28 60,18 T 120,22 T 160,12 L 200,8" fill="none" stroke="#4edea3" strokeWidth="2"></path>
-                  <path d="M0,30 Q 30,28 60,18 T 120,22 T 160,12 L 200,8 L 200,40 L 0,40 Z" fill="#4edea3" fillOpacity="0.15"></path>
+                  <path d="M0,30 Q 30,28 60,18 T 120,22 T 160,12 L 200,8" fill="none" stroke="var(--ds-tertiary)" strokeWidth="2"></path>
+                  <path d="M0,30 Q 30,28 60,18 T 120,22 T 160,12 L 200,8 L 200,40 L 0,40 Z" fill="var(--ds-tertiary)" fillOpacity="0.15"></path>
                 </svg>
               </div>
               <div className="flex items-center justify-between font-mono text-[10px] text-outline">
@@ -651,8 +651,8 @@ export const HardwareTopologyScreen: React.FC = () => {
               </div>
               <div className="w-full h-10 overflow-hidden">
                 <svg className="w-full h-full" preserveAspectRatio="none" viewBox="0 0 200 40">
-                  <path d="M0,24 Q 40,24 80,23 T 140,22 T 180,21 L 200,21" fill="none" stroke="#adc6ff" strokeWidth="2"></path>
-                  <path d="M0,24 Q 40,24 80,23 T 140,22 T 180,21 L 200,21 L 200,40 L 0,40 Z" fill="#adc6ff" fillOpacity="0.15"></path>
+                  <path d="M0,24 Q 40,24 80,23 T 140,22 T 180,21 L 200,21" fill="none" stroke="var(--ds-primary)" strokeWidth="2"></path>
+                  <path d="M0,24 Q 40,24 80,23 T 140,22 T 180,21 L 200,21 L 200,40 L 0,40 Z" fill="var(--ds-primary)" fillOpacity="0.15"></path>
                 </svg>
               </div>
               <div className="flex items-center justify-between font-mono text-[10px] text-outline">

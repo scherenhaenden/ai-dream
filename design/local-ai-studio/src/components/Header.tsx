@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ActiveScreen } from '../types';
 
 interface HeaderProps {
@@ -6,6 +6,8 @@ interface HeaderProps {
   onNavigate: (screen: ActiveScreen) => void;
   onOpenCommandPalette: () => void;
   onToggleInspector?: () => void;
+  mobileNavOpen?: boolean;
+  onToggleMobileNav?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -13,9 +15,22 @@ export const Header: React.FC<HeaderProps> = ({
   onNavigate,
   onOpenCommandPalette,
   onToggleInspector,
+  mobileNavOpen = false,
+  onToggleMobileNav,
 }) => {
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [activeModel, setActiveModel] = useState('Qwen3.8-27B-Instruct');
+  const menuTriggerRef = useRef<HTMLButtonElement>(null);
+  const wasMobileNavOpen = useRef(false);
+
+  useEffect(() => {
+    if (mobileNavOpen) {
+      requestAnimationFrame(() => document.querySelector<HTMLElement>('#primary-navigation-drawer button:not([disabled])')?.focus());
+    } else if (wasMobileNavOpen.current) {
+      menuTriggerRef.current?.focus();
+    }
+    wasMobileNavOpen.current = mobileNavOpen;
+  }, [mobileNavOpen]);
 
   const getScreenTitle = () => {
     switch (activeScreen) {
@@ -51,10 +66,10 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="fixed top-0 left-72 right-0 h-14 bg-surface-container-lowest/90 backdrop-blur-xl z-40 px-4 flex items-center justify-between border-b border-outline-variant/30 select-none shadow-[0_1px_8px_rgba(0,0,0,0.04)]">
+    <header className="studio-header fixed top-0 left-72 right-0 h-14 bg-surface-container-lowest/90 backdrop-blur-xl z-40 px-4 flex items-center justify-between border-b border-outline-variant/30 select-none shadow-[0_1px_8px_rgba(0,0,0,0.04)]">
       {/* Left: Breadcrumbs & Search */}
       <div className="flex items-center gap-4 min-w-0">
-        <div className="flex items-center gap-1.5 font-mono text-[12px] text-outline">
+        <div className="flex items-center gap-1.5 font-mono text-[12px] text-outline min-w-0">
           <span className="text-on-surface-variant font-medium">Studio</span>
           <span className="material-symbols-outlined text-[14px]">chevron_right</span>
           <span className="text-primary font-semibold truncate">{getScreenTitle()}</span>
@@ -65,24 +80,33 @@ export const Header: React.FC<HeaderProps> = ({
           <span className="material-symbols-outlined absolute left-2.5 text-outline text-[16px] pointer-events-none">
             search
           </span>
-          <input
+          <button
+            type="button"
             onClick={onOpenCommandPalette}
-            readOnly
-            className="w-72 h-8 pl-8 pr-12 bg-surface-container-low hover:bg-surface-container text-on-surface placeholder:text-outline font-sans text-[12px] rounded-lg border border-outline-variant/30 focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer transition-colors"
-            placeholder="Search models, runtimes, commands..."
-            type="text"
-          />
+            className="w-72 h-8 pl-8 pr-12 bg-surface-container-low hover:bg-surface-container text-outline font-sans text-[12px] rounded-lg border border-outline-variant/30 cursor-pointer transition-colors text-left"
+            aria-label="Search models, runtimes, and commands"
+          >Search models, runtimes, commands...</button>
           <kbd className="absolute right-2 px-1.5 py-0.5 rounded bg-surface-container-high text-outline text-[10px] font-mono">
             Ctrl+K
           </kbd>
         </div>
       </div>
 
+      {/* Compact navigation control */}
+      {onToggleMobileNav && <button ref={menuTriggerRef} type="button" className="mobile-menu-trigger hidden" aria-label={mobileNavOpen ? 'Close navigation menu' : 'Open navigation menu'} aria-expanded={mobileNavOpen} aria-controls="primary-navigation-drawer" onClick={onToggleMobileNav}>
+        <span className="material-symbols-outlined" aria-hidden="true">{mobileNavOpen ? 'close' : 'menu'}</span>
+      </button>}
+
       {/* Right Controls */}
       <div className="flex items-center gap-3">
         {/* Model dropdown indicator */}
         <div className="relative">
           <button
+            type="button"
+            aria-haspopup="menu"
+            aria-expanded={modelDropdownOpen}
+            aria-label={`Loaded model: ${activeModel}. Open model menu`}
+            onKeyDown={(event) => { if (event.key === 'Escape') setModelDropdownOpen(false); }}
             onClick={() => setModelDropdownOpen(!modelDropdownOpen)}
             className="flex items-center gap-2 px-3 h-8 rounded-lg bg-surface-container-low hover:bg-surface-container border border-outline-variant/30 transition-colors cursor-pointer text-left"
           >
@@ -98,16 +122,16 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Dropdown Menu */}
           {modelDropdownOpen && (
-            <div className="absolute right-0 top-10 w-80 bg-surface-container-high rounded-xl border border-outline-variant/40 shadow-2xl p-2 space-y-2 z-50">
+            <div role="menu" aria-label="Loaded model and quick actions" className="absolute right-0 top-10 w-80 max-w-[calc(100vw-1rem)] bg-surface-container-high rounded-xl border border-outline-variant/40 shadow-2xl p-2 space-y-2 z-50">
               <div className="px-2 py-1 text-[10px] font-mono uppercase tracking-wider text-outline">
                 Loaded In Memory
               </div>
-              <div
+              <button type="button" role="menuitemradio" aria-checked={activeModel === 'Qwen3.8-27B-Instruct'}
                 onClick={() => {
                   setActiveModel('Qwen3.8-27B-Instruct');
                   setModelDropdownOpen(false);
                 }}
-                className="p-2 rounded-lg bg-surface-container hover:bg-surface-container-highest cursor-pointer flex items-center justify-between"
+                className="w-full text-left p-2 rounded-lg bg-surface-container hover:bg-surface-container-highest cursor-pointer flex items-center justify-between"
               >
                 <div>
                   <div className="font-mono text-[12px] font-semibold text-primary">
@@ -116,14 +140,14 @@ export const Header: React.FC<HeaderProps> = ({
                   <div className="text-[11px] text-outline">llama.cpp Vulkan • 17.4 GB VRAM</div>
                 </div>
                 <span className="material-symbols-outlined text-tertiary text-[18px]">check_circle</span>
-              </div>
+              </button>
 
-              <div
+              <button type="button" role="menuitemradio" aria-checked={activeModel === 'DeepSeek-R1-Distill-14B'}
                 onClick={() => {
                   setActiveModel('DeepSeek-R1-Distill-14B');
                   setModelDropdownOpen(false);
                 }}
-                className="p-2 rounded-lg hover:bg-surface-container cursor-pointer flex items-center justify-between"
+                className="w-full text-left p-2 rounded-lg hover:bg-surface-container cursor-pointer flex items-center justify-between"
               >
                 <div>
                   <div className="font-mono text-[12px] font-semibold text-on-surface">
@@ -131,12 +155,12 @@ export const Header: React.FC<HeaderProps> = ({
                   </div>
                   <div className="text-[11px] text-outline">15.6 GB • GPU 0 Direct</div>
                 </div>
-              </div>
+              </button>
 
               <div className="px-2 pt-1 text-[10px] font-mono uppercase tracking-wider text-outline">
                 Quick Actions
               </div>
-              <button
+              <button type="button" role="menuitem"
                 onClick={() => {
                   setModelDropdownOpen(false);
                   onNavigate('load-model');
@@ -163,7 +187,7 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* Load Model Button */}
-        <button
+        <button type="button" aria-label="Load model"
           onClick={() => onNavigate('load-model')}
           className="flex items-center gap-1.5 px-3 h-8 bg-primary hover:bg-primary-fixed-dim text-on-primary font-semibold text-[12px] rounded-lg transition-colors shadow-sm"
         >
@@ -173,7 +197,7 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Quick Inspector toggle */}
         {onToggleInspector && (
-          <button
+          <button type="button" aria-label="Toggle runtime inspector"
             onClick={onToggleInspector}
             className="flex items-center justify-center w-8 h-8 rounded-lg bg-surface-container-low text-on-surface-variant hover:text-on-surface hover:bg-surface-container border border-outline-variant/30 transition-colors"
             title="Toggle Runtime Inspector"
@@ -183,13 +207,13 @@ export const Header: React.FC<HeaderProps> = ({
         )}
 
         {/* User profile avatar */}
-        <div
-          onClick={() => onNavigate('profiles')}
+        <button type="button"
+          onClick={() => onNavigate('settings')}
           className="w-8 h-8 rounded-full bg-primary flex items-center justify-center cursor-pointer hover:ring-2 hover:ring-primary/40 transition-all shrink-0"
-          title="Hardware Profile (Operator)"
+          aria-label="Open settings"
         >
           <span className="material-symbols-outlined text-on-primary text-[17px]">person</span>
-        </div>
+        </button>
       </div>
     </header>
   );

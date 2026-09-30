@@ -18,15 +18,15 @@ export const SettingsScreen: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[#090e18] overflow-y-auto p-6 space-y-6">
+    <div className="flex-1 flex flex-col h-full bg-[var(--ds-surface-container-lowest)] overflow-y-auto p-6 space-y-6">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-[#282f3d]">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-[var(--ds-outline-variant)]">
         <div>
-          <h1 className="text-xl font-bold tracking-tight text-[#e0e2ec] flex items-center gap-2">
-            <span className="material-symbols-outlined text-[#a0caff]">settings</span>
+          <h1 className="text-xl font-bold tracking-tight text-[var(--ds-on-surface)] flex items-center gap-2">
+            <span className="material-symbols-outlined text-[var(--ds-primary)]">settings</span>
             Workstation Engine & Hardware Preferences
           </h1>
-          <p className="text-xs text-[#8991a2] mt-1 font-mono">
+          <p className="text-xs text-[var(--ds-on-surface-variant)] mt-1 font-mono">
             Low-level compilation flags, llama.cpp execution parameters, and local network bindings.
           </p>
         </div>
@@ -40,7 +40,7 @@ export const SettingsScreen: React.FC = () => {
           )}
           <button
             onClick={handleSave}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold shadow-lg shadow-blue-500/20"
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-on-surface rounded-lg text-xs font-bold shadow-lg shadow-blue-500/20"
           >
             Save Changes
           </button>
@@ -49,19 +49,19 @@ export const SettingsScreen: React.FC = () => {
 
       <form onSubmit={handleSave} className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Hardware Acceleration */}
-        <div className="bg-[#111722] border border-[#282f3d] rounded-xl p-5 space-y-4">
-          <div className="flex items-center gap-2 text-sm font-bold text-white font-mono">
-            <span className="material-symbols-outlined text-[#a0caff]">memory</span>
+        <div className="bg-[var(--ds-surface-container-low)] border border-[var(--ds-outline-variant)] rounded-xl p-5 space-y-4">
+          <div className="flex items-center gap-2 text-sm font-bold text-on-surface font-mono">
+            <span className="material-symbols-outlined text-[var(--ds-primary)]">memory</span>
             Compute Engine & Offload Flags
           </div>
 
           <div className="space-y-3 text-xs">
             <div>
-              <label className="text-[#8991a2] font-mono block mb-1">Primary Accelerator Engine</label>
+              <label className="text-[var(--ds-on-surface-variant)] font-mono block mb-1">Primary Accelerator Engine</label>
               <select
                 value={defaultBackend}
                 onChange={(e) => setDefaultBackend(e.target.value)}
-                className="w-full bg-[#171c26] border border-[#282f3d] rounded-lg px-3 py-2 text-white font-mono focus:outline-none focus:border-[#a0caff]"
+                className="w-full bg-[var(--ds-surface-container-low)] border border-[var(--ds-outline-variant)] rounded-lg px-3 py-2 text-on-surface font-mono focus:outline-none focus:border-[var(--ds-primary)]"
               >
                 <option value="vulkan">Vulkan 1.3 (Multi-Vendor Unified Backend - Recommended)</option>
                 <option value="rocm">AMD ROCm / HIP 6.2 (Native CDNA/RDNA3)</option>
@@ -71,10 +71,10 @@ export const SettingsScreen: React.FC = () => {
             </div>
 
             <div className="pt-2 space-y-3">
-              <div className="flex items-center justify-between p-3 bg-[#171c26] rounded-lg border border-[#282f3d]">
+              <div className="flex items-center justify-between p-3 bg-[var(--ds-surface-container-low)] rounded-lg border border-[var(--ds-outline-variant)]">
                 <div>
-                  <div className="font-mono text-white font-bold">FlashAttention-2 Kernel</div>
-                  <div className="text-[11px] text-[#8991a2]">Reduces attention memory footprint from O(N²) to O(N).</div>
+                  <div className="font-mono text-on-surface font-bold">FlashAttention-2 Kernel</div>
+                  <div className="text-[11px] text-[var(--ds-on-surface-variant)]">Reduces attention memory footprint from O(N²) to O(N).</div>
                 </div>
                 <input
                   type="checkbox"
@@ -84,10 +84,10 @@ export const SettingsScreen: React.FC = () => {
                 />
               </div>
 
-              <div className="flex items-center justify-between p-3 bg-[#171c26] rounded-lg border border-[#282f3d]">
+              <div className="flex items-center justify-between p-3 bg-[var(--ds-surface-container-low)] rounded-lg border border-[var(--ds-outline-variant)]">
                 <div>
-                  <div className="font-mono text-white font-bold">mlock (Lock Pages in RAM)</div>
-                  <div className="text-[11px] text-[#8991a2]">Prevents OS paging/swapping model weights to NVMe during load.</div>
+                  <div className="font-mono text-on-surface font-bold">mlock (Lock Pages in RAM)</div>
+                  <div className="text-[11px] text-[var(--ds-on-surface-variant)]">Prevents OS paging/swapping model weights to NVMe during load.</div>
                 </div>
                 <input
                   type="checkbox"
@@ -97,10 +97,10 @@ export const SettingsScreen: React.FC = () => {
                 />
               </div>
 
-              <div className="flex items-center justify-between p-3 bg-[#171c26] rounded-lg border border-[#282f3d]">
+              <div className="flex items-center justify-between p-3 bg-[var(--ds-surface-container-low)] rounded-lg border border-[var(--ds-outline-variant)]">
                 <div>
-                  <div className="font-mono text-white font-bold">Matrix Quantization (MMQ)</div>
-                  <div className="text-[11px] text-[#8991a2]">Accelerates prompt processing for 4-bit and 8-bit quantized weights.</div>
+                  <div className="font-mono text-on-surface font-bold">Matrix Quantization (MMQ)</div>
+                  <div className="text-[11px] text-[var(--ds-on-surface-variant)]">Accelerates prompt processing for 4-bit and 8-bit quantized weights.</div>
                 </div>
                 <input
                   type="checkbox"
@@ -114,51 +114,51 @@ export const SettingsScreen: React.FC = () => {
         </div>
 
         {/* API Server & Network */}
-        <div className="bg-[#111722] border border-[#282f3d] rounded-xl p-5 space-y-4">
-          <div className="flex items-center gap-2 text-sm font-bold text-white font-mono">
-            <span className="material-symbols-outlined text-[#a0caff]">lan</span>
+        <div className="bg-[var(--ds-surface-container-low)] border border-[var(--ds-outline-variant)] rounded-xl p-5 space-y-4">
+          <div className="flex items-center gap-2 text-sm font-bold text-on-surface font-mono">
+            <span className="material-symbols-outlined text-[var(--ds-primary)]">lan</span>
             API Server & Context Sizing
           </div>
 
           <div className="space-y-4 text-xs">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-[#8991a2] font-mono block mb-1">Bind Host</label>
+                <label className="text-[var(--ds-on-surface-variant)] font-mono block mb-1">Bind Host</label>
                 <input
                   type="text"
                   value={defaultHost}
                   onChange={(e) => setDefaultHost(e.target.value)}
-                  className="w-full bg-[#171c26] border border-[#282f3d] rounded-lg px-3 py-2 text-white font-mono focus:outline-none focus:border-[#a0caff]"
+                  className="w-full bg-[var(--ds-surface-container-low)] border border-[var(--ds-outline-variant)] rounded-lg px-3 py-2 text-on-surface font-mono focus:outline-none focus:border-[var(--ds-primary)]"
                 />
               </div>
               <div>
-                <label className="text-[#8991a2] font-mono block mb-1">Bind Port</label>
+                <label className="text-[var(--ds-on-surface-variant)] font-mono block mb-1">Bind Port</label>
                 <input
                   type="text"
                   value={defaultPort}
                   onChange={(e) => setDefaultPort(e.target.value)}
-                  className="w-full bg-[#171c26] border border-[#282f3d] rounded-lg px-3 py-2 text-white font-mono focus:outline-none focus:border-[#a0caff]"
+                  className="w-full bg-[var(--ds-surface-container-low)] border border-[var(--ds-outline-variant)] rounded-lg px-3 py-2 text-on-surface font-mono focus:outline-none focus:border-[var(--ds-primary)]"
                 />
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-[#8991a2] font-mono block mb-1">Default Context Tokens</label>
+                <label className="text-[var(--ds-on-surface-variant)] font-mono block mb-1">Default Context Tokens</label>
                 <input
                   type="text"
                   value={defaultCtx}
                   onChange={(e) => setDefaultCtx(e.target.value)}
-                  className="w-full bg-[#171c26] border border-[#282f3d] rounded-lg px-3 py-2 text-white font-mono focus:outline-none focus:border-[#a0caff]"
+                  className="w-full bg-[var(--ds-surface-container-low)] border border-[var(--ds-outline-variant)] rounded-lg px-3 py-2 text-on-surface font-mono focus:outline-none focus:border-[var(--ds-primary)]"
                 />
               </div>
               <div>
-                <label className="text-[#8991a2] font-mono block mb-1">CPU Compute Threads</label>
+                <label className="text-[var(--ds-on-surface-variant)] font-mono block mb-1">CPU Compute Threads</label>
                 <input
                   type="text"
                   value={threads}
                   onChange={(e) => setThreads(e.target.value)}
-                  className="w-full bg-[#171c26] border border-[#282f3d] rounded-lg px-3 py-2 text-white font-mono focus:outline-none focus:border-[#a0caff]"
+                  className="w-full bg-[var(--ds-surface-container-low)] border border-[var(--ds-outline-variant)] rounded-lg px-3 py-2 text-on-surface font-mono focus:outline-none focus:border-[var(--ds-primary)]"
                 />
               </div>
             </div>
@@ -169,7 +169,7 @@ export const SettingsScreen: React.FC = () => {
                 <span className="material-symbols-outlined text-base">security</span>
                 Zero Remote Telemetry Active
               </div>
-              <p className="text-[11px] text-[#8991a2] leading-relaxed">
+              <p className="text-[11px] text-[var(--ds-on-surface-variant)] leading-relaxed">
                 All weights, prompts, embeddings, and chat histories remain strictly on your physical NVMe drive. No diagnostic metrics or tokens leave localhost.
               </p>
             </div>

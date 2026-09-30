@@ -26,6 +26,7 @@ colors:
   secondary-container: '#3131c0'
   on-secondary-container: '#b0b2ff'
   tertiary: '#4edea3'
+  warning: '#f59e0b'
   on-tertiary: '#003824'
   tertiary-container: '#00a572'
   on-tertiary-container: '#00311f'
@@ -48,6 +49,7 @@ colors:
   background: '#0e131d'
   on-background: '#dee2f1'
   surface-variant: '#303540'
+  scrim: '#000000'
 typography:
   headline-lg:
     fontFamily: Inter
@@ -139,43 +141,38 @@ The design movement is **Technical Minimalist / Native High-Density IDE**:
 
 ## Colors
 
-The palette is engineered exclusively for sustained high-focus sessions in low-light environments. Contrast is maintained strictly within WCAG AA/AAA thresholds without inducing phosphor glare.
+The YAML `colors` map in this document is the canonical palette contract. Component examples below refer to those semantic tokens; they must not introduce a second set of palette values. Contrast has not yet been measured across all text, controls, and states, so WCAG AA/AAA compliance is not certified. Measure rendered foreground/background pairs before making an accessibility compliance claim.
 
 ### Core Surfaces & Substrates
-- **Base Canvas (Obsidian):** `#0B0E14` — Deep backdrop for root workspace canvases, window frames, and shell terminals.
-- **Surface Panel (Slate Dark):** `#121721` — Structural docking panels, sidebars, activity bars, and collapsibles.
-- **Surface Elevated (Slate Mid):** `#181F2C` — Cards, floating inspectors, tooltips, dialogs, and detached editor panes.
-- **Surface Active / Hover:** `#1E2738` — Hover states, selected rows, and drop zones.
-- **Structural Border:** `#232C3D` — Crisp 1px division between docks, panels, and toolstrips.
-- **Structural Border Focus:** `#38455E` — Subtle activation outline for inactive focused zones.
+- **Base Canvas:** `surface` (`#0e131d`) — Root workspace canvas and shell background.
+- **Lowest surface:** `surface-container-lowest` (`#090e18`) — Recessed backgrounds and scrollbar tracks.
+- **Panel surfaces:** `surface-container-low` through `surface-container-highest` — Dock panels, cards, hover and selected states, in ascending elevation.
+- **Structural borders:** `outline-variant` for quiet divisions and `outline` for stronger boundaries or focus where appropriate.
 
 ### Accents & Telemetry Roles
-- **Primary Technical Accent:** `#3B82F6` (Cyan-Blue) — Active cursors, focus rings, primary execution buttons, and branch badges.
-- **Secondary Compute Accent:** `#6366F1` (Indigo) — Neural weights, tensor tensor-ops, pipeline routes, and model architecture visualizers.
-- **Engine Emerald (Success/Online):** `#10B981` — Running inference engines, healthy memory states, and verified token throughput.
-- **VRAM Amber (Warning/Throttling):** `#F59E0B` — Memory pressure, quant degradation, thermal throttle warnings, and non-blocking logs.
-- **Thermal Rose (Critical/Error):** `#EF4444` — CUDA out-of-memory errors, kernel panics, failed assertions, and critical aborts.
+- **Primary technical accent:** `primary` and `primary-container` — Focus, primary actions, and active selections.
+- **Secondary compute accent:** `secondary` and `secondary-container` — Secondary data series and compute visualization.
+- **Success/online:** `tertiary` and `tertiary-container` — Healthy runtime and verified throughput states.
+- **Warning/throttling:** `warning` — memory pressure, thermal throttling, and non-blocking warnings.
+- **Critical/error:** `error` and `error-container` — Error and critical states.
 
 ### Typography & Content Neutrals
-- **Text High-Contrast:** `#F8FAFC` — Primary code, telemetry numerals, active tab labels.
-- **Text Standard:** `#CBD5E1` — Secondary UI labels, dock titles, inspector descriptors.
-- **Text Muted:** `#64748B` — Line numbers, inactive breadcrumbs, keyboard shortcuts, disabled toggles.
-- **Text Ghost:** `#475569` — Indentation guides, empty state diagrams, terminal timestamps.
+- Use `on-surface` for primary content and `on-surface-variant` for secondary content. Reserve disabled and decorative text for appropriately subdued variants only after their contrast is checked.
 
 ## Typography
 
 The typographic hierarchy distinguishes operational interface controls from telemetry and code artifacts.
 
 - **Interface Shell (`Inter`):** Delivers clean geometry and high readability in tight, dense arrangements such as property grids, tree views, context menus, and global app bars.
-- **Data & Telemetry Engine (`JetBrains Mono`):** Applied to prompt inputs, token matrices, memory addresses, latency figures (tokens/sec, TTFT), and keybinding annotations. Tabular figures (`tnum`) must remain permanently active across all monospaced outputs to prevent layout shift during high-frequency gauge updating.
-- **Scale Compactness:** Unlike consumer interfaces, line heights are bound between `1.15` and `1.4` to preserve terminal and buffer viewport capacity without sacrificing vertical scanning accuracy.
+- **Data & Telemetry Engine (`JetBrains Mono`):** Applied to prompt inputs, token matrices, memory addresses, latency figures (tokens/sec, TTFT), and keybinding annotations. Tabular figures (`tnum`) should be enabled for changing numeric readouts to prevent layout shift.
+- **Scale Compactness:** Use the YAML `typography` scale as the source of truth. Avoid local font-size or line-height values that conflict with those roles.
 
 ## Layout & Spacing
 
 The layout philosophy follows a **Dense Dock-and-Split Pane Grid** engineered for multi-monitor workstations and wide viewport configurations.
 
 ### Grid & Panel Rhythms
-- **Base Grid Unit:** 4px micro-grid. All paddings, pane dividers, status bars, and icon frames increment on multiples of `0.25rem` (4px).
+- **Base Grid Unit:** `spacing.space-sm` (`0.25rem`) is the base 4px increment. Use the YAML spacing roles as the source of truth.
 - **Docking Architecture:** Continuous vertical and horizontal splitters using 1px visible boundaries padded with 4px hit targets. Dock zones consist of:
   - Global Activity Bar (44px fixed width)
   - Collapsible Tree/Asset Sidebar (240px–360px variable width)
@@ -192,49 +189,43 @@ The layout philosophy follows a **Dense Dock-and-Split Pane Grid** engineered fo
 
 This design system avoids heavy drop shadows and faux real-world lighting in favor of **Tonal Layering with Low-Contrast Precision Borders**. Depth establishes hierarchy without visual blur or perimeter bleed.
 
-1. **Level 0 (Root Bedplate):** `#0B0E14` (Obsidian). Absolute floor level. Host window frame and background beneath draggable canvas tiles.
-2. **Level 1 (Dock Panels):** `#121721` (Slate Panel). Bound by a 1px solid `#232C3D` border. Zero shadow. Houses file trees, code editors, and parameter lists.
-3. **Level 2 (In-Panel Containers & Cards):** `#181F2C` (Slate Elevated). Delimits distinct parameter groups, inference log segments, and prompt containers. Enclosed with `#232C3D`.
-4. **Level 3 (Overlay Menus & Context Flyouts):** `#1A2232` with an ambient technical shadow: `0 4px 16px -2px rgba(0, 0, 0, 0.65), 0 0 0 1px #2E3A52`. Provides absolute visual separation from underlying source code.
-5. **Level 4 (Modal Command Palette / Model Switcher):** `#181F2C` elevated over a 40% `#000000` backdrop dim, with a 1px `#3B82F6` accent border highlight along the top edge to signify operational focus.
+1. **Level 0 (Root):** `surface`.
+2. **Level 1 (Dock panels):** `surface-container-low` or `surface-container` with a 1px `outline-variant` border.
+3. **Level 2 (Cards):** `surface-container-high` or `surface-container-highest`.
+4. **Level 3 (Overlays):** An elevated surface token and a restrained shadow; border uses `outline-variant`.
+5. **Level 4 (Modal):** An elevated surface token with a focus treatment using `primary`. Verify the rendered focus indicator independently for visibility.
 
 ## Shapes
 
-The shape system employs an industrial, sharp-to-soft profile (`roundedness: 1`) to preserve structure and fit high-density desktop layouts.
+The shape system uses the YAML `rounded` scale as its only radius contract, preserving structure for high-density desktop layouts.
 
-- **Dock Panels & Viewport Splitters:** Strictly `0px` radius. Panel edges fuse seamlessly with adjacent docking panes and window borders.
-- **Interactive Controls (Buttons, Inputs, Selectors):** `0.25rem` (4px). Offers gentle tactile separation while keeping the perimeter tight.
-- **Status Pills & Telemetry Chips:** `0.25rem` (4px) with subtle 1px border. Curved pill forms (`9999px`) are prohibited to avoid wasting horizontal space.
-- **Floating Overlays & Modals:** `0.375rem` (6px) maximum. Retains an engineered, machine-tooled finish.
+- **Dock panels & splitters:** `rounded.sm`.
+- **Interactive controls:** `rounded.DEFAULT` or `rounded.md`.
+- **Status chips:** `rounded.DEFAULT`; use `rounded.full` only where a pill shape is intentional.
+- **Floating overlays & modals:** `rounded.lg` maximum.
 
 ## Components
 
 ### Buttons & Action Bars
-- **Primary Compute Button:** Background `#3B82F6`, text `#FFFFFF`, font `Inter` 600, padding `4px 12px`, border radius `4px`. Hover: `#2563EB`. Active: `#1D4ED8`. Focus: `0 0 0 2px #0B0E14, 0 0 0 4px #3B82F6`.
-- **Secondary Ghost Action:** Background transparent, text `#CBD5E1`, border `1px solid #232C3D`. Hover: `#181F2C`, border `#38455E`.
-- **Destructive/Interrupt Action:** Background `#181F2C`, text `#EF4444`, border `1px solid rgba(239, 68, 68, 0.3)`. Hover: `#EF4444`, text `#FFFFFF`.
+- **Primary Compute Button:** Background `primary`, foreground `on-primary`, Inter at the `headline-sm` weight, spacing from `gutter`/`margin`, radius `rounded.DEFAULT`. Derive hover and active treatments from palette surfaces; do not invent new color literals. Focus uses `primary` with a visible outline.
+- **Secondary Ghost Action:** Transparent background, `on-surface-variant` text, `outline-variant` border; hover uses `surface-container-high`.
+- **Destructive/Interrupt Action:** Use `error` and `error-container` roles with an `outline-variant` boundary.
 
 ### Telemetry Meters & Hardware Gauges
-- **VRAM / Compute Linear Progress Bar:** Height `6px`, background `#121721`, border `1px solid #232C3D`, border radius `2px`. Fill tracks dynamically:
-  - Normal usage (<75%): `#10B981`
-  - Critical load (75%–90%): `#F59E0B`
-  - OOM Threshold (>90%): `#EF4444` with subtle pulse animation.
-- **Numeric Stream Readout:** Monospaced `JetBrains Mono` 11px, high-contrast `#F8FAFC`, right-aligned, paired with a `#64748B` micro-label (e.g., `42.4 tok/s`, `11.8 / 16 GB`).
+- **VRAM / Compute Linear Progress Bar:** Use a compact meter on `surface-container-low`, with `outline-variant` boundary and radius `rounded.sm`. Map healthy state to `tertiary`, warning to `warning`, and critical state to `error`; thresholds are product policy and must be specified separately.
+- **Numeric Stream Readout:** Use the `label-code-md` typography role, `on-surface` foreground, and right alignment; pair with `on-surface-variant` labels.
 
 ### Segmented Tabs & Switchers
-- **Dock Tabs:** Contiguous 32px height bar. Active tab has background `#121721`, text `#F8FAFC`, top border `2px solid #3B82F6`, side borders `1px solid #232C3D`. Inactive tab has background `#0B0E14`, text `#64748B`, hover text `#CBD5E1`.
-- **Segmented Control (Quantization / Sampler Selector):** Background `#0B0E14`, padding `2px`, border `1px solid #232C3D`, border radius `4px`. Active segment: `#181F2C`, text `#3B82F6`, border `1px solid #232C3D`.
+- **Dock Tabs:** Use `surface-container-low` for the active tab and `surface` for inactive tabs. Text uses `on-surface` / `on-surface-variant`; active indicator uses `primary`, dividers use `outline-variant`.
+- **Segmented Control (Quantization / Sampler Selector):** Use `surface` background, `gutter-compact` padding, `outline-variant` border and `rounded.DEFAULT`. Active segment uses `surface-container-high` and `primary` text.
 
 ### Input Fields & Technical Knobs
-- **Parameter Inputs (Temperature, Top-P, Context Size):** Background `#0B0E14`, border `1px solid #232C3D`, text `#F8FAFC`, font `JetBrains Mono` 12px, padding `4px 8px`. Focus: border `#3B82F6`. Number spinners feature embedded stepper icons.
-- **Code & Prompt Input Buffer:** Background `#121721`, border `1px solid #232C3D`, inset padding `8px 12px`, caret color `#3B82F6`, line numbers in `#475569`.
+- **Parameter Inputs (Temperature, Top-P, Context Size):** Use `surface`, `outline-variant`, `on-surface`, and `label-code-md`; use spacing tokens for padding. Focus uses `primary` and a visible outline.
+- **Code & Prompt Input Buffer:** Use `surface-container-low`, `outline-variant`, spacing tokens for inset padding, `primary` caret and `on-surface-variant` line numbers.
 
 ### Status Indicators & Chips
-- **Node Status Indicator:** 6px circular pip. 
-  - Ready: `#10B981` with faint `0 0 6px rgba(16, 185, 129, 0.4)` bloom.
-  - Compiling/Warming: `#F59E0B` with 1Hz pulse.
-  - Offline: `#64748B`.
-- **Model Signature Tag:** Background `#181F2C`, border `1px solid #232C3D`, text `#CBD5E1`, font `JetBrains Mono` 11px, padding `2px 6px`, radius `3px`.
+- **Node Status Indicator:** A small circular pip. Ready uses `tertiary`, warming uses `warning`, and offline uses `on-surface-variant`. State must also be conveyed by text or shape, not color alone.
+- **Model Signature Tag:** Use `surface-container-high`, `outline-variant`, `on-surface-variant`, `label-code-md`, spacing tokens, and `rounded.DEFAULT`.
 
 ### Lists & Tree Views
-- **Model Weight Tree & File View:** Line height `24px`. Inactive items `#CBD5E1`. Hover row: `#181F2C`. Selected row: `#1E2738`, left accent border `2px solid #3B82F6`. Expansion arrows have 12px bounding boxes with a 90-degree twist transition.
+- **Model Weight Tree & File View:** Use the `body-md` line-height role. Inactive items use `on-surface-variant`; hover uses `surface-container-high`; selected rows use `surface-container-highest` and a `primary` leading indicator. Expansion controls need an adequate interactive hit target.

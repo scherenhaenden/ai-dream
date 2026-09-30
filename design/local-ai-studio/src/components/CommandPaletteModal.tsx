@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ActiveScreen } from '../types';
 
 interface CommandItem {
@@ -25,6 +25,15 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
 }) => {
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const previouslyFocused = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    previouslyFocused.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    requestAnimationFrame(() => inputRef.current?.focus());
+    return () => previouslyFocused.current?.focus();
+  }, [isOpen]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -39,8 +48,6 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
-
-  if (!isOpen) return null;
 
   const commands: CommandItem[] = [
     {
@@ -203,61 +210,85 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
     );
   });
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const onPaletteKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'ArrowDown' && filtered.length) { event.preventDefault(); setSelectedIndex((i) => (i + 1) % filtered.length); }
+      if (event.key === 'ArrowUp' && filtered.length) { event.preventDefault(); setSelectedIndex((i) => (i - 1 + filtered.length) % filtered.length); }
+      if (event.key === 'Enter' && filtered.length) { event.preventDefault(); filtered[Math.min(selectedIndex, filtered.length - 1)]?.action(); }
+    };
+    window.addEventListener('keydown', onPaletteKeyDown);
+    return () => window.removeEventListener('keydown', onPaletteKeyDown);
+  }, [isOpen, filtered, selectedIndex]);
+
+  if (!isOpen) return null;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-24 px-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-150">
+    <div onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }} className="fixed inset-0 z-50 flex items-start justify-center pt-24 px-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-150">
       <div
-        className="w-full max-w-2xl bg-[#0e131d] border border-[#282f3d] rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+        role="dialog" aria-modal="true" aria-labelledby="command-palette-title"
+        className="w-full max-w-2xl bg-[var(--ds-surface)] border border-[var(--ds-outline-variant)] rounded-2xl shadow-2xl overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
+        onKeyDown={(event) => {
+          if (event.key !== 'Tab') return;
+          const items = event.currentTarget.querySelectorAll<HTMLElement>('input, button:not([disabled])');
+          const first = items[0]; const last = items[items.length - 1];
+          if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+          else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+        }}
       >
         {/* Search Input Bar */}
-        <div className="flex items-center px-4 py-3.5 border-b border-[#282f3d] bg-[#111722] gap-3">
-          <span className="material-symbols-outlined text-[#a0caff]">search</span>
+        <div className="flex items-center px-4 py-3.5 border-b border-[var(--ds-outline-variant)] bg-[var(--ds-surface-container-low)] gap-3">
+          <span className="material-symbols-outlined text-[var(--ds-primary)]">search</span>
+          <span id="command-palette-title" className="sr-only">Command palette</span>
           <input
-            type="text"
+            ref={inputRef}
+            type="text" aria-label="Search commands" aria-controls="command-list" role="combobox" aria-autocomplete="list" aria-expanded="true" aria-activedescendant={filtered[selectedIndex] ? filtered[selectedIndex].id : undefined}
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
               setSelectedIndex(0);
             }}
             placeholder="Type a command or jump to screen... (e.g. Chat, Hardware, API)"
-            className="flex-1 bg-transparent text-sm text-white placeholder-[#8991a2] focus:outline-none font-sans"
+            className="flex-1 bg-transparent text-sm text-on-surface placeholder-[var(--ds-on-surface-variant)] focus:outline-none font-sans"
             autoFocus
           />
-          <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-[#171c26] text-[#8991a2] border border-[#282f3d]">
+          <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-[var(--ds-surface-container-low)] text-[var(--ds-on-surface-variant)] border border-[var(--ds-outline-variant)]">
             ESC to close
           </span>
         </div>
 
         {/* Command List */}
-        <div className="max-h-96 overflow-y-auto p-2 space-y-1">
+        <div id="command-list" role="listbox" aria-label="Available commands" className="max-h-96 overflow-y-auto p-2 space-y-1">
           {filtered.length === 0 ? (
-            <div className="py-8 text-center text-xs font-mono text-[#8991a2]">
+            <div className="py-8 text-center text-xs font-mono text-[var(--ds-on-surface-variant)]">
               No commands matching "{query}"
             </div>
           ) : (
             filtered.map((item, index) => (
               <button
+                id={item.id} role="option" aria-selected={selectedIndex === index}
                 key={item.id}
                 onClick={item.action}
                 onMouseEnter={() => setSelectedIndex(index)}
                 className={`w-full flex items-center justify-between p-2.5 rounded-lg text-left text-xs font-mono transition-colors ${
                   selectedIndex === index
-                    ? 'bg-blue-600/20 text-[#a0caff] border border-blue-500/30'
-                    : 'text-[#c3c6cf] hover:bg-[#141b27] border border-transparent'
+                    ? 'bg-blue-600/20 text-[var(--ds-primary)] border border-blue-500/30'
+                    : 'text-[var(--ds-on-surface-variant)] hover:bg-[var(--ds-surface-container-low)] border border-transparent'
                 }`}
               >
                 <div className="flex items-center gap-3">
-                  <span className="material-symbols-outlined text-base text-[#a0caff]">
+                  <span className="material-symbols-outlined text-base text-[var(--ds-primary)]">
                     {item.icon}
                   </span>
                   <div>
-                    <div className="text-white font-medium">{item.title}</div>
-                    <div className="text-[10px] text-[#8991a2]">{item.category}</div>
+                    <div className="text-on-surface font-medium">{item.title}</div>
+                    <div className="text-[10px] text-[var(--ds-on-surface-variant)]">{item.category}</div>
                   </div>
                 </div>
 
                 {item.shortcut && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#171c26] text-[#8991a2] border border-[#282f3d]">
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--ds-surface-container-low)] text-[var(--ds-on-surface-variant)] border border-[var(--ds-outline-variant)]">
                     {item.shortcut}
                   </span>
                 )}
@@ -267,12 +298,12 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="px-4 py-2.5 bg-[#090e18] border-t border-[#282f3d] flex items-center justify-between text-[11px] font-mono text-[#8991a2]">
+        <div className="px-4 py-2.5 bg-[var(--ds-surface-container-lowest)] border-t border-[var(--ds-outline-variant)] flex items-center justify-between text-[11px] font-mono text-[var(--ds-on-surface-variant)]">
           <div className="flex items-center gap-4">
             <span>↑↓ to navigate</span>
             <span>↵ to select</span>
           </div>
-          <span className="text-[#a0caff]">Local AI Studio Orchestrator</span>
+          <span className="text-[var(--ds-primary)]">Local AI Studio Orchestrator</span>
         </div>
       </div>
     </div>

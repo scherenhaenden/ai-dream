@@ -100,15 +100,15 @@ export const DownloadsScreen: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[#090e18] overflow-y-auto p-6 space-y-6">
+    <div className="flex-1 flex flex-col h-full bg-[var(--ds-surface-container-lowest)] overflow-y-auto p-6 space-y-6">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-[#282f3d]">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-[var(--ds-outline-variant)]">
         <div>
-          <h1 className="text-xl font-bold tracking-tight text-[#e0e2ec] flex items-center gap-2">
-            <span className="material-symbols-outlined text-[#a0caff]">download</span>
+          <h1 className="text-xl font-bold tracking-tight text-[var(--ds-on-surface)] flex items-center gap-2">
+            <span className="material-symbols-outlined text-[var(--ds-primary)]">download</span>
             Multi-Threaded Download Manager (aria2 Engine)
           </h1>
-          <p className="text-xs text-[#8991a2] mt-1 font-mono">
+          <p className="text-xs text-[var(--ds-on-surface-variant)] mt-1 font-mono">
             Direct high-speed segment streaming with automatic SHA256 digest validation and instant indexing.
           </p>
         </div>
@@ -116,7 +116,7 @@ export const DownloadsScreen: React.FC = () => {
         <div className="flex items-center gap-3">
           <button
             onClick={() => setIsAdding(!isAdding)}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold flex items-center gap-2 shadow-lg shadow-blue-500/20"
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-on-surface rounded-lg text-xs font-semibold flex items-center gap-2 shadow-lg shadow-blue-500/20"
           >
             <span className="material-symbols-outlined text-sm">add_link</span>
             Add Download URL
@@ -126,9 +126,9 @@ export const DownloadsScreen: React.FC = () => {
 
       {/* Add URL Drawer */}
       {isAdding && (
-        <form onSubmit={handleAddJob} className="bg-[#111722] border border-[#282f3d] p-4 rounded-xl space-y-3">
-          <label className="text-xs font-bold text-white font-mono flex items-center gap-2">
-            <span className="material-symbols-outlined text-sm text-[#a0caff]">link</span>
+        <form onSubmit={handleAddJob} className="bg-[var(--ds-surface-container-low)] border border-[var(--ds-outline-variant)] p-4 rounded-xl space-y-3">
+          <label className="text-xs font-bold text-on-surface font-mono flex items-center gap-2">
+            <span className="material-symbols-outlined text-sm text-[var(--ds-primary)]">link</span>
             Direct Model GGUF / SafeTensors URL
           </label>
           <div className="flex gap-3">
@@ -137,11 +137,11 @@ export const DownloadsScreen: React.FC = () => {
               value={urlInput}
               onChange={(e) => setUrlInput(e.target.value)}
               placeholder="https://huggingface.co/Qwen/Qwen3.8-27B-Instruct-GGUF/resolve/main/qwen3.8-27b-instruct-q4_k_m.gguf"
-              className="flex-1 bg-[#171c26] border border-[#282f3d] rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-[#a0caff]"
+              className="flex-1 bg-[var(--ds-surface-container-low)] border border-[var(--ds-outline-variant)] rounded-lg px-3 py-2 text-xs font-mono text-on-surface focus:outline-none focus:border-[var(--ds-primary)]"
             />
             <button
               type="submit"
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold"
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-on-surface rounded-lg text-xs font-bold"
             >
               Start Download
             </button>
@@ -151,22 +151,22 @@ export const DownloadsScreen: React.FC = () => {
 
       {/* Speed & Storage Strip */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-[#111722] border border-[#282f3d] p-4 rounded-xl">
-          <div className="text-[10px] text-[#8991a2] font-mono uppercase">Current Aggregate Speed</div>
+        <div className="bg-[var(--ds-surface-container-low)] border border-[var(--ds-outline-variant)] p-4 rounded-xl">
+          <div className="text-[10px] text-[var(--ds-on-surface-variant)] font-mono uppercase">Current Aggregate Speed</div>
           <div className="text-2xl font-bold font-mono text-emerald-400 mt-1">84.6 MB/s</div>
-          <div className="text-xs text-[#8991a2] mt-1 font-mono">16 TCP parallel segments per file</div>
+          <div className="text-xs text-[var(--ds-on-surface-variant)] mt-1 font-mono">16 TCP parallel segments per file</div>
         </div>
 
-        <div className="bg-[#111722] border border-[#282f3d] p-4 rounded-xl">
-          <div className="text-[10px] text-[#8991a2] font-mono uppercase">Target Storage Partition</div>
-          <div className="text-2xl font-bold font-mono text-white mt-1">/mnt/fast_nvme/</div>
-          <div className="text-xs text-[#8991a2] mt-1 font-mono">1,124.0 GB free (PCIe Gen4 x4)</div>
+        <div className="bg-[var(--ds-surface-container-low)] border border-[var(--ds-outline-variant)] p-4 rounded-xl">
+          <div className="text-[10px] text-[var(--ds-on-surface-variant)] font-mono uppercase">Target Storage Partition</div>
+          <div className="text-2xl font-bold font-mono text-on-surface mt-1">/mnt/fast_nvme/</div>
+          <div className="text-xs text-[var(--ds-on-surface-variant)] mt-1 font-mono">1,124.0 GB free (PCIe Gen4 x4)</div>
         </div>
 
-        <div className="bg-[#111722] border border-[#282f3d] p-4 rounded-xl">
-          <div className="text-[10px] text-[#8991a2] font-mono uppercase">Checksum Pipeline</div>
-          <div className="text-2xl font-bold font-mono text-[#a0caff] mt-1">Hardware SHA256</div>
-          <div className="text-xs text-[#8991a2] mt-1 font-mono">AVX-512 accelerated verification</div>
+        <div className="bg-[var(--ds-surface-container-low)] border border-[var(--ds-outline-variant)] p-4 rounded-xl">
+          <div className="text-[10px] text-[var(--ds-on-surface-variant)] font-mono uppercase">Checksum Pipeline</div>
+          <div className="text-2xl font-bold font-mono text-[var(--ds-primary)] mt-1">Hardware SHA256</div>
+          <div className="text-xs text-[var(--ds-on-surface-variant)] mt-1 font-mono">AVX-512 accelerated verification</div>
         </div>
       </div>
 
@@ -175,11 +175,11 @@ export const DownloadsScreen: React.FC = () => {
         {jobs.map((job) => {
           const pct = Math.min(100, Math.round((job.downloadedBytes / job.totalBytes) * 100));
           return (
-            <div key={job.id} className="bg-[#111722] border border-[#282f3d] rounded-xl p-5 space-y-4">
+            <div key={job.id} className="bg-[var(--ds-surface-container-low)] border border-[var(--ds-outline-variant)] rounded-xl p-5 space-y-4">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="font-mono font-bold text-sm text-white">{job.filename}</span>
+                    <span className="font-mono font-bold text-sm text-on-surface">{job.filename}</span>
                     <span
                       className={`text-[10px] font-mono px-2 py-0.5 rounded font-semibold ${
                         job.status === 'DOWNLOADING'
@@ -192,14 +192,14 @@ export const DownloadsScreen: React.FC = () => {
                       {job.status}
                     </span>
                   </div>
-                  <div className="text-xs text-[#8991a2] font-mono truncate max-w-xl mt-1">{job.source}</div>
+                  <div className="text-xs text-[var(--ds-on-surface-variant)] font-mono truncate max-w-xl mt-1">{job.source}</div>
                 </div>
 
                 <div className="flex items-center gap-3">
                   {job.status !== 'COMPLETED' && (
                     <button
                       onClick={() => togglePause(job.id)}
-                      className="px-3 py-1.5 bg-[#171c26] hover:bg-[#202734] border border-[#282f3d] rounded-lg text-xs font-mono text-white flex items-center gap-1.5"
+                      className="px-3 py-1.5 bg-[var(--ds-surface-container-low)] hover:bg-[var(--ds-surface-container-high)] border border-[var(--ds-outline-variant)] rounded-lg text-xs font-mono text-on-surface flex items-center gap-1.5"
                     >
                       <span className="material-symbols-outlined text-sm">
                         {job.status === 'DOWNLOADING' ? 'pause' : 'play_arrow'}
@@ -218,7 +218,7 @@ export const DownloadsScreen: React.FC = () => {
 
               {/* Progress Bar */}
               <div className="space-y-1.5">
-                <div className="w-full bg-[#171c26] rounded-full h-2 overflow-hidden">
+                <div className="w-full bg-[var(--ds-surface-container-low)] rounded-full h-2 overflow-hidden">
                   <div
                     className={`h-full transition-all duration-300 ${
                       job.status === 'COMPLETED'
@@ -230,7 +230,7 @@ export const DownloadsScreen: React.FC = () => {
                     style={{ width: `${pct}%` }}
                   ></div>
                 </div>
-                <div className="flex justify-between text-[11px] font-mono text-[#8991a2]">
+                <div className="flex justify-between text-[11px] font-mono text-[var(--ds-on-surface-variant)]">
                   <span>
                     {formatBytes(job.downloadedBytes)} / {formatBytes(job.totalBytes)} ({pct}%)
                   </span>
@@ -245,12 +245,12 @@ export const DownloadsScreen: React.FC = () => {
               </div>
 
               {/* Destination & Hash */}
-              <div className="text-[11px] font-mono text-[#8991a2] bg-[#0c111a] p-2.5 rounded-lg border border-[#1e2635] flex flex-col md:flex-row justify-between gap-1">
+              <div className="text-[11px] font-mono text-[var(--ds-on-surface-variant)] bg-[var(--ds-surface-container-lowest)] p-2.5 rounded-lg border border-[var(--ds-outline-variant)] flex flex-col md:flex-row justify-between gap-1">
                 <div className="truncate">
-                  <span className="text-[#a0caff]">Path:</span> {job.destination}
+                  <span className="text-[var(--ds-primary)]">Path:</span> {job.destination}
                 </div>
                 <div className="truncate text-right">
-                  <span className="text-[#a0caff]">SHA256:</span> {job.sha256Expected.slice(0, 16)}...
+                  <span className="text-[var(--ds-primary)]">SHA256:</span> {job.sha256Expected.slice(0, 16)}...
                 </div>
               </div>
             </div>

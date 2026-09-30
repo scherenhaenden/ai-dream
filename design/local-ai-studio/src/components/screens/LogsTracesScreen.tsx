@@ -84,15 +84,15 @@ export const LogsTracesScreen: React.FC = () => {
   });
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[#090e18] overflow-hidden p-6 space-y-4 font-mono">
+    <div className="flex-1 flex flex-col h-full bg-[var(--ds-surface-container-lowest)] overflow-hidden p-6 space-y-4 font-mono">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-[#282f3d]">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-[var(--ds-outline-variant)]">
         <div>
-          <h1 className="text-xl font-bold tracking-tight text-[#e0e2ec] flex items-center gap-2">
-            <span className="material-symbols-outlined text-[#a0caff]">terminal</span>
+          <h1 className="text-xl font-bold tracking-tight text-[var(--ds-on-surface)] flex items-center gap-2">
+            <span className="material-symbols-outlined text-[var(--ds-primary)]">terminal</span>
             System Logs & Distributed Traces
           </h1>
-          <p className="text-xs text-[#8991a2] mt-1 font-sans">
+          <p className="text-xs text-[var(--ds-on-surface-variant)] mt-1 font-sans">
             Real-time unified stdout/stderr stream from llama.cpp runtime, Vulkan driver, and OpenAI proxy.
           </p>
         </div>
@@ -102,8 +102,8 @@ export const LogsTracesScreen: React.FC = () => {
             onClick={() => setAutoScroll(!autoScroll)}
             className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors flex items-center gap-1.5 ${
               autoScroll
-                ? 'bg-blue-600/20 text-[#a0caff] border-blue-500/40'
-                : 'bg-[#171c26] text-[#8991a2] border-[#282f3d]'
+                ? 'bg-blue-600/20 text-[var(--ds-primary)] border-blue-500/40'
+                : 'bg-[var(--ds-surface-container-low)] text-[var(--ds-on-surface-variant)] border-[var(--ds-outline-variant)]'
             }`}
           >
             <span className="material-symbols-outlined text-sm">vertical_align_bottom</span>
@@ -111,7 +111,7 @@ export const LogsTracesScreen: React.FC = () => {
           </button>
           <button
             onClick={() => alert('Logs exported to local-ai-studio-session.log')}
-            className="px-3 py-1.5 bg-[#171c26] hover:bg-[#202734] border border-[#282f3d] rounded-lg text-xs text-white flex items-center gap-1.5"
+            className="px-3 py-1.5 bg-[var(--ds-surface-container-low)] hover:bg-[var(--ds-surface-container-high)] border border-[var(--ds-outline-variant)] rounded-lg text-xs text-on-surface flex items-center gap-1.5"
           >
             <span className="material-symbols-outlined text-sm">download</span>
             Export .log
@@ -120,28 +120,28 @@ export const LogsTracesScreen: React.FC = () => {
       </div>
 
       {/* Filter Toolbar */}
-      <div className="bg-[#111722] border border-[#282f3d] p-3 rounded-xl flex flex-wrap items-center justify-between gap-3 text-xs">
+      <div className="bg-[var(--ds-surface-container-low)] border border-[var(--ds-outline-variant)] p-3 rounded-xl flex flex-wrap items-center justify-between gap-3 text-xs">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-[#8991a2] text-[11px]">Level:</span>
+          <span className="text-[var(--ds-on-surface-variant)] text-[11px]">Level:</span>
           {(['ALL', 'INFO', 'WARN', 'ERROR'] as const).map((lvl) => (
             <button
               key={lvl}
               onClick={() => setLevelFilter(lvl)}
               className={`px-2.5 py-1 rounded font-bold text-[11px] ${
                 levelFilter === lvl
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-[#171c26] text-[#8991a2] hover:text-white'
+                  ? 'bg-blue-600 text-on-surface'
+                  : 'bg-[var(--ds-surface-container-low)] text-[var(--ds-on-surface-variant)] hover:text-on-surface'
               }`}
             >
               {lvl}
             </button>
           ))}
 
-          <span className="text-[#8991a2] text-[11px] ml-2">Subsystem:</span>
+          <span className="text-[var(--ds-on-surface-variant)] text-[11px] ml-2">Subsystem:</span>
           <select
             value={subsystemFilter}
             onChange={(e) => setSubsystemFilter(e.target.value)}
-            className="bg-[#171c26] border border-[#282f3d] rounded px-2.5 py-1 text-white text-[11px] focus:outline-none"
+            className="bg-[var(--ds-surface-container-low)] border border-[var(--ds-outline-variant)] rounded px-2.5 py-1 text-on-surface text-[11px] focus:outline-none"
           >
             <option value="ALL">All Subsystems</option>
             <option value="LLAMA_CPP">LLAMA_CPP</option>
@@ -158,19 +158,19 @@ export const LogsTracesScreen: React.FC = () => {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Filter trace messages..."
-            className="bg-[#171c26] border border-[#282f3d] rounded-lg px-3 py-1.5 text-xs text-white placeholder-[#8991a2] w-56 focus:outline-none focus:border-[#a0caff]"
+            className="bg-[var(--ds-surface-container-low)] border border-[var(--ds-outline-variant)] rounded-lg px-3 py-1.5 text-xs text-on-surface placeholder-[var(--ds-on-surface-variant)] w-56 focus:outline-none focus:border-[var(--ds-primary)]"
           />
         </div>
       </div>
 
       {/* Terminal View */}
-      <div className="flex-1 bg-[#0b0f17] border border-[#282f3d] rounded-xl p-4 overflow-y-auto space-y-2 text-xs">
+      <div className="flex-1 bg-[var(--ds-surface-container-lowest)] border border-[var(--ds-outline-variant)] rounded-xl p-4 overflow-y-auto space-y-2 text-xs">
         {filteredLogs.map((log) => (
           <div
             key={log.id}
-            className="flex items-start gap-3 p-2 rounded hover:bg-[#141b27] border border-transparent hover:border-[#1e2635] transition-colors"
+            className="flex items-start gap-3 p-2 rounded hover:bg-[var(--ds-surface-container-low)] border border-transparent hover:border-[var(--ds-outline-variant)] transition-colors"
           >
-            <span className="text-[#64748b] select-none">{log.timestamp}</span>
+            <span className="text-[var(--ds-on-surface-variant)] select-none">{log.timestamp}</span>
             <span
               className={`px-1.5 py-0.5 rounded text-[10px] font-bold select-none ${
                 log.level === 'INFO'
@@ -184,8 +184,8 @@ export const LogsTracesScreen: React.FC = () => {
             >
               {log.level}
             </span>
-            <span className="text-[#a0caff] text-[11px] font-bold select-none">[{log.subsystem}]</span>
-            <span className="text-[#e2e8f0] flex-1 leading-relaxed">{log.message}</span>
+            <span className="text-[var(--ds-primary)] text-[11px] font-bold select-none">[{log.subsystem}]</span>
+            <span className="text-[var(--ds-on-surface)] flex-1 leading-relaxed">{log.message}</span>
           </div>
         ))}
       </div>
