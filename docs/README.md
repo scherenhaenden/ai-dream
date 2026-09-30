@@ -17,7 +17,21 @@ item is not an available feature until the corresponding implementation exists.
 | Use offline speech tools | [Voice](voice.md) |
 | Interpret local GGUF metadata | [Local model metadata](model-metadata.md) |
 | Interpret Hub repository metadata | [Hugging Face metadata](huggingface-metadata.md) |
+| Design the next capability/skill/multimodal orchestration layer | [Capability, skill and multimodal orchestration](capability-orchestration/README.md) |
 
 The Python Tk interface and Angular browser interface share the backend and
 local files, but their controls differ. The feature tables in the architecture
 guides identify which interface currently exposes each workflow.
+
+## Future architecture design
+
+The `capability-orchestration/` documentation is a design package for the next
+architecture layer. It is intentionally separate from the documents above,
+which describe implemented behavior. The proposal covers a normalized
+capability registry, typed artifacts, model manifests, hardware-aware loading
+profiles, declarative skills, multimodal workflow graphs, resource-aware model
+scheduling, UX, API/storage contracts and a staged implementation plan.
+
+Start with [capability-orchestration/README.md](capability-orchestration/README.md),
+then use the implementation plan to divide the work into parallel backend,
+runtime, UX, artifact, skill and testing streams.
