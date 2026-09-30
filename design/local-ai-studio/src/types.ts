@@ -1,5 +1,6 @@
 export type ActiveScreen =
   | 'chat'
+  | 'agent'
   | 'models'
   | 'model-hubs'
   | 'hardware'
@@ -10,8 +11,7 @@ export type ActiveScreen =
   | 'tools-and-permissions'
   | 'downloads'
   | 'logs-and-traces'
-  | 'settings'
-  | 'profiles';
+  | 'settings';
 
 export interface ChatMessage {
   id: string;

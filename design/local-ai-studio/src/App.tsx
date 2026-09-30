@@ -18,30 +18,13 @@ import { ToolsSecurityScreen } from './components/screens/ToolsSecurityScreen';
 import { DownloadsScreen } from './components/screens/DownloadsScreen';
 import { LogsTracesScreen } from './components/screens/LogsTracesScreen';
 import { SettingsScreen } from './components/screens/SettingsScreen';
+import { AgentScreen } from './components/screens/AgentScreen';
 
 export default function App() {
   const [activeScreen, setActiveScreen] = useState<ActiveScreen>('chat');
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
-
-  // Live telemetry state
-  const [gpu0Usage, setGpu0Usage] = useState(74);
-  const [gpu1Usage, setGpu1Usage] = useState(69);
-  const [hostRamUsage, setHostRamUsage] = useState(44);
-
-  // Loaded model state
-  const [loadedModelName, setLoadedModelName] = useState('Qwen3.8-27B-Instruct (Q4_K_M)');
-  const [notification, setNotification] = useState<string | null>(null);
-
-  // Subtle fluctuation of live telemetry metrics
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setGpu0Usage(Math.floor(72 + Math.random() * 5));
-      setGpu1Usage(Math.floor(67 + Math.random() * 5));
-      setHostRamUsage(Math.floor(43 + Math.random() * 3));
-    }, 3000);
-    return () => clearInterval(timer);
-  }, []);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Keyboard shortcut listener for Ctrl+K
   useEffect(() => {
@@ -55,49 +38,43 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  const handleLoadModel = (modelName: string) => {
-    setLoadedModelName(modelName);
-    setNotification(`Successfully initialized ${modelName} in dual-GPU VRAM.`);
-    setTimeout(() => setNotification(null), 3500);
-  };
-
-  const handleDeploySuccess = () => {
-    setNotification('Model allocated and pinned to GPU 0 & GPU 1. Runtime stream ready.');
-    setActiveScreen('chat');
-    setTimeout(() => setNotification(null), 3500);
-  };
-
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-surface text-on-surface antialiased select-none font-sans">
-      {/* Toast Notification */}
-      {notification && (
-        <div className="fixed top-16 right-6 z-50 bg-[#172033] border border-blue-500/40 text-blue-300 text-xs px-4 py-2.5 rounded-lg shadow-xl flex items-center gap-2 animate-in fade-in slide-in-from-top-3">
-          <span className="material-symbols-outlined text-sm text-[#a0caff]">info</span>
-          <span className="font-mono">{notification}</span>
-        </div>
-      )}
-
+    <div className="flex h-dvh min-h-0 w-full overflow-hidden bg-surface text-on-surface antialiased font-sans">
+      <div id="app-background" className="flex min-h-0 min-w-0 flex-1">
+      <a href="#main-content" className="fixed left-2 top-2 z-[100] -translate-y-20 rounded bg-primary px-3 py-2 font-medium text-on-primary focus:translate-y-0">Skip to main content</a>
       {/* Global Sidebar (Fixed w-72) */}
       <Sidebar
         activeScreen={activeScreen}
-        onNavigate={(screen) => setActiveScreen(screen)}
-        gpu0Usage={gpu0Usage}
-        gpu1Usage={gpu1Usage}
-        hostRamUsage={hostRamUsage}
+        onNavigate={(screen) => {
+          setActiveScreen(screen);
+          setSidebarOpen(false);
+        }}
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
       />
 
       {/* Main Workspace Frame */}
-      <div className="flex-1 flex flex-col pl-72 h-screen w-full overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col h-dvh w-full overflow-hidden lg:pl-72">
         {/* Fixed Header */}
         <Header
           activeScreen={activeScreen}
-          onNavigate={(screen) => setActiveScreen(screen)}
+          onNavigate={(screen) => {
+            setActiveScreen(screen);
+            setSidebarOpen(false);
+          }}
           onOpenCommandPalette={() => setCommandPaletteOpen(true)}
           onToggleInspector={() => setInspectorOpen(!inspectorOpen)}
+          onToggleSidebar={() => setSidebarOpen((open) => !open)}
+          sidebarOpen={sidebarOpen}
         />
 
         {/* Dynamic Screen Content Container */}
-        <main className="flex-1 flex flex-col pt-14 pb-6 overflow-hidden bg-[#090e18]">
+        <main id="main-content" tabIndex={-1} className="flex min-h-0 flex-1 flex-col pt-14 pb-6 overflow-hidden bg-surface-container-lowest">
+          <div className="mx-3 mt-2 flex shrink-0 items-center gap-2 rounded border border-outline-variant bg-surface-container-low px-3 py-1.5 text-xs text-on-surface-variant sm:mx-5">
+            <span className="shrink-0 font-semibold text-primary">DESIGN REFERENCE</span>
+            <span aria-hidden="true">·</span>
+            <span className="min-w-0">Sample data/actions only; no connection to Angular or its backend.</span>
+          </div>
           {activeScreen === 'chat' && (
             <ChatScreen
               inspectorOpen={inspectorOpen}
@@ -106,9 +83,10 @@ export default function App() {
             />
           )}
 
+          {activeScreen === 'agent' && <AgentScreen />}
+
           {activeScreen === 'models' && (
             <ModelsLibraryScreen
-              onLoadModel={handleLoadModel}
               onNavigateToChat={() => setActiveScreen('chat')}
               onNavigateToPlacement={() => setActiveScreen('load-model')}
             />
@@ -125,7 +103,6 @@ export default function App() {
 
           {activeScreen === 'load-model' && (
             <LoadModelPlacementScreen
-              onDeploySuccess={handleDeploySuccess}
               onBack={() => setActiveScreen('models')}
             />
           )}
@@ -151,13 +128,16 @@ export default function App() {
           onToggleConsole={() => setActiveScreen('logs-and-traces')}
         />
       </div>
+      </div>
 
       {/* Global Command Palette Modal (Ctrl+K) */}
       <CommandPaletteModal
         isOpen={commandPaletteOpen}
         onClose={() => setCommandPaletteOpen(false)}
-        onNavigate={(screen) => setActiveScreen(screen)}
-        onLoadModel={handleLoadModel}
+        onNavigate={(screen) => {
+          setActiveScreen(screen);
+          setSidebarOpen(false);
+        }}
       />
     </div>
   );

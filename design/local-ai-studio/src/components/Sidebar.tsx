@@ -1,23 +1,66 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
+import './accessibility.css';
 import { ActiveScreen } from '../types';
 
 interface SidebarProps {
   activeScreen: ActiveScreen;
   onNavigate: (screen: ActiveScreen) => void;
-  gpu0Usage: number;
-  gpu1Usage: number;
-  hostRamUsage: number;
+  isOpen?: boolean;
+  onClose?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
   activeScreen,
   onNavigate,
-  gpu0Usage,
-  gpu1Usage,
-  hostRamUsage,
+  isOpen = false,
+  onClose,
 }) => {
+  const asideRef = useRef<HTMLElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const navigate = (screen: ActiveScreen) => {
+    onNavigate(screen);
+    onClose?.();
+  };
+  useEffect(() => {
+    if (!isOpen) return;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const frame = window.requestAnimationFrame(() => asideRef.current?.querySelector<HTMLElement>('nav button')?.focus());
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.stopPropagation();
+        onCloseRef.current?.();
+      } else if (event.key === 'Tab') {
+        const focusable = asideRef.current?.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        );
+        if (!focusable?.length) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        const active = document.activeElement;
+        if (!asideRef.current?.contains(active)) {
+          event.preventDefault();
+          first.focus();
+        } else if (event.shiftKey && active === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && active === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener('keydown', handleKeyDown);
+      if (previousFocus?.isConnected) previousFocus.focus();
+    };
+  }, [isOpen]);
   return (
-    <aside className="fixed left-0 top-0 h-full w-72 bg-surface-container-lowest z-50 flex flex-col justify-between overflow-hidden border-r border-outline-variant/30 select-none shadow-[0_1px_8px_rgba(0,0,0,0.04)]">
+    <>
+      {isOpen && <div aria-hidden="true" onClick={onClose} className="fixed inset-0 z-40 bg-scrim/60 lg:hidden" />}
+    <aside ref={asideRef} id="primary-navigation" aria-label="Primary navigation" className={`fixed left-0 top-0 h-dvh w-[min(18rem,88vw)] bg-surface-container-lowest z-50 flex flex-col justify-between overflow-hidden border-r border-outline-variant/30 pb-6 lg:pb-0 shadow-[0_1px_8px_rgba(0,0,0,0.04)] transition-transform duration-200 ease-out lg:translate-x-0 ${isOpen ? 'visible translate-x-0' : 'invisible -translate-x-full lg:visible'}`}>
       {/* Header and Nav Links */}
       <div className="flex flex-col flex-1 min-h-0">
         {/* Brand Header */}
@@ -27,18 +70,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div className="w-8 h-8 rounded-lg bg-surface-container-high border border-outline-variant/40 flex items-center justify-center p-1 relative shrink-0 shadow-sm">
               <svg viewBox="0 0 100 100" className="w-full h-full">
                 {/* Outer frame */}
-                <rect x="6" y="6" width="88" height="88" rx="22" fill="#131722" />
+                <rect x="6" y="6" width="88" height="88" rx="22" fill="var(--color-surface-container-low)" />
                 {/* Connecting nodes */}
-                <path d="M50 24 L50 35 M50 65 L50 76 M24 50 L35 50 M65 50 L76 50" stroke="#717a8e" strokeWidth="6" strokeLinecap="round" />
+                <path d="M50 24 L50 35 M50 65 L50 76 M24 50 L35 50 M65 50 L76 50" stroke="var(--color-outline)" strokeWidth="6" strokeLinecap="round" />
                 {/* Eye Diamond */}
-                <polygon points="50,32 74,50 50,68 26,50" fill="none" stroke="#3b82f6" strokeWidth="8" strokeLinejoin="round" />
+                <polygon points="50,32 74,50 50,68 26,50" fill="none" stroke="var(--color-primary)" strokeWidth="8" strokeLinejoin="round" />
                 {/* Center pupil */}
-                <circle cx="50" cy="50" r="13" fill="#60a5fa" />
+                <circle cx="50" cy="50" r="13" fill="var(--color-primary)" />
                 {/* Outer dots */}
-                <circle cx="50" cy="24" r="6" fill="#10b981" />
-                <circle cx="76" cy="50" r="6" fill="#3b82f6" />
-                <circle cx="50" cy="76" r="6" fill="#a855f7" />
-                <circle cx="24" cy="50" r="6" fill="#f59e0b" />
+                <circle cx="50" cy="24" r="6" fill="var(--color-tertiary)" />
+                <circle cx="76" cy="50" r="6" fill="var(--color-primary)" />
+                <circle cx="50" cy="76" r="6" fill="var(--color-secondary)" />
+                <circle cx="24" cy="50" r="6" fill="var(--color-warning)" />
               </svg>
             </div>
             <div className="flex flex-col min-w-0">
@@ -47,13 +90,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   Local AI Studio
                 </span>
                 <span className="text-[10px] px-1 py-0.2 rounded bg-surface-container-high text-primary font-mono font-medium">
-                  v1.6.0
+                  DESIGN
                 </span>
               </div>
               <div className="flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse"></span>
+                <span aria-hidden="true" className="w-1.5 h-1.5 rounded-full bg-outline"></span>
                 <span className="text-[11px] text-on-surface-variant truncate">
-                  Workstation Local Node
+                  Design reference · disconnected
                 </span>
               </div>
             </div>
@@ -62,14 +105,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Navigation Categories */}
         <div className="flex-1 overflow-y-auto px-2 py-3 space-y-4">
-          <nav className="space-y-4">
+          <nav aria-label="Main" className="space-y-4">
             {/* WORKSPACE */}
             <div className="space-y-0.5">
-              <div className="px-3 py-1 text-[11px] font-mono uppercase tracking-wider text-outline">
+              <h2 className="px-3 py-1 text-[11px] font-mono uppercase tracking-wider text-outline">
                 Workspace
-              </div>
+              </h2>
               <button
-                onClick={() => onNavigate('chat')}
+                onClick={() => navigate('chat')} aria-current={activeScreen === 'chat' ? 'page' : undefined}
                 className={`w-full flex items-center justify-between px-3 py-1.5 rounded-md transition-colors text-left group ${
                   activeScreen === 'chat'
                     ? 'bg-surface-container-high text-primary font-semibold'
@@ -80,13 +123,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <span className="material-symbols-outlined text-[18px]">chat</span>
                   <span className="text-[13px] truncate">Chat</span>
                 </div>
-                <span className="text-[10px] font-mono px-1.5 py-0.5 bg-tertiary/10 text-tertiary rounded">
-                  Active Qwen3.8
-                </span>
               </button>
 
               <button
-                onClick={() => onNavigate('models')}
+                onClick={() => navigate('agent')} aria-current={activeScreen === 'agent' ? 'page' : undefined}
+                className={`w-full flex items-center justify-between px-3 py-1.5 rounded-md transition-colors text-left group ${
+                  activeScreen === 'agent'
+                    ? 'bg-surface-container-high text-primary font-semibold'
+                    : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'
+                }`}
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span aria-hidden="true" className="material-symbols-outlined text-[18px]">smart_toy</span>
+                  <span className="text-[13px] truncate">Agent</span>
+                </div>
+              </button>
+
+              <button
+                onClick={() => navigate('models')} aria-current={activeScreen === 'models' ? 'page' : undefined}
                 className={`w-full flex items-center justify-between px-3 py-1.5 rounded-md transition-colors text-left group ${
                   activeScreen === 'models'
                     ? 'bg-surface-container-high text-primary font-semibold'
@@ -97,11 +151,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <span className="material-symbols-outlined text-[18px]">inventory_2</span>
                   <span className="text-[13px] truncate">Models (Local Library)</span>
                 </div>
-                <span className="text-[11px] font-mono text-outline">43 files</span>
               </button>
 
               <button
-                onClick={() => onNavigate('model-hubs')}
+                onClick={() => navigate('model-hubs')} aria-current={activeScreen === 'model-hubs' ? 'page' : undefined}
                 className={`w-full flex items-center justify-between px-3 py-1.5 rounded-md transition-colors text-left group ${
                   activeScreen === 'model-hubs'
                     ? 'bg-surface-container-high text-primary font-semibold'
@@ -110,13 +163,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
               >
                 <div className="flex items-center gap-2.5 min-w-0">
                   <span className="material-symbols-outlined text-[18px]">hub</span>
-                  <span className="text-[13px] truncate">Model Hubs (HF / Scope)</span>
+                  <span className="text-[13px] truncate">Model Hub (Hugging Face)</span>
                 </div>
-                <span className="text-[11px] font-mono text-outline">Sync OK</span>
               </button>
 
               <button
-                onClick={() => onNavigate('knowledge')}
+                onClick={() => navigate('knowledge')} aria-current={activeScreen === 'knowledge' ? 'page' : undefined}
                 className={`w-full flex items-center justify-between px-3 py-1.5 rounded-md transition-colors text-left group ${
                   activeScreen === 'knowledge'
                     ? 'bg-surface-container-high text-primary font-semibold'
@@ -127,20 +179,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <span className="material-symbols-outlined text-[18px]">database</span>
                   <span className="text-[13px] truncate">Knowledge (RAG)</span>
                 </div>
-                <span className="text-[10px] font-mono px-1.5 py-0.5 bg-surface-container-high text-outline rounded">
-                  HNSW
-                </span>
               </button>
             </div>
 
             {/* SYSTEM */}
             <div className="space-y-0.5">
-              <div className="px-3 py-1 text-[11px] font-mono uppercase tracking-wider text-outline">
+              <h2 className="px-3 py-1 text-[11px] font-mono uppercase tracking-wider text-outline">
                 System
-              </div>
+              </h2>
 
               <button
-                onClick={() => onNavigate('hardware')}
+                onClick={() => navigate('hardware')} aria-current={activeScreen === 'hardware' ? 'page' : undefined}
                 className={`w-full flex items-center justify-between px-3 py-1.5 rounded-md transition-colors text-left group ${
                   activeScreen === 'hardware'
                     ? 'bg-surface-container-high text-primary font-semibold'
@@ -151,11 +200,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <span className="material-symbols-outlined text-[18px]">developer_board</span>
                   <span className="text-[13px] truncate">Hardware (Multi-GPU)</span>
                 </div>
-                <span className="text-[11px] font-mono text-tertiary">2 GPU P2P</span>
               </button>
 
               <button
-                onClick={() => onNavigate('load-model')}
+                onClick={() => navigate('load-model')} aria-current={activeScreen === 'load-model' ? 'page' : undefined}
                 className={`w-full flex items-center justify-between px-3 py-1.5 rounded-md transition-colors text-left group ${
                   activeScreen === 'load-model'
                     ? 'bg-surface-container-high text-primary font-semibold'
@@ -166,13 +214,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <span className="material-symbols-outlined text-[18px]">memory</span>
                   <span className="text-[13px] truncate">Load Model (Placement)</span>
                 </div>
-                <span className="text-[10px] font-mono px-1.5 py-0.5 bg-primary/15 text-primary rounded">
-                  Matrix v2
-                </span>
               </button>
 
               <button
-                onClick={() => onNavigate('providers-and-runtimes')}
+                onClick={() => navigate('providers-and-runtimes')} aria-current={activeScreen === 'providers-and-runtimes' ? 'page' : undefined}
                 className={`w-full flex items-center justify-between px-3 py-1.5 rounded-md transition-colors text-left group ${
                   activeScreen === 'providers-and-runtimes'
                     ? 'bg-surface-container-high text-primary font-semibold'
@@ -181,13 +226,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
               >
                 <div className="flex items-center gap-2.5 min-w-0">
                   <span className="material-symbols-outlined text-[18px]">settings_input_component</span>
-                  <span className="text-[13px] truncate">Providers &amp; Runtimes</span>
+                  <span className="text-[13px] truncate">Runtime Manager</span>
                 </div>
-                <span className="text-[11px] font-mono text-tertiary">3 Daemons</span>
               </button>
 
               <button
-                onClick={() => onNavigate('downloads')}
+                onClick={() => navigate('downloads')} aria-current={activeScreen === 'downloads' ? 'page' : undefined}
                 className={`w-full flex items-center justify-between px-3 py-1.5 rounded-md transition-colors text-left group ${
                   activeScreen === 'downloads'
                     ? 'bg-surface-container-high text-primary font-semibold'
@@ -198,18 +242,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <span className="material-symbols-outlined text-[18px]">download</span>
                   <span className="text-[13px] truncate">Downloads</span>
                 </div>
-                <span className="text-[10px] font-mono text-outline">1 active</span>
               </button>
             </div>
 
             {/* DEVELOPER */}
             <div className="space-y-0.5">
-              <div className="px-3 py-1 text-[11px] font-mono uppercase tracking-wider text-outline">
+              <h2 className="px-3 py-1 text-[11px] font-mono uppercase tracking-wider text-outline">
                 Developer
-              </div>
+              </h2>
 
               <button
-                onClick={() => onNavigate('local-api')}
+                onClick={() => navigate('local-api')} aria-current={activeScreen === 'local-api' ? 'page' : undefined}
                 className={`w-full flex items-center justify-between px-3 py-1.5 rounded-md transition-colors text-left group ${
                   activeScreen === 'local-api'
                     ? 'bg-surface-container-high text-primary font-semibold'
@@ -220,11 +263,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <span className="material-symbols-outlined text-[18px]">terminal</span>
                   <span className="text-[13px] truncate">Local API Server</span>
                 </div>
-                <span className="text-[11px] font-mono text-primary font-semibold">:5200</span>
               </button>
 
               <button
-                onClick={() => onNavigate('tools-and-permissions')}
+                onClick={() => navigate('tools-and-permissions')} aria-current={activeScreen === 'tools-and-permissions' ? 'page' : undefined}
                 className={`w-full flex items-center justify-between px-3 py-1.5 rounded-md transition-colors text-left group ${
                   activeScreen === 'tools-and-permissions'
                     ? 'bg-surface-container-high text-primary font-semibold'
@@ -235,11 +277,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <span className="material-symbols-outlined text-[18px]">shield</span>
                   <span className="text-[13px] truncate">Tools &amp; Permissions</span>
                 </div>
-                <span className="text-[10px] font-mono text-tertiary">Sandbox</span>
               </button>
 
               <button
-                onClick={() => onNavigate('logs-and-traces')}
+                onClick={() => navigate('logs-and-traces')} aria-current={activeScreen === 'logs-and-traces' ? 'page' : undefined}
                 className={`w-full flex items-center justify-between px-3 py-1.5 rounded-md transition-colors text-left group ${
                   activeScreen === 'logs-and-traces'
                     ? 'bg-surface-container-high text-primary font-semibold'
@@ -256,78 +297,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </div>
 
-      {/* Hardware Telemetry Bottom Block */}
-      <div className="p-3 bg-surface-container-low/90 border-t border-outline-variant/30 space-y-2">
-        <div className="p-2 rounded bg-surface-container-lowest border border-outline-variant/20 space-y-1">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-mono text-outline uppercase font-semibold">
-              DAEMON STACK
-            </span>
-            <span className="text-[10px] font-mono text-tertiary font-bold flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse"></span>
-              ONLINE
-            </span>
-          </div>
-          <p className="text-[10px] font-mono text-on-surface-variant truncate">
-            llama-server • API Server • Vector DB
-          </p>
-        </div>
-
-        {/* Telemetry Meters */}
-        <div className="p-2 rounded bg-surface-container-lowest border border-outline-variant/20 space-y-1.5">
-          {/* GPU 0 */}
-          <div className="space-y-0.5">
-            <div className="flex justify-between items-center text-[10px] font-mono">
-              <span className="text-on-surface font-medium">GPU 0: RX 9070</span>
-              <span className="text-error font-semibold">
-                {(gpu0Usage * 0.16).toFixed(1)} / 16G ({gpu0Usage.toFixed(0)}%)
-              </span>
-            </div>
-            <div className="h-1.5 w-full bg-surface-variant rounded-full overflow-hidden">
-              <div
-                className="h-full bg-error rounded-full transition-all duration-300"
-                style={{ width: `${gpu0Usage}%` }}
-              ></div>
-            </div>
-          </div>
-
-          {/* GPU 1 */}
-          <div className="space-y-0.5">
-            <div className="flex justify-between items-center text-[10px] font-mono">
-              <span className="text-on-surface font-medium">GPU 1: RX 9070</span>
-              <span className="text-tertiary font-semibold">
-                {(gpu1Usage * 0.16).toFixed(1)} / 16G ({gpu1Usage.toFixed(0)}%)
-              </span>
-            </div>
-            <div className="h-1.5 w-full bg-surface-variant rounded-full overflow-hidden">
-              <div
-                className="h-full bg-tertiary rounded-full transition-all duration-300"
-                style={{ width: `${gpu1Usage}%` }}
-              ></div>
-            </div>
-          </div>
-
-          {/* Host RAM */}
-          <div className="space-y-0.5">
-            <div className="flex justify-between items-center text-[10px] font-mono">
-              <span className="text-on-surface-variant">Host RAM</span>
-              <span className="text-on-surface-variant font-medium">
-                {(hostRamUsage * 0.64).toFixed(1)} / 64G ({hostRamUsage.toFixed(0)}%)
-              </span>
-            </div>
-            <div className="h-1 w-full bg-surface-variant rounded-full overflow-hidden">
-              <div
-                className="h-full bg-primary-container rounded-full transition-all duration-300"
-                style={{ width: `${hostRamUsage}%` }}
-              ></div>
-            </div>
-          </div>
-        </div>
-
-        {/* Runtime / Settings footer buttons */}
-        <div className="flex items-center justify-between pt-1">
+      {/* Settings lives outside the screen navigation groups. */}
+      <div className="p-3 bg-surface-container-low/90 border-t border-outline-variant/30">
+        <div className="flex items-center pt-1">
           <button
-            onClick={() => onNavigate('settings')}
+            onClick={() => navigate('settings')} aria-current={activeScreen === 'settings' ? 'page' : undefined}
             className={`flex items-center gap-1.5 text-[12px] font-medium transition-colors ${
               activeScreen === 'settings'
                 ? 'text-primary font-semibold'
@@ -337,19 +311,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <span className="material-symbols-outlined text-[16px]">settings</span>
             <span>Settings</span>
           </button>
-          <button
-            onClick={() => onNavigate('profiles')}
-            className={`flex items-center gap-1.5 text-[12px] font-medium transition-colors ${
-              activeScreen === 'profiles'
-                ? 'text-primary font-semibold'
-                : 'text-on-surface-variant hover:text-on-surface'
-            }`}
-          >
-            <span className="material-symbols-outlined text-[16px]">manage_accounts</span>
-            <span>Profiles</span>
-          </button>
         </div>
       </div>
     </aside>
+    </>
   );
 };
