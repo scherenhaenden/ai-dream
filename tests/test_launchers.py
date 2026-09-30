@@ -28,8 +28,9 @@ class LauncherTests(unittest.TestCase):
         self.assertTrue(standalone["exec"].endswith("/open-ai-dream-app"))
         self.assertEqual(standalone["tryexec"], standalone["exec"])
         self.assertEqual(web["name"], "AI Dream Web")
-        self.assertTrue(web["exec"].endswith("/open-ai-dream-app"))
+        self.assertTrue(web["exec"].endswith("/open-ai-dream-web"))
         self.assertEqual(web["tryexec"], web["exec"])
+        self.assertNotEqual(web["exec"], standalone["exec"])
         self.assertEqual(standalone["terminal"], "false")
         self.assertEqual(web["terminal"], "false")
 
