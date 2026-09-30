@@ -1,6 +1,6 @@
 {
   "name": "Local AI Studio",
-  "description": "High-density local LLM workstation orchestration for multi-GPU heterogeneous clusters, llama.cpp, RAG, and OpenAI-compatible API serving.",
+  "description": "Visual React/Vite prototype for the Local AI Studio workstation interface. The production application is Angular in web/; prototype telemetry and actions are illustrative and are not connected to production services.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": []
 }

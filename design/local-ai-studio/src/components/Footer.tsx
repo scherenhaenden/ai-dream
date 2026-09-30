@@ -10,7 +10,7 @@ export const Footer: React.FC<FooterProps> = ({
   onToggleConsole,
 }) => {
   return (
-    <footer className="fixed bottom-0 left-0 right-0 h-6 bg-surface-container-lowest border-t border-outline-variant/30 z-50 flex items-center justify-between px-3 font-mono text-[11px] text-outline shadow-[0_-1px_6px_rgba(0,0,0,0.06)] select-none">
+    <footer className="studio-footer fixed bottom-0 left-0 right-0 h-6 bg-surface-container-lowest border-t border-outline-variant/30 z-50 flex items-center justify-between px-3 font-mono text-[11px] text-outline shadow-[0_-1px_6px_rgba(0,0,0,0.06)] select-none">
       {/* Left items */}
       <div className="flex items-center gap-3 overflow-hidden">
         <div className="flex items-center gap-1.5 text-on-surface-variant truncate">
@@ -44,14 +44,14 @@ export const Footer: React.FC<FooterProps> = ({
           <span>HF Hub Connected</span>
         </div>
         <span className="text-outline-variant">|</span>
-        <button
+        <button type="button" aria-label="Open runtime inspector"
           onClick={onToggleInspector}
           className="flex items-center gap-1 text-on-surface-variant hover:text-primary transition-colors cursor-pointer"
         >
           <span className="material-symbols-outlined text-[13px]">vertical_split</span>
           <span>Inspector</span>
         </button>
-        <button
+        <button type="button" aria-label="Open console logs"
           onClick={onToggleConsole}
           className="flex items-center gap-1 text-on-surface-variant hover:text-primary transition-colors cursor-pointer"
         >

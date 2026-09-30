@@ -23,6 +23,7 @@ export default function App() {
   const [activeScreen, setActiveScreen] = useState<ActiveScreen>('chat');
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   // Live telemetry state
   const [gpu0Usage, setGpu0Usage] = useState(74);
@@ -68,11 +69,11 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-surface text-on-surface antialiased select-none font-sans">
+    <div className={`studio-app flex h-screen w-screen overflow-hidden bg-surface text-on-surface antialiased font-sans ${mobileNavOpen ? 'mobile-nav-open' : ''}`}>
       {/* Toast Notification */}
       {notification && (
-        <div className="fixed top-16 right-6 z-50 bg-[#172033] border border-blue-500/40 text-blue-300 text-xs px-4 py-2.5 rounded-lg shadow-xl flex items-center gap-2 animate-in fade-in slide-in-from-top-3">
-          <span className="material-symbols-outlined text-sm text-[#a0caff]">info</span>
+        <div role="status" aria-live="polite" className="fixed top-16 right-6 z-50 bg-[var(--ds-surface-container-low)] border border-blue-500/40 text-blue-300 text-xs px-4 py-2.5 rounded-lg shadow-xl flex items-center gap-2 animate-in fade-in slide-in-from-top-3">
+          <span className="material-symbols-outlined text-sm text-[var(--ds-primary)]">info</span>
           <span className="font-mono">{notification}</span>
         </div>
       )}
@@ -80,24 +81,28 @@ export default function App() {
       {/* Global Sidebar (Fixed w-72) */}
       <Sidebar
         activeScreen={activeScreen}
-        onNavigate={(screen) => setActiveScreen(screen)}
+        onNavigate={(screen) => { setActiveScreen(screen); setMobileNavOpen(false); }}
+        mobileOpen={mobileNavOpen}
+        onClose={() => setMobileNavOpen(false)}
         gpu0Usage={gpu0Usage}
         gpu1Usage={gpu1Usage}
         hostRamUsage={hostRamUsage}
       />
 
       {/* Main Workspace Frame */}
-      <div className="flex-1 flex flex-col pl-72 h-screen w-full overflow-hidden">
+      <div className="studio-workspace flex-1 flex flex-col pl-72 h-screen w-full overflow-hidden">
         {/* Fixed Header */}
         <Header
           activeScreen={activeScreen}
-          onNavigate={(screen) => setActiveScreen(screen)}
+          onNavigate={(screen) => { setActiveScreen(screen); setMobileNavOpen(false); }}
           onOpenCommandPalette={() => setCommandPaletteOpen(true)}
           onToggleInspector={() => setInspectorOpen(!inspectorOpen)}
+          mobileNavOpen={mobileNavOpen}
+          onToggleMobileNav={() => setMobileNavOpen((open) => !open)}
         />
 
         {/* Dynamic Screen Content Container */}
-        <main className="flex-1 flex flex-col pt-14 pb-6 overflow-hidden bg-[#090e18]">
+        <main id="main-content" tabIndex={-1} className="flex-1 flex flex-col pt-14 pb-6 overflow-hidden bg-[var(--ds-surface-container-lowest)]">
           {activeScreen === 'chat' && (
             <ChatScreen
               inspectorOpen={inspectorOpen}

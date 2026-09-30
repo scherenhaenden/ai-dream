@@ -1,40 +1,129 @@
 @import "tailwindcss";
 
+/* Keep this palette synchronized with DESIGN.md YAML frontmatter. */
+:root {
+  --ds-surface: #0e131d;
+  --ds-surface-dim: #0e131d;
+  --ds-surface-bright: #343944;
+  --ds-surface-container-lowest: #090e18;
+  --ds-surface-container-low: #171c26;
+  --ds-surface-container: #1b202a;
+  --ds-surface-container-high: #252a35;
+  --ds-surface-container-highest: #303540;
+  --ds-surface-variant: #303540;
+  --ds-on-surface: #dee2f1;
+  --ds-on-surface-variant: #c2c6d6;
+  --ds-inverse-surface: #dee2f1;
+  --ds-inverse-on-surface: #2b303b;
+  --ds-outline: #8c909f;
+  --ds-outline-variant: #424754;
+  --ds-surface-tint: #adc6ff;
+  --ds-primary: #adc6ff;
+  --ds-on-primary: #002e6a;
+  --ds-primary-container: #4d8eff;
+  --ds-on-primary-container: #00285d;
+  --ds-inverse-primary: #005ac2;
+  --ds-secondary: #c0c1ff;
+  --ds-on-secondary: #1000a9;
+  --ds-secondary-container: #3131c0;
+  --ds-on-secondary-container: #b0b2ff;
+  --ds-tertiary: #4edea3;
+  --ds-warning: #f59e0b;
+  --ds-on-tertiary: #003824;
+  --ds-tertiary-container: #00a572;
+  --ds-on-tertiary-container: #00311f;
+  --ds-error: #ffb4ab;
+  --ds-on-error: #690005;
+  --ds-error-container: #93000a;
+  --ds-on-error-container: #ffdad6;
+  --ds-primary-fixed: #d8e2ff;
+  --ds-primary-fixed-dim: #adc6ff;
+  --ds-on-primary-fixed: #001a42;
+  --ds-on-primary-fixed-variant: #004395;
+  --ds-secondary-fixed: #e1e0ff;
+  --ds-secondary-fixed-dim: #c0c1ff;
+  --ds-on-secondary-fixed: #07006c;
+  --ds-on-secondary-fixed-variant: #2f2ebe;
+  --ds-tertiary-fixed: #6ffbbe;
+  --ds-tertiary-fixed-dim: #4edea3;
+  --ds-on-tertiary-fixed: #002113;
+  --ds-on-tertiary-fixed-variant: #005236;
+  --ds-background: #0e131d;
+  --ds-on-background: #dee2f1;
+  --ds-scrim: #000000;
+}
+
 @theme {
-  --color-surface: #0e131d;
-  --color-surface-dim: #0e131d;
-  --color-surface-bright: #343944;
-  --color-surface-container-lowest: #090e18;
-  --color-surface-container-low: #171c26;
-  --color-surface-container: #1b202a;
-  --color-surface-container-high: #252a35;
-  --color-surface-container-highest: #303540;
-  --color-surface-variant: #303540;
-  --color-on-surface: #dee2f1;
-  --color-on-surface-variant: #c2c6d6;
-  --color-outline: #8c909f;
-  --color-outline-variant: #424754;
-  --color-surface-tint: #adc6ff;
-  --color-primary: #adc6ff;
-  --color-on-primary: #002e6a;
-  --color-primary-container: #4d8eff;
-  --color-on-primary-container: #00285d;
-  --color-primary-fixed: #d8e2ff;
-  --color-primary-fixed-dim: #adc6ff;
-  --color-secondary: #c0c1ff;
-  --color-on-secondary: #1000a9;
-  --color-secondary-container: #3131c0;
-  --color-on-secondary-container: #b0b2ff;
-  --color-tertiary: #4edea3;
-  --color-on-tertiary: #003824;
-  --color-tertiary-container: #00a572;
-  --color-on-tertiary-container: #00311f;
-  --color-error: #ffb4ab;
-  --color-on-error: #690005;
-  --color-error-container: #93000a;
-  --color-on-error-container: #ffdad6;
-  --color-background: #0e131d;
-  --color-on-background: #dee2f1;
+  --color-surface: var(--ds-surface);
+  --color-surface-dim: var(--ds-surface-dim);
+  --color-surface-bright: var(--ds-surface-bright);
+  --color-surface-container-lowest: var(--ds-surface-container-lowest);
+  --color-surface-container-low: var(--ds-surface-container-low);
+  --color-surface-container: var(--ds-surface-container);
+  --color-surface-container-high: var(--ds-surface-container-high);
+  --color-surface-container-highest: var(--ds-surface-container-highest);
+  --color-surface-variant: var(--ds-surface-variant);
+  --color-on-surface: var(--ds-on-surface);
+  --color-on-surface-variant: var(--ds-on-surface-variant);
+  --color-inverse-surface: var(--ds-inverse-surface);
+  --color-inverse-on-surface: var(--ds-inverse-on-surface);
+  --color-outline: var(--ds-outline);
+  --color-outline-variant: var(--ds-outline-variant);
+  --color-surface-tint: var(--ds-surface-tint);
+  --color-primary: var(--ds-primary);
+  --color-on-primary: var(--ds-on-primary);
+  --color-primary-container: var(--ds-primary-container);
+  --color-on-primary-container: var(--ds-on-primary-container);
+  --color-inverse-primary: var(--ds-inverse-primary);
+  --color-secondary: var(--ds-secondary);
+  --color-on-secondary: var(--ds-on-secondary);
+  --color-secondary-container: var(--ds-secondary-container);
+  --color-on-secondary-container: var(--ds-on-secondary-container);
+  --color-tertiary: var(--ds-tertiary);
+  --color-on-tertiary: var(--ds-on-tertiary);
+  --color-tertiary-container: var(--ds-tertiary-container);
+  --color-on-tertiary-container: var(--ds-on-tertiary-container);
+  --color-warning: var(--ds-warning);
+  /* Compatibility aliases for Tailwind color utilities still present in screens. */
+  --color-blue-300: var(--ds-primary);
+  --color-blue-400: var(--ds-primary);
+  --color-blue-500: var(--ds-primary);
+  --color-blue-600: var(--ds-primary-container);
+  --color-blue-800: var(--ds-on-primary-container);
+  --color-red-400: var(--ds-error);
+  --color-red-500: var(--ds-error);
+  --color-red-800: var(--ds-error-container);
+  --color-red-950: var(--ds-error-container);
+  --color-amber-400: var(--ds-warning);
+  --color-amber-500: var(--ds-warning);
+  --color-emerald-400: var(--ds-tertiary);
+  --color-emerald-500: var(--ds-tertiary);
+  --color-emerald-950: var(--ds-tertiary-container);
+  --color-green-500: var(--ds-tertiary);
+  --color-purple-400: var(--ds-secondary);
+  --color-purple-500: var(--ds-secondary);
+  --color-indigo-400: var(--ds-secondary);
+  --color-indigo-500: var(--ds-secondary);
+  --color-slate-500: var(--ds-on-surface-variant);
+  --color-error: var(--ds-error);
+  --color-on-error: var(--ds-on-error);
+  --color-error-container: var(--ds-error-container);
+  --color-on-error-container: var(--ds-on-error-container);
+  --color-primary-fixed: var(--ds-primary-fixed);
+  --color-primary-fixed-dim: var(--ds-primary-fixed-dim);
+  --color-on-primary-fixed: var(--ds-on-primary-fixed);
+  --color-on-primary-fixed-variant: var(--ds-on-primary-fixed-variant);
+  --color-secondary-fixed: var(--ds-secondary-fixed);
+  --color-secondary-fixed-dim: var(--ds-secondary-fixed-dim);
+  --color-on-secondary-fixed: var(--ds-on-secondary-fixed);
+  --color-on-secondary-fixed-variant: var(--ds-on-secondary-fixed-variant);
+  --color-tertiary-fixed: var(--ds-tertiary-fixed);
+  --color-tertiary-fixed-dim: var(--ds-tertiary-fixed-dim);
+  --color-on-tertiary-fixed: var(--ds-on-tertiary-fixed);
+  --color-on-tertiary-fixed-variant: var(--ds-on-tertiary-fixed-variant);
+  --color-background: var(--ds-background);
+  --color-on-background: var(--ds-on-background);
+  --color-black: var(--ds-scrim);
 
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
@@ -42,11 +131,11 @@
 
 @layer base {
   * {
-    border-color: #424754;
+    border-color: var(--ds-outline-variant);
   }
   body {
-    background-color: #0e131d;
-    color: #dee2f1;
+    background-color: var(--ds-background);
+    color: var(--ds-on-background);
     font-family: 'Inter', sans-serif;
   }
 }
@@ -57,14 +146,14 @@
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #090e18;
+  background: var(--ds-surface-container-lowest);
 }
 ::-webkit-scrollbar-thumb {
-  background: #252a35;
+  background: var(--ds-surface-container-high);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #303540;
+  background: var(--ds-surface-container-highest);
 }
 
 .material-symbols-outlined {
