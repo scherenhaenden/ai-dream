@@ -62,6 +62,32 @@ class ArtifactStoreTests(unittest.TestCase):
             self.store.read(short["id"])
         self.assertEqual(self.store.read(long["id"]), b"abc")
 
+    def test_ttl_starts_after_artifact_bytes_are_committed(self):
+        # Simulate a slow write by advancing the injected monotonic clock
+        # between capacity/expiry cleanup and the post-write commit point.
+        ticks = iter((100.0, 111.0, 112.0))
+        self.store._clock = lambda: next(ticks)
+        envelope = self.put()
+        self.assertEqual(self.store.read(envelope["id"]), b"abc")
+
+    def test_delete_lazily_sweeps_expired_artifacts_even_when_target_is_missing(self):
+        expired = self.put(owner_id="run-expired")
+        path = self.store.root / expired["storage"]["key"]
+        self.now[0] += 11
+        self.assertFalse(self.store.delete("art_missing"))
+        self.assertFalse(path.exists())
+        with self.assertRaises(ArtifactNotFoundError):
+            self.store.read(expired["id"])
+
+    def test_owner_cleanup_lazily_sweeps_expired_artifacts_for_other_owners(self):
+        expired = self.put(owner_id="run-expired")
+        path = self.store.root / expired["storage"]["key"]
+        self.now[0] += 11
+        self.assertEqual(self.store.delete_owner("run", "unrelated-owner"), 0)
+        self.assertFalse(path.exists())
+        with self.assertRaises(ArtifactNotFoundError):
+            self.store.read(expired["id"])
+
     def test_persistent_lifetime_is_not_accepted_by_temporary_store(self):
         with self.assertRaises(ValueError):
             self.put(lifetime="persistent")

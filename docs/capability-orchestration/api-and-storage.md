@@ -55,6 +55,14 @@ PATCH  /api/model-manifests/<id>/preferences
 
 Local user-created manifests may later support create/update endpoints, but the first implementation can generate manifests from catalog metadata plus bundled/user overlays.
 
+`POST /api/model-manifests/<id>/verify` accepts only `{}`. It delegates startup
+and a minimal capability probe to an injected local `ManifestVerifier`; the
+request cannot submit evidence or capabilities. The default API has no runtime
+probe configured and returns `503` without changing records. Successful typed
+results are checked against the manifest, validated as a verified model
+profile, persisted, and merged below user-authored metadata. Failed probes are
+recorded without promoting a profile or capability claim.
+
 The existing `GET /api/models` continues to return file catalog records. The UI can join records with manifest summaries or the API can add an optional expanded representation later.
 
 ## 4. Skill endpoints
@@ -210,10 +218,16 @@ Semantic preferences should have their own store:
     "mode": "auto",
     "prefer_verified": true,
     "prefer_loaded": true,
-    "resource_headroom_percent": 10
+    "resource_headroom_percent": 10,
+    "eviction_policy": "lru",
+    "assisted_planner_enabled": false
   }
 }
 ```
+
+`eviction_policy` is `lru` (unload the oldest idle, unpinned resident under memory pressure) or `never` (preserve residents and fail a load that needs implicit eviction). Busy leases and user pins are protected under either policy. A version 1 preferences file without this key reads as `lru` and gains the key on its next write.
+
+`assisted_planner_enabled` is a global explicit opt-in and defaults to `false`. The `/api/skills/{id}/draft` action requires an already loaded local model and generates only after a user request. Its JSON is bounded and validated against the installed skill contract; execution still requires review of the returned draft and resolved plan.
 
 This is separate from low-level runtime defaults.
 

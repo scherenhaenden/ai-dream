@@ -1,7 +1,8 @@
 import unittest
 import hashlib
-from threading import Barrier, Lock
+from threading import Barrier, Event, Lock
 
+from aidream.run_manager import RunCancelled
 from aidream.skills import SkillContractError, SkillExecutionError, SkillExecutor, SkillRegistry
 
 
@@ -44,6 +45,34 @@ class SkillRegistryTests(unittest.TestCase):
 
 
 class SkillExecutorTests(unittest.TestCase):
+    def test_cooperative_cancel_event_stops_before_next_side_effecting_node(self):
+        cancel_event = Event()
+        calls = []
+
+        def stop_after_first(_node, values):
+            calls.append("first")
+            cancel_event.set()
+            return {"value": artifact("text", values["value"]["value"])}
+
+        def should_not_run(_node, values):
+            calls.append("second")
+            return {"answer": values["value"]}
+
+        graph = [
+            {"id": "first", "type": "transform", "transform_id": "first",
+             "in": {"value": "$input.prompt"}, "accepts": {"value": "text"},
+             "out": {"value": "text"}},
+            {"id": "second", "type": "transform", "transform_id": "second",
+             "in": {"value": "$first.value"}, "accepts": {"value": "text"},
+             "out": {"answer": "text"}},
+            {"id": "result", "type": "output", "in": {"answer": "$second.answer"}},
+        ]
+        executor = SkillExecutor(transforms={"first": stop_after_first, "second": should_not_run})
+        with self.assertRaisesRegex(RunCancelled, "run cancelled"):
+            executor.execute(manifest(graph), {"prompt": artifact("text", "start")},
+                             cancel_event=cancel_event)
+        self.assertEqual(["first"], calls)
+
     @staticmethod
     def child_skill(skill_id="text.child"):
         return {
@@ -87,7 +116,22 @@ class SkillExecutorTests(unittest.TestCase):
             ("started", "result"), ("completed", "result"),
         ], events)
 
-    def test_subskill_contract_rejects_missing_registry_bad_ports_and_nested_routes(self):
+    def test_subskill_cancellation_propagates_and_emits_hierarchical_failure_trace(self):
+        class RunCancelled(Exception):
+            pass
+
+        def cancel(*_):
+            raise RunCancelled("cancelled")
+
+        events = []
+        executor = SkillExecutor(transforms={"echo": cancel}, subskills={"text.child": self.child_skill()})
+        with self.assertRaisesRegex(RunCancelled, "cancelled"):
+            executor.execute(self.parent_with_subskill(), {"prompt": artifact("text", "hi")},
+                             event_callback=lambda state, node: events.append((state, node)))
+        self.assertEqual([("started", "nested"), ("started", "nested/work"),
+                          ("failed", "nested/work"), ("failed", "nested")], events)
+
+    def test_subskill_contract_rejects_missing_registry_and_bad_ports_but_allows_nested_routes(self):
         parent = self.parent_with_subskill()
         with self.assertRaisesRegex(SkillContractError, "not registered"):
             SkillExecutor().type_check(parent)
@@ -100,8 +144,18 @@ class SkillExecutorTests(unittest.TestCase):
         child["graph"].insert(0, {"id": "route", "type": "capability", "capability": "text.chat",
                                   "in": {"prompt": "$input.prompt"}, "accepts": {"prompt": "text"},
                                   "out": {"answer": "text"}})
-        with self.assertRaisesRegex(SkillContractError, "nested model/capability routes"):
-            SkillExecutor(subskills={"text.child": child}).type_check(self.parent_with_subskill())
+        checked = SkillExecutor(subskills={"text.child": child}).type_check(self.parent_with_subskill())
+        self.assertEqual("chat.general", checked["id"])
+
+    def test_subskill_cannot_widen_parent_permissions(self):
+        child = self.child_skill()
+        child["permissions"] = {"filesystem_read": "user-selected-only"}
+        executor = SkillExecutor(subskills={"text.child": child})
+        with self.assertRaisesRegex(SkillContractError, "widens inherited permissions.*filesystem_read"):
+            executor.type_check(self.parent_with_subskill())
+        parent = self.parent_with_subskill()
+        parent["permissions"] = {"filesystem_read": "user-selected-only"}
+        executor.type_check(parent)
 
     def test_subskill_cycles_and_depth_are_rejected_during_type_check(self):
         a = self.child_skill("text.a")
@@ -114,6 +168,22 @@ class SkillExecutorTests(unittest.TestCase):
                               "out": {"answer": "text"}})
         with self.assertRaisesRegex(SkillContractError, "sub-skill cycle"):
             SkillExecutor(subskills={"text.a": a, "text.b": b}).type_check(self.parent_with_subskill("text.a"))
+
+        chain = {}
+        for index in range(5, 0, -1):
+            skill_id = f"text.level{index}"
+            child = self.child_skill(skill_id)
+            if index < 5:
+                next_id = f"text.level{index + 1}"
+                child["graph"] = [
+                    {"id": "nested", "type": "skill", "skill_id": next_id,
+                     "in": {"prompt": "$input.prompt"}, "accepts": {"prompt": "text"},
+                     "out": {"answer": "text"}},
+                    {"id": "result", "type": "output", "in": {"answer": "$nested.answer"}},
+                ]
+            chain[skill_id] = child
+        with self.assertRaisesRegex(SkillContractError, "nesting exceeds depth 4"):
+            SkillExecutor(subskills=chain).type_check(self.parent_with_subskill("text.level1"))
 
     def test_subskill_invocations_count_child_worst_case_steps(self):
         parent = self.parent_with_subskill()
@@ -262,6 +332,41 @@ class SkillExecutorTests(unittest.TestCase):
         with self.assertRaisesRegex(SkillContractError, "requires 3 steps, limit is 2"):
             executor.execute(skill, {"prompt": artifact("text", "x")})
         self.assertEqual([], calls)
+
+    def test_missing_loop_handler_is_preflighted_before_earlier_tool_side_effect(self):
+        graph = [
+            {"id": "first", "type": "tool", "tool_id": "touch", "in": {"value": "$input.prompt"},
+             "accepts": {"value": "text"}, "out": {"value": "text"}},
+            {"id": "repeat", "type": "loop", "transform_id": "missing", "max_iterations": 2,
+             "in": {"value": "$first.value"}, "accepts": {"value": "text"}, "out": {"value": "text"}},
+            {"id": "result", "type": "output", "in": {"answer": "$repeat.value"}},
+        ]
+        called = []
+        executor = SkillExecutor(tools={"touch": lambda *_: called.append(True) or {"value": artifact("text", "x")}})
+        with self.assertRaisesRegex(SkillExecutionError, "no registered transform executor"):
+            executor.execute(manifest(graph), {"prompt": artifact("text", "go")})
+        self.assertEqual([], called)
+
+    def test_fallback_does_not_treat_run_cancellation_as_a_candidate_failure(self):
+        graph = [{"id": "recover", "type": "fallback", "in": {"prompt": "$input.prompt"},
+                  "accepts": {"prompt": "text"}, "out": {"answer": "text"},
+                  "fallbacks": [{"id": "primary", "transform_id": "primary"},
+                                {"id": "backup", "transform_id": "backup"}]},
+                 {"id": "result", "type": "output", "in": {"answer": "$recover.answer"}}]
+        called = []
+
+        def cancel(*_):
+            called.append("primary")
+            raise RunCancelled("cancel requested")
+
+        executor = SkillExecutor(transforms={
+            "primary": cancel,
+            "backup": lambda *_: called.append("backup") or {"answer": artifact("text", "recovered")},
+        })
+        with self.assertRaisesRegex(RunCancelled, "cancel requested"):
+            executor.execute(manifest(graph), {"prompt": artifact("text", "go")},
+                             plan_revision="plan", fallback_callback=lambda _trace: None)
+        self.assertEqual(["primary"], called)
 
     def test_fallback_selects_first_valid_registered_transform_and_emits_revision_trace(self):
         graph = [

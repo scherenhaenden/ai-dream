@@ -1,8 +1,9 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { ArtifactService, MAX_ARTIFACT_UPLOAD_BYTES } from '../core/artifact.service';
 import type { ArtifactEnvelope, UploadArtifactKind } from '../core/artifact.types';
 import { SkillService } from '../core/skill.service';
+import type { ImageCapabilityId, ImageRouteChoice } from '../core/skill.service';
 import type { SkillCatalogItem, SkillReadiness, SkillPort, SkillPermissionKey, SkillPermissionRow } from '../core/skill.types';
 
 @Component({
@@ -14,11 +15,20 @@ import type { SkillCatalogItem, SkillReadiness, SkillPort, SkillPermissionKey, S
       <header class="page-head">
         <div><div class="eyebrow">TASK CATALOG</div><h1>Skills</h1>
           <p>Choose a workflow by goal. Readiness and preferred routes come from the local API.</p></div>
-        <button type="button" class="refresh" (click)="load()" [disabled]="loading()">{{ loading() ? 'Loading…' : '↻ Refresh' }}</button>
+        <button type="button" class="refresh" (click)="refreshAll()" [disabled]="loading() || plannerSettingsLoading()">{{ loading() || plannerSettingsLoading() ? 'Loading…' : '↻ Refresh' }}</button>
       </header>
+      <section class="planner-toggle" aria-label="Assisted planner settings">
+        <label><input type="checkbox" aria-label="Enable assisted planner globally" [checked]="plannerEnabled()" [disabled]="plannerSettingsLoading() || plannerSaving()" (change)="setPlannerEnabled($any($event.target).checked)"><b>Assisted plan drafts</b></label>
+        <p>Off by default. When enabled, a draft is generated only after you request it and uses the model already loaded in Chat or Runtime. It never loads a model.</p>
+        @if (plannerSettingsLoading()) { <span role="status">Checking opt-in and loaded model…</span> }
+        @else if (plannerEnabled() && runtimeStatusKnown()) { <span [class.blocked]="!runtimeLoaded()">{{ runtimeLoaded() ? 'Loaded model: ' + (runtimeModel() || 'reported') : 'Blocked: no model is loaded' }}</span> }
+        @else if (plannerEnabled()) { <span class="blocked" role="status">Blocked: loaded-model status is unknown; refresh the local API status.</span> }
+        @if (plannerSettingsError()) { <span class="planner-error" role="alert">{{ plannerSettingsError() }}</span> }
+      </section>
       @if (error()) {
         <section class="state error" role="alert"><div><b>Skills could not be loaded</b><p>{{ error() }}</p></div><button type="button" (click)="load()" [disabled]="loading()">Retry</button></section>
       }
+      @if (attachmentHandoffNotice()) { <p class="state-message" role="status">{{ attachmentHandoffNotice() }}</p> }
       @if (loading() && !skills().length) { <p class="state-message" role="status">Loading skills from the local API…</p> }
       @if (!loading() && !error() && !skills().length) {
         <section class="state empty"><b>No skills reported</b><p>The API returned an empty skill catalog. This page does not supply sample skills.</p></section>
@@ -69,11 +79,34 @@ import type { SkillCatalogItem, SkillReadiness, SkillPort, SkillPermissionKey, S
                         @if (permissionErrors()[skill.id]) { <p class="permission-error" role="alert">{{ permissionErrors()[skill.id] }}</p> }
                         @if (permissionsFor(skill.id).length) { <ul>@for (permission of permissionsFor(skill.id); track permission.key) { <li><span>{{ permissionLabel(permission.key) }}</span><code>{{ permission.value }}</code></li> }</ul> }
                       </section>
-                      <aside class="planner-status" aria-label="Assisted planner availability"><b>AI-assisted draft unavailable</b><p>No planner model or draft endpoint is configured. The preview is deterministic route resolution; it does not invent skills or recommendations.</p></aside>
+                      @if (imageCapabilityFor(skill); as capability) {
+                        <section class="image-route-choice" aria-label="Image model selection">
+                          <label [for]="'image-model-' + skill.id">{{ capability === 'image.generate' ? 'Image generator' : 'Image editor' }} for this plan
+                            <select [id]="'image-model-' + skill.id" [value]="imagePins()[capability] || ''" [disabled]="imageRoutesLoading() || imagePinSaving() || !imageRoutes()[capability].length" (change)="setImagePin(capability, $any($event.target).value)">
+                              <option value="">Automatic compatible route</option>
+                              @for (route of imageRoutes()[capability]; track route.id) { <option [value]="route.model_id">{{ route.model_id }} · {{ route.runtime_id || 'runtime unknown' }}@if (route.estimated_vram_bytes) { · ~{{ formatSize(route.estimated_vram_bytes) }} VRAM } @else { · VRAM estimate unknown }</option> }
+                            </select>
+                          </label>
+                          <p>This saved pin is separate for {{ capability }} and is applied as a hard constraint to this skill's plan and run. Choose automatic to clear it.</p>
+                          @if (imagePinSaving()) { <small role="status">Saving image model pin…</small> }
+                          @if (imageRoutesLoading()) { <small role="status">Checking local image routes…</small> }
+                          @else if (imageRouteError()) { <small role="alert">{{ imageRouteError() }}</small> }
+                          @else if (!imageRoutes()[capability].length) { <small>No compatible local image route is reported; no models are inferred.</small> }
+                        </section>
+                      }
+                      @if (!plannerEnabled()) { <aside class="planner-status" aria-label="Assisted planner disabled"><b>Assisted draft is off</b><p>Enable the global opt-in above to request a draft. Deterministic route preview remains available without model inference.</p></aside> }
+                      @else {
+                        <section class="assisted-draft" aria-label="Generate an assisted plan draft">
+                          <label>Goal for the already-loaded model<textarea rows="2" [attr.aria-label]="'Goal for ' + skill.name + ' assisted draft'" [value]="plannerGoal(skill.id)" (input)="setPlannerGoal(skill.id, $any($event.target).value)" placeholder="Describe what you want this workflow to accomplish"></textarea></label>
+                          @if (runtimeStatusKnown() && !runtimeLoaded()) { <p class="planner-blocked" role="status">Blocked: load a local model in Chat or Runtime before requesting a draft.</p> }
+                          <p>This action sends the goal and installed skill contract to the currently loaded local model. Its strict JSON draft is validated against the installed workflow; review both draft and resolved plan before running.</p>
+                          <button type="button" class="prepare" (click)="generateAssistedDraft(skill)" [disabled]="planning() || running() || uploadInProgress() || !runtimeLoaded()">{{ planning() ? 'Generating and validating…' : 'Generate assisted draft' }}</button>
+                        </section>
+                      }
                       @for (input of skill.inputs; track input.name) {
                         @if (input.artifact === 'text' || input.artifact === 'json') {
                           <label class="input-field"><span>{{ input.name }} · {{ input.artifact }}{{ input.required === true ? ' · required' : ' · optional' }}</span>
-                            <textarea rows="3" [attr.aria-label]="input.name + ' input'" [placeholder]="input.artifact === 'json' ? 'Enter a JSON value' : 'Enter text'" [value]="draft(skill.id, input.name)" (input)="setDraft(skill.id, input.name, $any($event.target).value)"></textarea>
+                            <textarea [rows]="skill.id === 'voice.respond' && input.name === 'transcript' ? 8 : 3" [attr.aria-label]="input.name + ' input'" [placeholder]="input.artifact === 'json' ? 'Enter a JSON value' : 'Enter text'" [value]="draft(skill.id, input.name)" (input)="setDraft(skill.id, input.name, $any($event.target).value)"></textarea>
                           </label>
                         } @else if (supportsUpload(input.artifact)) {
                           <div class="upload-field"><label class="upload-label"><span>{{ input.name }} · {{ input.artifact }}{{ input.required === true ? ' · required' : ' · optional' }}</span>
@@ -102,6 +135,8 @@ import type { SkillCatalogItem, SkillReadiness, SkillPort, SkillPermissionKey, S
                       @if (plan(); as preview) {
                         <section class="plan-preview" aria-label="Plan preview"><header><b>Plan preview</b><span>{{ planReady() ? 'Route available' : 'Needs attention' }}</span></header>
                           <p>Review the selected route before starting. The plan is based on current local capability evidence.</p>
+                          @if (selectedImageResources(); as resources) { <p class="image-resource-note">Image model estimate: {{ formatSize(resources.estimated) }} VRAM@if (resources.available !== null) { · {{ formatSize(resources.available) }} observed free at planning time } @else { · available VRAM not reported }. Scheduler headroom still applies when the run starts.</p> }
+                          @if (assistedDraftDetails(); as assisted) { <div class="draft-review"><b>Validated assisted draft</b><span>Generated with {{ assisted.model.id }}@if (assisted.model.runtime_id) { · {{ assisted.model.runtime_id }} }</span><pre>{{ prettyPlan(assisted.draft) }}</pre><label><input type="checkbox" [checked]="draftReviewed()" (change)="draftReviewed.set($any($event.target).checked)"> I reviewed the validated draft and resolved plan</label></div> }
                           <pre>{{ prettyPlan(preview) }}</pre>
                           @if (!planReady()) { <p class="plan-limit">This plan reports unresolved routes or requirements. Resolve them before running.</p> }
                         </section>
@@ -120,8 +155,8 @@ import type { SkillCatalogItem, SkillReadiness, SkillPort, SkillPermissionKey, S
     </main>
   `,
   styles: [`
-    .permission-preview{padding:8px 9px;border:1px solid #3b4555;border-radius:4px;background:#171f2b}.permission-preview>header{display:flex;justify-content:space-between;gap:8px;align-items:baseline;flex-wrap:wrap}.permission-preview>header b{color:#cbd8ec;font:9px ui-monospace,monospace}.permission-preview>header span,.permission-preview>p{color:#9aa9be;font-size:8px}.permission-preview ul{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:4px 10px;list-style:none;padding:0;margin:7px 0 0}.permission-preview li{display:flex;justify-content:space-between;gap:8px;padding:4px 6px;border-radius:3px;background:#101721}.permission-preview li span{color:#b4bfd0;font-size:8px}.permission-preview li code{color:#d3dfef;font:8px ui-monospace,monospace;overflow-wrap:anywhere}.permission-preview .permission-error{color:#ffb4ab}
-    .planner-status{padding:8px 9px;border:1px solid #3e4552;border-radius:4px;background:#1b2029}.planner-status>b{color:#e2c58f;font:9px ui-monospace,monospace}.planner-status>p{margin:4px 0 0;color:#aeb7c6;font-size:9px;line-height:1.45}
+    .permission-preview{padding:8px 9px;border:1px solid #3b4555;border-radius:4px;background:#171f2b}.permission-preview>header{display:flex;justify-content:space-between;gap:8px;align-items:baseline;flex-wrap:wrap}.permission-preview>header b{color:#cbd8ec;font:9px ui-monospace,monospace}.permission-preview>header span,.permission-preview>p{color:#9aa9be;font-size:8px}.permission-preview ul{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:4px 10px;list-style:none;padding:0;margin:7px 0 0}.permission-preview li{display:flex;justify-content:space-between;gap:8px;padding:4px 6px;border-radius:3px;background:#101721}.permission-preview li span{color:#b4bfd0;font-size:8px}.permission-preview li code{color:#d3dfef;font:8px ui-monospace,monospace;overflow-wrap:anywhere}.permission-preview .permission-error{color:#ffb4ab}.image-route-choice{display:grid;gap:5px;padding:8px 9px;border:1px solid #3a4555;border-radius:4px;background:#171f2b}.image-route-choice label{display:grid;gap:5px;color:#d0d9e8;font-size:9px}.image-route-choice select{width:100%;padding:7px;border:1px solid #374252;border-radius:4px;background:#0e131b;color:#dce4ef;font-size:9px}.image-route-choice p,.image-route-choice small,.image-resource-note{margin:0;color:#aab6c8;font-size:8px;line-height:1.5}.image-route-choice small[role=alert]{color:#ffb4ab}
+    .planner-status{padding:8px 9px;border:1px solid #3e4552;border-radius:4px;background:#1b2029}.planner-status>b{color:#e2c58f;font:9px ui-monospace,monospace}.planner-status>p{margin:4px 0 0;color:#aeb7c6;font-size:9px;line-height:1.45}.planner-toggle,.assisted-draft,.draft-review{display:grid;gap:7px;padding:10px 11px;border:1px solid #334155;border-radius:5px;background:#161e2a}.planner-toggle{grid-template-columns:1fr auto;align-items:center}.planner-toggle label,.assisted-draft label,.draft-review label{display:grid;gap:6px;color:#d3deee;font-size:10px}.planner-toggle label{display:flex;align-items:center;gap:8px}.planner-toggle p,.assisted-draft p,.draft-review span{margin:0;color:#9eabc0;font-size:9px;line-height:1.45}.planner-toggle>span{color:#92d8ad;font:9px ui-monospace,monospace}.planner-toggle>span.blocked,.planner-blocked,.planner-error{color:#ffb4ab!important}.planner-error{grid-column:1/-1;font-size:9px}.assisted-draft textarea{width:100%;box-sizing:border-box;padding:8px;border:1px solid #344052;border-radius:4px;background:#101721;color:#e2e8f2;font:10px/1.45 inherit;resize:vertical}.draft-review{margin:8px 0;border-color:#556682}.draft-review>b{font:9px ui-monospace,monospace;color:#dce6f5}.draft-review pre{max-height:180px;overflow:auto;margin:0;padding:8px;background:#101721;color:#cbd5e8;font:9px/1.45 ui-monospace,monospace}.draft-review label{display:flex;align-items:center}.planner-toggle input,.draft-review input{accent-color:#a9c7ff}
     :host{display:block;color:var(--text,#e4e9f2)}.skills-page{max-width:1240px;margin:auto;padding:20px;display:grid;gap:14px}.page-head{display:flex;justify-content:space-between;align-items:center;gap:14px;border-bottom:1px solid #2b3240;padding-bottom:12px}.eyebrow{font:9px ui-monospace,monospace;letter-spacing:1px;color:#8793a8}h1{margin:4px 0;font-size:24px;font-weight:550}.page-head p{margin:5px 0 0;color:#929aaa;font-size:11px;line-height:1.5}.refresh,.state button,.empty button,.prepare,.execute,.upload-success button{border:1px solid #343d4b;border-radius:4px;background:#171c26;color:#c6cede;padding:7px 10px;font:10px ui-monospace,monospace;cursor:pointer}.refresh:disabled,.state button:disabled,.prepare:disabled,.execute:disabled,.upload-success button:disabled{opacity:.55;cursor:wait}.state{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:13px;border:1px solid #303744;border-radius:5px;background:#171c26}.state b{font-size:12px}.state p{margin:5px 0 0;color:#9ca6b6;font-size:10px;line-height:1.5}.error{border-color:#53323a;background:#2b2025;color:#ffb4ab}.error p{color:#d9b5bb}.empty{display:block}.empty button{margin-top:9px}.state-message{color:#a5b1c3;font-size:11px}.toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.search{display:flex;align-items:center;gap:7px;flex:1 1 280px;min-width:0;min-height:34px;padding:0 9px;border:1px solid #303744;border-radius:4px;background:#111721;color:#9aa5b7}.search:focus-within{border-color:#819ac2}.search input{width:100%;min-width:0;border:0;outline:0;background:transparent;color:inherit;font:inherit;font-size:11px}.filter-label{display:flex;align-items:center;gap:7px;color:#aab4c4;font-size:10px}.filter-label select{height:34px;padding:5px 8px;border:1px solid #303744;border-radius:4px;background:#111721;color:#dce3ef;font:10px ui-monospace,monospace}.result-count{color:#8994a7;font:9px ui-monospace,monospace}.skill-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,370px),1fr));gap:10px}.skill-card{min-width:0;padding:13px;border:1px solid #2c3441;border-radius:5px;background:#171c26}.card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:9px;padding-bottom:9px;border-bottom:1px solid #2a303b}.card-head h2{margin:5px 0;font-size:14px;font-weight:550}.card-head code,.card-foot code{color:#aebbd0;font:9px ui-monospace,monospace;overflow-wrap:anywhere}.readiness{flex:none;padding:4px 6px;border-radius:3px;background:#252a34;color:#c0c7d3;font:8px ui-monospace,monospace;text-transform:uppercase}.readiness.ready{background:#1c302d;color:#82dbac}.readiness.not_ready{background:#342326;color:#ffb4ab}.readiness.unknown{background:#282d37;color:#bac4d3}.description{min-height:2.8em;margin:10px 0;color:#c4ccda;font-size:10px;line-height:1.45;overflow-wrap:anywhere}.io{display:grid;grid-template-columns:1fr 1fr;gap:10px}.io section{min-width:0}.io h3{margin:0 0 5px;color:#8793a8;font:8px ui-monospace,monospace;text-transform:uppercase}.chips{display:flex;align-items:flex-start;flex-wrap:wrap;gap:4px}.chip{max-width:100%;padding:4px 5px;border:1px solid #303b4e;border-radius:3px;background:#141923;color:#c1d0e8;font:8px ui-monospace,monospace;overflow-wrap:anywhere}.chip small{display:block;margin-top:2px;color:#939fb2}.missing{color:#8994a7;font-size:9px}.reason{margin-top:10px;padding:8px 9px;border-left:2px solid #d39b62;background:#211f1b}.reason b{color:#e4c699;font-size:9px}.reason p,.reason li{color:#c4b9a8;font-size:9px;line-height:1.45}.reason p{margin:5px 0 0}.reason ul{margin:5px 0 0;padding-left:17px}.unknown-reason{border-color:#6c819e;background:#1c232d}.unknown-reason b{color:#b7c9e4}.unknown-reason p{color:#a9b5c6}.card-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:10px;padding-top:8px;border-top:1px solid #2a303b}.card-foot span{color:#8793a8;font:8px ui-monospace,monospace;text-transform:uppercase}.card-foot code{overflow-wrap:anywhere;text-align:right}.skill-actions{margin-top:11px}.composer{display:grid;gap:8px;margin-top:9px;padding:10px;border:1px solid #313c4d;border-radius:4px;background:#121821}.composer-intro,.plan-preview>p{margin:0;color:#aeb9ca;font-size:9px;line-height:1.5}.input-field{display:grid;gap:4px;color:#bbc7d9;font-size:9px}.input-field textarea{box-sizing:border-box;width:100%;min-height:62px;padding:7px;border:1px solid #374252;border-radius:4px;background:#0e131b;color:#e1e8f1;font:10px/1.45 ui-monospace,monospace;resize:vertical}.upload-field{display:grid;gap:5px;padding:8px;border:1px solid #303947;border-radius:4px;background:#10151e}.upload-label{display:grid;gap:5px;color:#c3cede;font-size:9px}.upload-label input,.upload-label select{max-width:100%;padding:6px;border:1px solid #374252;border-radius:4px;background:#0e131b;color:#cdd7e6;font-size:9px}.upload-help,.upload-progress{color:#8f9bac;font-size:8px;line-height:1.4}.upload-progress{color:#d6bf7d}.upload-error{color:#ffb4ab;font-size:9px;line-height:1.4;overflow-wrap:anywhere}.upload-success{display:flex;align-items:center;justify-content:space-between;gap:8px;color:#91d6a9;font-size:9px;overflow-wrap:anywhere}.upload-success button{flex:none;padding:4px 6px}.unsupported-input{display:grid;gap:3px;padding:7px;border-left:2px solid #a67c4b;background:#211f1b;color:#dfc18e;font-size:9px}.unsupported-input span{color:#bcb3a5;line-height:1.45}.composer-actions{display:flex;gap:7px;flex-wrap:wrap}.execute{border-color:#3d684f;background:#203229;color:#9de2b9}.composer-error{margin:0;color:#ffb4ab;font-size:9px}.plan-preview{display:grid;gap:6px;padding:8px;border:1px solid #344154;border-radius:4px;background:#0f151f}.plan-preview>header{display:flex;justify-content:space-between;gap:8px;color:#cfdaea;font-size:9px}.plan-preview>header span{color:#85d4a7;font:8px ui-monospace,monospace}.plan-preview pre{max-height:240px;overflow:auto;margin:0;padding:8px;border-radius:3px;background:#090d13;color:#c2d0e4;font:9px/1.45 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere}.plan-preview .plan-limit{color:#e4c699}.skills-page button:focus-visible,.skills-page input:focus-visible,.skills-page textarea:focus-visible,.skills-page select:focus-visible{outline:2px solid #adc6ff;outline-offset:2px}@media(max-width:560px){.skills-page{padding:14px 11px}.page-head{align-items:flex-start}.toolbar{align-items:stretch;flex-direction:column}.filter-label{justify-content:space-between}.filter-label select{flex:1}.skill-grid{grid-template-columns:1fr}.io{grid-template-columns:1fr}}
     .search input{font:inherit;font-size:11px}.skill-group{display:grid;gap:8px;margin-top:14px}.group-heading{display:flex;justify-content:space-between;align-items:center;margin:0;padding:4px 1px;color:#cbd4e3;font-size:12px;font-weight:550}.group-heading span{color:#8994a7;font:9px ui-monospace,monospace}.alternatives{margin-top:8px;padding-top:7px;border-top:1px solid #45382d}.alternatives button{margin-top:6px;border:1px solid #574a3e;border-radius:4px;background:#2b241f;color:#ead6bd;padding:6px 8px;font-size:9px;cursor:pointer}
   `],
@@ -129,6 +164,7 @@ import type { SkillCatalogItem, SkillReadiness, SkillPort, SkillPermissionKey, S
 export class SkillsPage implements OnInit {
   private readonly service = inject(SkillService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   private readonly artifactService = inject(ArtifactService);
   readonly skills = signal<SkillCatalogItem[]>([]);
   readonly loading = signal(false);
@@ -138,12 +174,31 @@ export class SkillsPage implements OnInit {
   readonly activeSkillId = signal('');
   readonly drafts = signal<Record<string, string>>({});
   readonly plan = signal<Record<string, unknown> | null>(null);
+  readonly plannerEnabled = signal(false);
+  readonly plannerSettingsLoading = signal(true);
+  readonly plannerSaving = signal(false);
+  readonly plannerSettingsError = signal('');
+  readonly runtimeStatusKnown = signal(false);
+  readonly runtimeLoaded = signal(false);
+  readonly runtimeModel = signal('');
+  readonly plannerGoals = signal<Record<string, string>>({});
+  readonly assistedDraftDetails = signal<{ draft: Record<string, unknown>; model: { id: string; runtime_id?: string | null } } | null>(null);
+  readonly draftReviewed = signal(false);
   readonly planning = signal(false);
   readonly running = signal(false);
   readonly composerError = signal('');
+  readonly imageRoutes = signal<Record<ImageCapabilityId, ImageRouteChoice[]>>({
+    'image.generate': [], 'image.edit': [],
+  });
+  readonly imagePins = signal<Partial<Record<ImageCapabilityId, string>>>({});
+  readonly imageRoutesLoading = signal(false);
+  readonly imagePinSaving = signal(false);
+  readonly imageRouteError = signal('');
   readonly uploadByInput = signal<Record<string, ArtifactEnvelope>>({});
   readonly sessionArtifacts = signal<ArtifactEnvelope[]>([]);
   readonly sessionArtifactError = signal('');
+  readonly attachmentHandoffNotice = signal('');
+  private transcriptHandoffConsumed = false;
   readonly skillPermissionRows = signal<Record<string, SkillPermissionRow[]>>({});
   readonly permissionLoading = signal<Record<string, boolean>>({});
   readonly permissionErrors = signal<Record<string, string>>({});
@@ -158,7 +213,9 @@ export class SkillsPage implements OnInit {
     const status = value['status'];
     return !(Array.isArray(failures) && failures.length) && status !== 'not_ready' && status !== 'failed';
   });
-  readonly canRun = computed(() => !!this.plan() && this.planReady() && !this.planning() && !this.running() && !this.uploadInProgress());
+  readonly canRun = computed(() => !!this.plan() && this.planReady() &&
+    (!this.assistedDraftDetails() || this.draftReviewed()) &&
+    !this.planning() && !this.running() && !this.uploadInProgress());
   readonly visibleSkills = computed(() => {
     const query = this.query().trim().toLocaleLowerCase();
     return this.skills().filter((skill) => {
@@ -180,7 +237,50 @@ export class SkillsPage implements OnInit {
       .map(([category, skills]) => ({ category, skills }));
   });
 
-  ngOnInit(): void { void this.load(); }
+  ngOnInit(): void { void this.load(); void this.loadPlannerControls(); void this.loadImageRoutes(); }
+  async refreshAll(): Promise<void> { await Promise.all([this.load(), this.loadPlannerControls(), this.loadImageRoutes()]); }
+  async loadImageRoutes(): Promise<void> {
+    this.imageRoutesLoading.set(true); this.imageRouteError.set('');
+    try {
+      const [routes, pins] = await Promise.all([this.service.imageRoutes(), this.service.imageModelPins()]);
+      this.imageRoutes.set(routes);
+      const confirmed: Partial<Record<ImageCapabilityId, string>> = {};
+      const unavailablePins: string[] = [];
+      for (const capability of ['image.generate', 'image.edit'] as const) {
+        const modelId = pins[capability];
+        if (!modelId) continue;
+        if (routes[capability].some(route => route.model_id === modelId)) confirmed[capability] = modelId;
+        else unavailablePins.push(`${capability}: ${modelId}`);
+      }
+      this.imagePins.set(confirmed);
+      if (unavailablePins.length) this.imageRouteError.set(`Saved image model pin is not in the current compatible routes (${unavailablePins.join(', ')}). Choose an available model or automatic selection.`);
+    }
+    catch (error) {
+      this.imageRoutes.set({ 'image.generate': [], 'image.edit': [] });
+      this.imageRouteError.set(error instanceof Error ? error.message : 'Image routes could not be loaded.');
+    } finally { this.imageRoutesLoading.set(false); }
+  }
+  async loadPlannerControls(): Promise<void> {
+    this.plannerSettingsLoading.set(true); this.plannerSettingsError.set('');
+    const [enabled, runtime] = await Promise.allSettled([
+      this.service.assistedPlannerEnabled(), this.service.loadedModelStatus(),
+    ]);
+    if (enabled.status === 'fulfilled') this.plannerEnabled.set(enabled.value);
+    else this.plannerSettingsError.set(enabled.reason instanceof Error ? enabled.reason.message : 'Could not read assisted-planner opt-in.');
+    if (runtime.status === 'fulfilled') {
+      this.runtimeLoaded.set(runtime.value.loaded); this.runtimeModel.set(runtime.value.model ?? ''); this.runtimeStatusKnown.set(true);
+    } else {
+      this.runtimeLoaded.set(false); this.runtimeModel.set(''); this.runtimeStatusKnown.set(false);
+      if (enabled.status === 'fulfilled' && enabled.value) this.plannerSettingsError.set(runtime.reason instanceof Error ? runtime.reason.message : 'Could not read loaded-model status.');
+    }
+    this.plannerSettingsLoading.set(false);
+  }
+  async setPlannerEnabled(enabled: boolean): Promise<void> {
+    this.plannerSaving.set(true); this.plannerSettingsError.set('');
+    try { await this.service.setAssistedPlannerEnabled(enabled); this.plannerEnabled.set(enabled); }
+    catch (error) { this.plannerSettingsError.set(error instanceof Error ? error.message : 'Could not save assisted-planner opt-in.'); }
+    finally { this.plannerSaving.set(false); }
+  }
   async load(): Promise<void> {
     this.loading.set(true);
     this.error.set('');
@@ -198,7 +298,63 @@ export class SkillsPage implements OnInit {
         ? `Could not restore previous uploads: ${artifactsResult.reason.message}`
         : 'Could not restore previous uploads.');
     }
+    this.consumeAttachmentHandoff();
+    this.consumeTranscriptHandoff();
     this.loading.set(false);
+  }
+  private consumeTranscriptHandoff(): void {
+    if (this.transcriptHandoffConsumed || typeof window === 'undefined') return;
+    const state = this.router.getCurrentNavigation()?.extras.state ?? window.history.state;
+    const handoff = state?.['voiceTranscriptHandoff'];
+    if (!handoff || typeof handoff !== 'object' || Array.isArray(handoff)) return;
+    this.transcriptHandoffConsumed = true;
+    const cleanState = { ...(window.history.state ?? {}) };
+    delete cleanState['voiceTranscriptHandoff'];
+    window.history.replaceState(cleanState, '');
+    const payload = handoff as Record<string, unknown>;
+    const transcript = payload['transcript'];
+    const runId = payload['runId'];
+    if (typeof transcript !== 'string' || !transcript.trim() || transcript.length > 16_000
+      || typeof runId !== 'string' || !runId.trim() || runId.length > 128) {
+      this.attachmentHandoffNotice.set('The transcript handoff was invalid or too large. Nothing was sent or started.');
+      return;
+    }
+    const skill = this.skills().find(candidate => candidate.id === 'voice.respond');
+    const transcriptPorts = skill?.inputs.filter(port => port.name === 'transcript' && port.artifact === 'text') ?? [];
+    if (!skill || transcriptPorts.length !== 1) {
+      this.attachmentHandoffNotice.set('Voice respond is unavailable or does not accept a single text transcript. Nothing was sent or started.');
+      return;
+    }
+    this.drafts.update(current => ({ ...current, [this.inputKey(skill.id, 'transcript')]: transcript }));
+    this.activeSkillId.set(skill.id);
+    this.plan.set(null);
+    this.assistedDraftDetails.set(null);
+    this.draftReviewed.set(false);
+    this.composerError.set('');
+    this.attachmentHandoffNotice.set(`Transcript from run ${runId.slice(0, 8)} is an editable draft. Review or edit it, preview the plan, then choose Run skill. Nothing was sent or started.`);
+    if (!this.skillPermissionRows()[skill.id] && !this.permissionLoading()[skill.id]) void this.loadSkillPermissions(skill.id);
+  }
+  private consumeAttachmentHandoff(): void {
+    const skillId = this.route.snapshot.queryParamMap.get('skill');
+    const artifactId = this.route.snapshot.queryParamMap.get('artifact');
+    if (!skillId && !artifactId) return;
+    void this.router.navigate([], { relativeTo: this.route, queryParams: { skill: null, artifact: null }, queryParamsHandling: 'merge', replaceUrl: true });
+    if (!skillId || !artifactId) { this.attachmentHandoffNotice.set('The chat attachment handoff was incomplete. Select a session upload manually.'); return; }
+    const skill = this.skills().find(candidate => candidate.id === skillId);
+    const artifact = this.sessionArtifacts().find(candidate => candidate.id === artifactId);
+    if (!skill || !artifact) { this.attachmentHandoffNotice.set('That chat upload is no longer available in this session. Upload or select a current session artifact.'); return; }
+    const ports = skill.inputs.filter(candidate => candidate.artifact === artifact.kind);
+    if (ports.length !== 1) { this.attachmentHandoffNotice.set(ports.length
+      ? `“${skill.name}” has multiple ${artifact.kind} inputs. Select the intended input below; the attachment was not assigned.`
+      : `“${skill.name}” does not declare a ${artifact.kind} input. The attachment was not converted.`); this.activeSkillId.set(skill.id); return; }
+    const port = ports[0];
+    const key = this.inputKey(skill.id, port.name);
+    this.uploadByInput.update(current => ({ ...current, [key]: artifact }));
+    this.activeSkillId.set(skill.id);
+    this.plan.set(null);
+    this.composerError.set('');
+    this.attachmentHandoffNotice.set(`Selected ${artifact.name} for ${skill.name} · ${port.name}. Review the route before planning or running.`);
+    if (!this.skillPermissionRows()[skill.id] && !this.permissionLoading()[skill.id]) void this.loadSkillPermissions(skill.id);
   }
   clearFilters(): void { this.query.set(''); this.readinessFilter.set('all'); }
   readinessLabel(status: SkillReadiness): string { return status === 'not_ready' ? 'Not ready' : status === 'unknown' ? 'Unknown' : 'Ready'; }
@@ -213,6 +369,7 @@ export class SkillsPage implements OnInit {
   toggleComposer(skillId: string): void {
     this.activeSkillId.set(this.activeSkillId() === skillId ? '' : skillId);
     this.plan.set(null);
+    this.assistedDraftDetails.set(null); this.draftReviewed.set(false);
     this.composerError.set('');
     if (this.activeSkillId() === skillId && !this.skillPermissionRows()[skillId] && !this.permissionLoading()[skillId]) void this.loadSkillPermissions(skillId);
   }
@@ -236,6 +393,7 @@ export class SkillsPage implements OnInit {
   setDraft(skillId: string, port: string, value: string): void {
     this.drafts.update(drafts => ({ ...drafts, [`${skillId}:${port}`]: value }));
     this.plan.set(null);
+    this.assistedDraftDetails.set(null); this.draftReviewed.set(false);
     this.composerError.set('');
   }
   private typedInputs(skill: SkillCatalogItem): Record<string, unknown> {
@@ -336,15 +494,31 @@ export class SkillsPage implements OnInit {
   }
   async preview(skill: SkillCatalogItem): Promise<void> {
     this.planning.set(true); this.composerError.set(''); this.plan.set(null);
-    try { this.plan.set(await this.service.plan(skill.id, this.typedInputs(skill))); }
+    this.assistedDraftDetails.set(null); this.draftReviewed.set(false);
+    try { this.plan.set(await this.service.plan(skill.id, this.typedInputs(skill), this.selectionFor(skill))); }
     catch (error) { this.composerError.set(error instanceof Error ? error.message : 'Could not create a plan preview.'); }
+    finally { this.planning.set(false); }
+  }
+  plannerGoal(skillId: string): string { return this.plannerGoals()[skillId] ?? ''; }
+  setPlannerGoal(skillId: string, value: string): void { this.plannerGoals.update(goals => ({ ...goals, [skillId]: value })); }
+  async generateAssistedDraft(skill: SkillCatalogItem): Promise<void> {
+    this.planning.set(true); this.composerError.set(''); this.plan.set(null);
+    this.assistedDraftDetails.set(null); this.draftReviewed.set(false);
+    try {
+      const runtime = await this.service.loadedModelStatus();
+      this.runtimeLoaded.set(runtime.loaded); this.runtimeModel.set(runtime.model ?? ''); this.runtimeStatusKnown.set(true);
+      if (!runtime.loaded) throw new Error('No local model is already loaded. Load one in Chat or Runtime, then retry.');
+      const result = await this.service.draft(skill.id, this.plannerGoal(skill.id).trim(), this.typedInputs(skill), this.selectionFor(skill));
+      this.assistedDraftDetails.set({ draft: result.draft, model: result.model });
+      this.plan.set(result.plan);
+    } catch (error) { this.composerError.set(error instanceof Error ? error.message : 'Could not generate and validate an assisted draft.'); }
     finally { this.planning.set(false); }
   }
   async execute(skill: SkillCatalogItem): Promise<void> {
     if (!this.canRun()) return;
     this.running.set(true); this.composerError.set('');
     try {
-      const run = await this.service.run(skill.id, this.typedInputs(skill));
+      const run = await this.service.run(skill.id, this.typedInputs(skill), this.selectionFor(skill));
       await this.router.navigate(['/runs', run.id]);
     } catch (error) { this.composerError.set(error instanceof Error ? error.message : 'Could not start this run.'); }
     finally { this.running.set(false); }
@@ -352,5 +526,56 @@ export class SkillsPage implements OnInit {
   prettyPlan(value: unknown): string { return JSON.stringify(value, null, 2) ?? 'No plan details were returned.'; }
   portTitle(port: SkillPort, direction: 'input' | 'output'): string {
     return `${port.required === false ? 'Optional' : direction === 'input' ? 'Required' : 'Produced'} ${port.artifact} ${direction}: ${port.name}`;
+  }
+  imageCapabilityForSkill(skill: SkillCatalogItem): ImageCapabilityId | null {
+    if (skill.id === 'image.generate') return 'image.generate';
+    if (skill.id === 'image.edit-from-instruction') return 'image.edit';
+    return null;
+  }
+  async setImagePin(capability: ImageCapabilityId, modelId: string): Promise<void> {
+    if (modelId && !this.imageRoutes()[capability].some(route => route.model_id === modelId)) {
+      this.imageRouteError.set('That image model is not in the latest local route snapshot. Refresh routes before planning.');
+      return;
+    }
+    const previous = this.imagePins()[capability] ?? '';
+    this.imagePins.update(pins => {
+      const next = { ...pins };
+      if (modelId) next[capability] = modelId;
+      else delete next[capability];
+      return next;
+    });
+    this.imagePinSaving.set(true); this.imageRouteError.set('');
+    try { await this.service.setImageModelPin(capability, modelId || null); }
+    catch (error) {
+      this.imagePins.update(pins => {
+        const next = { ...pins };
+        if (previous) next[capability] = previous;
+        else delete next[capability];
+        return next;
+      });
+      this.imageRouteError.set(error instanceof Error ? error.message : 'Could not save the image model pin.');
+    } finally { this.imagePinSaving.set(false); }
+    this.plan.set(null);
+  }
+  private selectionFor(skill: SkillCatalogItem): Record<string, unknown> | undefined {
+    const capability = this.imageCapabilityForSkill(skill);
+    const modelId = capability ? this.imagePins()[capability] : undefined;
+    return capability && modelId
+      ? { capability_pins: { [capability]: { model_id: modelId } } }
+      : undefined;
+  }
+  selectedImageResources(): { estimated: number; available: number | null } | null {
+    const nodes = this.plan()?.['nodes'];
+    if (!Array.isArray(nodes)) return null;
+    for (const value of nodes) {
+      if (!value || typeof value !== 'object') continue;
+      const node = value as { capability_id?: unknown; selected?: Record<string, unknown> };
+      if (node.capability_id !== 'image.generate' && node.capability_id !== 'image.edit') continue;
+      const estimated = node.selected?.['estimated_vram_bytes'];
+      const available = node.selected?.['available_vram_bytes'];
+      if (typeof estimated !== 'number' || !Number.isFinite(estimated) || estimated <= 0) return null;
+      return { estimated, available: typeof available === 'number' && Number.isFinite(available) ? available : null };
+    }
+    return null;
   }
 }

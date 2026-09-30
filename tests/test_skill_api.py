@@ -1,6 +1,7 @@
 import unittest
 import time
 import tempfile
+import threading
 from types import SimpleNamespace
 
 from aidream.capabilities import CapabilityPreferenceStore
@@ -30,6 +31,70 @@ def api(skills, capabilities):
 
 
 class SkillAPITests(unittest.TestCase):
+    def test_assisted_draft_uses_loaded_model_only_and_validates_before_return(self):
+        from pathlib import Path
+        from aidream.capabilities import CapabilityPreferenceStore
+
+        class DraftPlan:
+            def to_dict(self): return {"plan_id": "validated", "nodes": [{"id": "answer"}]}
+        class Validator:
+            def __init__(self): self.received = None
+            def draft_components(self, skill_id):
+                self.catalog_skill_id = skill_id
+                return [{"node_id": "nested/answer", "component_id": "text.chat"}]
+            def resolve_assisted_draft(self, draft, inputs, *, mode=None):
+                self.received = (draft, inputs, mode)
+                if set(draft) != {"skill_id", "components"}: raise ValueError("invalid schema")
+                return DraftPlan()
+        class Backend:
+            name = "fake-runtime"
+            runtime_id = "fake"
+            _loaded_model = "already-loaded"
+            def __init__(self): self._messages = [{"role": "user", "content": "keep"}]; self.calls = []
+            def generate(self, prompt, options):
+                self.calls.append((prompt, options))
+                return '{"skill_id":"chat.general","components":[{"node_id":"nested/answer","component_id":"text.chat"}]}'
+
+        with tempfile.TemporaryDirectory() as td:
+            preferences = CapabilityPreferenceStore(Path(td) / "preferences.json")
+            preferences.patch({"selection_defaults": {"assisted_planner_enabled": True}})
+            service = api([manifest("chat.general", "text.chat")], [])
+            service.capability_preference_store = preferences
+            service._chat_lock = threading.Lock()
+            service._active_backend = Backend()
+            service._active_binding = (1, "model-id", None, "fingerprint")
+            validator = Validator()
+            service.run_planner = lambda **_kwargs: {"plan": {"preview": True}, "service": validator}
+            response = service.draft_skill("chat.general", {
+                "goal": "Answer the user's local question", "inputs": {"prompt": {"kind": "text", "text": "hello"}},
+                "selection": {"mode": "guided"},
+            })
+            self.assertEqual(response["data"]["plan"]["plan_id"], "validated")
+            self.assertEqual(response["data"]["model"], {"id": "model-id", "runtime_id": "fake"})
+            self.assertEqual(validator.received[2], "guided")
+            self.assertEqual(validator.catalog_skill_id, "chat.general")
+            self.assertIn("Answer the user's local question", service._active_backend.calls[0][0])
+            self.assertIn('"node_id": "nested/answer"', service._active_backend.calls[0][0])
+            self.assertEqual(service._active_backend.calls[0][1]["max_tokens"], 256)
+            self.assertEqual(service._active_backend._messages, [{"role": "user", "content": "keep"}])
+
+    def test_assisted_draft_explains_disabled_opt_in_and_missing_loaded_model(self):
+        from pathlib import Path
+        from aidream.capabilities import CapabilityPreferenceStore
+        import tempfile
+        import threading
+
+        with tempfile.TemporaryDirectory() as td:
+            service = api([manifest("chat.general", "text.chat")], [])
+            service.capability_preference_store = CapabilityPreferenceStore(Path(td) / "preferences.json")
+            service._chat_lock = threading.Lock()
+            with self.assertRaisesRegex(APIError, "disabled globally"):
+                service.draft_skill("chat.general", {"goal": "help"})
+            service.capability_preference_store.patch({"selection_defaults": {"assisted_planner_enabled": True}})
+            service._active_backend = None
+            with self.assertRaisesRegex(APIError, "No local model is already loaded"):
+                service.draft_skill("chat.general", {"goal": "help"})
+
     def test_catalog_exposes_typed_ports_and_derived_readiness(self):
         service = api([manifest("chat.general", "text.chat"), manifest("image.describe", "vision.understand")], [
             {"id": "text.chat", "status": "supported", "routes": [{"id": "route-a"}],
@@ -61,6 +126,31 @@ class SkillAPITests(unittest.TestCase):
                             for item in skills["image.generate"]["alternatives"]))
         self.assertIn("No compatible local image-editing runtime",
                       skills["image.edit-from-instruction"]["not_ready_reasons"][0])
+
+    def test_audio_skill_catalog_explains_missing_routes_and_safe_fallback(self):
+        capabilities = [
+            {"id": "text.chat", "status": "supported", "routes": [{"id": "chat-route"}]},
+            {"id": "audio.transcribe", "status": "unavailable", "routes": [],
+             "evidence": [{"details": "No whisper.cpp model is configured."}]},
+            {"id": "audio.synthesize", "status": "unavailable", "routes": [],
+             "evidence": [{"details": "No local speech synthesizer is installed."}]},
+        ]
+        skills = {item["id"]: item for item in api(builtin_skill_manifests(), capabilities).get("/api/skills")[1]["data"]["skills"]}
+        transcript = skills["voice.transcribe"]
+        self.assertEqual(transcript["status"], "not_ready")
+        self.assertEqual(transcript["not_ready_reasons"], ["No whisper.cpp model is configured."])
+        self.assertTrue(any("already have a transcript" in item for item in transcript["alternatives"]))
+        conversation = skills["voice.conversation"]
+        self.assertEqual(conversation["status"], "not_ready")
+        self.assertEqual(conversation["not_ready_reasons"], [
+            "No local speech synthesizer is installed.", "No whisper.cpp model is configured.",
+        ])
+        self.assertTrue(any("Use the text response from chat.general" in item for item in conversation["alternatives"]))
+        reviewed_reply = skills["voice.respond"]
+        self.assertEqual(reviewed_reply["status"], "not_ready")
+        self.assertEqual(reviewed_reply["not_ready_reasons"], ["No local speech synthesizer is installed."])
+        self.assertTrue(any("Use the text response from chat.general" in item
+                            for item in reviewed_reply["alternatives"]))
 
     def test_skill_detail_and_unknown_or_malformed_ids(self):
         service = api([manifest("chat.general", "text.chat")], [])
@@ -105,7 +195,8 @@ class SkillAPITests(unittest.TestCase):
 
         class Service:
             scheduler = Scheduler()
-            def execute(self, _plan, _inputs, *, owner_id, event_callback, fallback_callback):
+            def execute(self, _plan, _inputs, *, owner_id, event_callback, fallback_callback, cancel_event=None):
+                self.cancel_event = cancel_event
                 event_callback("started", "recover")
                 fallback_callback(FallbackTrace(
                     event_type="fallback.selected", node_id="recover",
@@ -121,13 +212,16 @@ class SkillAPITests(unittest.TestCase):
         api_service._active_backend = None
         api_service._active_binding = None
         emitted = []
+        fake_service = Service()
+        cancellation = threading.Event()
         result = api_service._execute_orchestration_run(
             plan={"id": "ignored"},
-            cancel_event=None,
+            cancel_event=cancellation,
             emit=lambda event, data: emitted.append((event, data)),
-            context=(Service(), SimpleNamespace(plan_id="plan-base"), {}),
+            context=(fake_service, SimpleNamespace(plan_id="plan-base"), {}),
             run_id="run-owner",
         )
+        self.assertIs(fake_service.cancel_event, cancellation)
         self.assertEqual(result, [{"kind": "text", "text": "recovered"}])
         self.assertEqual(emitted, [
             ("node.started", {"node_id": "recover"}),
@@ -222,6 +316,7 @@ class SkillAPITests(unittest.TestCase):
             "inputs": [{"name": "document", "artifact": "document", "required": True}],
             "outputs": [{"name": "text", "artifact": "text", "required": True}],
             "requirements": {"capabilities": []},
+            "permissions": {"filesystem_read": "user-selected-only"},
             "policy": {"max_steps": 1},
             "graph": [
                 {"id": "extract-child", "type": "skill", "skill_id": "document.extract-text",
@@ -378,6 +473,181 @@ class SkillAPITests(unittest.TestCase):
         finally:
             manager.close()
             store.close()
+
+    def test_local_image_fake_runs_through_default_planner_and_persists_artifact(self):
+        class LocalImageBackend:
+            runtime_id = "fake-image"
+            local_only = True
+            network_access = False
+            def __init__(self): self.calls = []
+            def capabilities(self):
+                return {"available": True, "image_generation": True, "image_editing": False}
+            def list_models(self):
+                return [{"id": "fake-image-model", "path": "/private/fake.safetensors"}]
+            def can_load(self, _model): return True
+            def load(self, _model, _placement=None, _options=None): self.calls.append("load")
+            def generate_image(self, prompt, options=None):
+                self.calls.append(("generate", prompt))
+                return {"content_bytes": b"\x89PNG\r\n\x1a\nfixture",
+                        "media_type": "image/png", "name": "fixture.png"}
+            def unload(self): self.calls.append("unload")
+
+        image_backend = LocalImageBackend()
+        service = ReadOnlyAPI(
+            hardware=SimpleNamespace(detect=lambda: SimpleNamespace(
+                ram=SimpleNamespace(total_bytes=None, available_bytes=None), gpus=[])),
+            catalog=SimpleNamespace(list_models=lambda: []),
+            runtimes=SimpleNamespace(list_backends=lambda: []),
+            image_backends=[image_backend],
+        )
+        try:
+            capability = {item["id"]: item for item in service.get("/api/capabilities")[1]
+                          ["data"]["capabilities"]}["image.generate"]
+            self.assertEqual(capability["status"], "supported")
+            run = service.start_skill("image.generate", {
+                "inputs": {"prompt": {"kind": "text", "text": "a small blue tree"}},
+            })["data"]["run"]
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline:
+                run = service.run_manager.get(run["id"])
+                if run["state"] in {"succeeded", "failed", "cancelled"}:
+                    break
+                time.sleep(0.005)
+            self.assertEqual(run["state"], "succeeded", run.get("error"))
+            artifact = run["outputs"][0]["artifact"]
+            self.assertEqual(artifact["kind"], "image")
+            self.assertEqual(artifact["owner"], {"type": "run", "id": run["id"]})
+            _metadata, content = service.get_artifact_api().content(
+                artifact["id"], owner_type="run", owner_id=run["id"])
+            self.assertTrue(content.startswith(b"\x89PNG"))
+            self.assertIn(("generate", "a small blue tree"), image_backend.calls)
+        finally:
+            service.close()
+
+    def test_local_image_edit_consumes_selected_artifact_and_persists_result(self):
+        class LocalImageBackend:
+            runtime_id = "fake-image-edit"
+            local_only = True
+            network_access = False
+            def __init__(self): self.received = None
+            def capabilities(self):
+                return {"available": True, "image_generation": False, "image_editing": True}
+            def list_models(self): return [{"id": "fake-edit-model"}]
+            def can_load(self, _model): return True
+            def load(self, _model, _placement=None, _options=None): pass
+            def edit_image(self, image, instruction, options=None):
+                self.received = (image, instruction)
+                return {"content_bytes": b"\x89PNG\r\n\x1a\nedited",
+                        "media_type": "image/png", "name": "edited.png"}
+            def unload(self): pass
+
+        service = ReadOnlyAPI(
+            hardware=SimpleNamespace(detect=lambda: SimpleNamespace(
+                ram=SimpleNamespace(total_bytes=None, available_bytes=None), gpus=[])),
+            catalog=SimpleNamespace(list_models=lambda: []),
+            runtimes=SimpleNamespace(list_backends=lambda: []),
+            image_backends=[LocalImageBackend()],
+        )
+        selected_bytes = b"\x89PNG\r\n\x1a\nselected"
+        try:
+            selected = service.get_artifact_api().create(
+                selected_bytes, kind="image", media_type="image/png", name="source.png",
+                owner_type="session", owner_id="image-edit-test", lifetime="session")
+            run = service.start_skill("image.edit-from-instruction", {
+                "inputs": {"image": selected,
+                           "instruction": {"kind": "text", "text": "make the sky green"}},
+            })["data"]["run"]
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline:
+                run = service.run_manager.get(run["id"])
+                if run["state"] in {"succeeded", "failed", "cancelled"}:
+                    break
+                time.sleep(0.005)
+            self.assertEqual(run["state"], "succeeded", run.get("error"))
+            self.assertEqual(service.image_backends[0].received,
+                             (selected_bytes, "make the sky green"))
+            output = run["outputs"][0]["artifact"]
+            self.assertEqual(output["owner"], {"type": "run", "id": run["id"]})
+            self.assertEqual(service.get_artifact_api().content(
+                output["id"], owner_type="run", owner_id=run["id"])[1],
+                b"\x89PNG\r\n\x1a\nedited")
+        finally:
+            service.close()
+
+    def test_image_plan_explains_measured_vram_shortfall_without_loading(self):
+        from aidream.http_api import APIError
+
+        class LocalImageBackend:
+            runtime_id = "fake-large-image"
+            local_only = True
+            network_access = False
+            def __init__(self): self.loads = 0
+            def capabilities(self):
+                return {"available": True, "image_generation": True, "image_editing": False}
+            def list_models(self):
+                return [{"id": "large-generator", "resource_hints": {"vram_bytes_estimate": 8 * 1024 ** 3}}]
+            def can_load(self, _model): return True
+            def load(self, *_args): self.loads += 1
+            def generate_image(self, *_args, **_kwargs): raise AssertionError("planning must not infer")
+            def unload(self): pass
+
+        backend = LocalImageBackend()
+        hardware = SimpleNamespace(detect=lambda: SimpleNamespace(
+            ram=SimpleNamespace(total_bytes=16 * 1024 ** 3, available_bytes=12 * 1024 ** 3),
+            gpus=[SimpleNamespace(memory_total_bytes=8 * 1024 ** 3,
+                                  memory_free_bytes=4 * 1024 ** 3)],
+        ))
+        service = ReadOnlyAPI(
+            hardware=hardware, catalog=SimpleNamespace(list_models=lambda: []),
+            runtimes=SimpleNamespace(list_backends=lambda: []), image_backends=[backend],
+        )
+        try:
+            with self.assertRaises(APIError) as raised:
+                service.plan_skill("image.generate", {
+                    "inputs": {"prompt": {"kind": "text", "text": "landscape"}},
+                })
+            self.assertIn("8.0 GiB VRAM", str(raised.exception))
+            self.assertIn("4.0 GiB is free", str(raised.exception))
+            self.assertIn("10% headroom", str(raised.exception))
+            self.assertIn("free VRAM", str(raised.exception))
+            self.assertEqual(backend.loads, 0)
+        finally:
+            service.close()
+
+    def test_image_generator_and_editor_pins_are_separate_hard_constraints(self):
+        class LocalImageBackend:
+            runtime_id = "fake-image-pins"
+            local_only = True
+            network_access = False
+            def capabilities(self):
+                return {"available": True, "image_generation": True, "image_editing": True}
+            def list_models(self):
+                return [{"id": "model-gen-a"}, {"id": "model-gen-b"},
+                        {"id": "model-edit-a"}, {"id": "model-edit-b"}]
+            def can_load(self, _model): return True
+            def load(self, *_args): raise AssertionError("planning must not load")
+            def unload(self): pass
+
+        service = ReadOnlyAPI(
+            hardware=SimpleNamespace(detect=lambda: SimpleNamespace(
+                ram=SimpleNamespace(total_bytes=None, available_bytes=None), gpus=[])),
+            catalog=SimpleNamespace(list_models=lambda: []),
+            runtimes=SimpleNamespace(list_backends=lambda: []), image_backends=[LocalImageBackend()],
+        )
+        try:
+            generate = service.plan_skill("image.generate", {
+                "inputs": {"prompt": {"kind": "text", "text": "forest"}},
+                "selection": {"capability_pins": {"image.generate": {"model_id": "model-gen-b"}}},
+            })["data"]["plan"]
+            edit = service.plan_skill("image.edit-from-instruction", {
+                "inputs": {"image": {"kind": "image"},
+                           "instruction": {"kind": "text", "text": "brighten"}},
+                "selection": {"capability_pins": {"image.edit": {"model_id": "model-edit-a"}}},
+            })["data"]["plan"]
+            self.assertEqual(generate["nodes"][0]["selected"]["model_id"], "model-gen-b")
+            self.assertEqual(edit["nodes"][0]["selected"]["model_id"], "model-edit-a")
+        finally:
+            service.close()
 
 
 if __name__ == "__main__":

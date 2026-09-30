@@ -21,6 +21,10 @@ the plan; they are never replaced silently.
 selection preferences, selected routes, alternatives, and route explanations.
 The digest is independent of Python mapping insertion order and changes when
 execution-relevant workflow policy or route choices change.
+The plan exposes the root skill's effective `max_parallel_routes` budget.
+Nested route nodes use stable slash-separated node paths so planning and
+execution identify the same instance even if one subskill is invoked several
+times.
 
 An optional assisted-planner draft gate is available on
 `OrchestrationService`, disabled by default. When enabled, the host can pass a
@@ -34,16 +38,24 @@ validator/bridge: it does not call an LLM or generate drafts.
 `execute()` is deliberately separate. It rechecks the skill graph and inputs,
 preflights all selected route invokers and model manifests, and processes each
 ready graph layer in chunks no wider than `policy.max_parallel_nodes`. Before
-any route in a chunk is invoked, the service reserves the chunk's model leases
-with the scheduler's atomic `acquire_many()` operation. A reservation failure
-releases earlier leases and starts no route invocation. All leases are released
-after the chunk, including on route failure. A runtime must advertise request
-concurrency before the scheduler grants overlapping leases for the same
-resident model. Routes that cannot safely coexist fail before inference; they
-are not silently serialized under a declared parallel branch. Each route must
-provide scheduler metadata (`manifest`; optionally `profile`,
+any route in a chunk is invoked, the service reserves route budget slots and the
+chunk's model leases with the scheduler's atomic `acquire_many()` operation.
+The inherited route semaphore caps concurrent routes across nested subskills;
+waiting for a slot is cancellation-aware. A reservation failure releases
+earlier leases and slots and starts no route invocation. All leases and slots
+are released after the chunk, including on route failure. A runtime must
+advertise request concurrency before the scheduler grants overlapping leases
+for the same resident model. Routes that cannot safely coexist fail before
+inference; they are not silently serialized under a declared parallel branch.
+Each route must provide scheduler metadata (`manifest`; optionally `profile`,
 `estimated_ram_bytes`, and `estimated_vram_bytes`). Unknown resource
 measurements remain unenforced by the existing scheduler policy.
+
+Resolver v1 exposes an explicit `unknown_resource_policy` on each request:
+`allow` preserves compatibility and reports missing estimates in the route's
+selection factors; `reject` treats any missing required/available estimate as a
+hard `resource_estimate_unknown` rejection. Known estimates still apply the
+configured headroom using round-up arithmetic.
 
 Local fallback nodes require an explicit typed trace callback and receive the
 plan ID as their base revision. The executor emits a deterministic revision
@@ -51,9 +63,10 @@ event only after a later registered transform candidate produces valid typed
 outputs. The host must persist that callback into its run event log.
 
 This is a local orchestration boundary, not the runtime integration itself. It
-does not build route candidates from installed models, probe adapters, verify
-capability evidence, implement cancellation/SSE/run persistence, or supply
-model/runtime invokers. Nested sub-skill execution and LLM-generated planner
-drafts are not implemented. Fakes can validate planning, reservation, and lifecycle
-behavior; real execution remains unavailable until the application wires
-truthful route snapshots and adapters.
+does not build route candidates from installed models, probe adapters, or verify
+capability evidence. The application host supplies truthful route snapshots,
+runtime invokers, cancellation events, and SSE/run persistence. Assisted draft
+generation is hosted separately and remains off by default; this planner only
+validates its result. Fakes validate planning, reservation, nested routing, and
+lifecycle behavior; runtime execution still depends on compatible installed
+adapters and models.

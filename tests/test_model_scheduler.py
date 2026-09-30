@@ -96,6 +96,34 @@ class ModelSchedulerTest(unittest.TestCase):
         for lease in reversed(leases):
             scheduler.release(lease)
 
+    def test_acquire_many_rejects_oversized_batch_before_adapter_work(self):
+        adapter = FakeAdapter()
+        scheduler = ModelScheduler({"fake": adapter})
+        requests = tuple(LeaseRequest(f"model-{index}", "fake", {"model": index})
+                         for index in range(9))
+        with self.assertRaisesRegex(SchedulerError, "batch exceeds the limit of 8"):
+            scheduler.acquire_many(requests)
+        self.assertEqual([], adapter.calls)
+
+    def test_acquire_many_rolls_back_all_prior_reservations_on_cancellation(self):
+        class CancellingAdapter(FakeAdapter):
+            def load(self, prepared):
+                if prepared.model == {"model": "cancel-second"}:
+                    raise KeyboardInterrupt("cancelled while reserving")
+                return super().load(prepared)
+
+        first = FakeAdapter("first")
+        second = CancellingAdapter("second")
+        scheduler = ModelScheduler({"first": first, "second": second})
+        with self.assertRaises(KeyboardInterrupt):
+            scheduler.acquire_many((
+                LeaseRequest("reserved-first", "first", {"model": "reserved-first"}),
+                LeaseRequest("cancel-second", "second", {"model": "cancel-second"}),
+            ))
+        self.assertEqual((), scheduler.active_leases())
+        self.assertEqual((), scheduler.residency())
+        self.assertTrue(any(call[0] == "unload" for call in first.calls))
+
     def test_sequential_requests_reuse_resident_and_release_leases(self):
         adapter = FakeAdapter()
         scheduler = ModelScheduler({"fake": adapter})
@@ -144,6 +172,39 @@ class ModelSchedulerTest(unittest.TestCase):
         self.assertEqual([r.model_id for r in scheduler.residency()], ["specialist"])
         self.assertIn(("unload", "handle-{'model': 'old'}"), adapter.calls)
         scheduler.release(next_lease)
+
+    def test_never_policy_keeps_idle_residents_when_headroom_is_insufficient(self):
+        adapter = FakeAdapter()
+        scheduler = ModelScheduler({"fake": adapter},
+                                   resource_snapshot=lambda: ResourceSnapshot(
+                                       vram_total_bytes=1000, vram_available_bytes=400),
+                                   vram_headroom_bytes=100, vram_headroom_ratio=0,
+                                   eviction_policy="never")
+        resident = scheduler.acquire(req("keep", 300))
+        scheduler.release(resident)
+        with self.assertRaisesRegex(SchedulerError, "automatic eviction is disabled") as raised:
+            scheduler.acquire(req("new", 400))
+        self.assertEqual(raised.exception.code, SchedulerErrorCode.RESOURCE_UNAVAILABLE)
+        self.assertEqual([record.model_id for record in scheduler.residency()], ["keep"])
+        self.assertFalse(any(call[0] == "unload" for call in adapter.calls))
+
+    def test_never_policy_preserves_resident_on_exclusive_runtime_switch(self):
+        adapter = FakeAdapter()
+        scheduler = ModelScheduler({"fake": adapter}, eviction_policy="never")
+        resident = scheduler.acquire(req("keep", 0))
+        scheduler.release(resident)
+        with self.assertRaisesRegex(SchedulerError, "supports one resident model") as raised:
+            scheduler.acquire(req("replacement", 0))
+        self.assertEqual(raised.exception.code, SchedulerErrorCode.RESOURCE_UNAVAILABLE)
+        self.assertEqual([record.model_id for record in scheduler.residency()], ["keep"])
+        self.assertFalse(any(call[0] == "unload" for call in adapter.calls))
+
+    def test_eviction_policy_can_change_without_touching_residents(self):
+        scheduler = ModelScheduler({"fake": FakeAdapter()}, eviction_policy="never")
+        scheduler.set_eviction_policy("lru")
+        self.assertEqual(scheduler.eviction_policy, "lru")
+        with self.assertRaisesRegex(ValueError, "eviction_policy"):
+            scheduler.set_eviction_policy("fifo")
 
     def test_pinned_or_busy_residency_is_never_evicted(self):
         adapter = FakeAdapter()

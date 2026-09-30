@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Mapping, Protocol
+from typing import Any, Mapping, Protocol, runtime_checkable
 import uuid
 
 
@@ -83,6 +83,7 @@ class RuntimeRequest:
     request_id: str = ""
 
 
+@runtime_checkable
 class RuntimeAdapter(Protocol):
     """Backend-neutral lifecycle and invocation API used by orchestration."""
 
@@ -260,6 +261,7 @@ class FakeRuntimeAdapter:
         self.features = frozenset(features)
         self.compatible = compatible
         self.loaded = False
+        self._active_handle: RuntimeHandle | None = None
         self.cancelled: list[str | None] = []
         self.calls: list[str] = []
 
@@ -282,7 +284,8 @@ class FakeRuntimeAdapter:
         if prepared.runtime_id != self.runtime_id:
             raise RuntimeFailure(RuntimeErrorCode.INVALID_REQUEST, "wrong runtime")
         self.loaded = True
-        return RuntimeHandle(self.runtime_id, "fake-handle")
+        self._active_handle = RuntimeHandle(self.runtime_id, uuid.uuid4().hex)
+        return self._active_handle
 
     def invoke(self, handle: RuntimeHandle, request: RuntimeRequest) -> RuntimeOutput:
         self.calls.append("invoke")
@@ -301,6 +304,7 @@ class FakeRuntimeAdapter:
         self.calls.append("unload")
         self._check(handle)
         self.loaded = False
+        self._active_handle = None
 
     def health(self, handle: RuntimeHandle | None = None) -> HealthState:
         self.calls.append("health")
@@ -309,5 +313,5 @@ class FakeRuntimeAdapter:
         return HealthState(True, self.loaded, "Loaded" if self.loaded else "No model loaded")
 
     def _check(self, handle: RuntimeHandle) -> None:
-        if handle.runtime_id != self.runtime_id or handle.token != "fake-handle":
+        if handle.runtime_id != self.runtime_id or not handle.token or handle != getattr(self, "_active_handle", None):
             raise RuntimeFailure(RuntimeErrorCode.NOT_LOADED, "invalid handle")

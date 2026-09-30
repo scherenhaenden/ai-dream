@@ -204,6 +204,19 @@ class HTTPAPITests(unittest.TestCase):
         self.assertTrue(runtime["data"]["backends"][0]["available"])
         self.assertEqual(runtime["data"]["backends"][0]["name"], "fixture")
 
+    def test_manifest_verify_endpoint_fails_closed_without_a_local_verifier(self):
+        path = "/api/model-manifests/local.aaaaaaaaaaaaaaaaaaaaaaaa/verify"
+        with self.assertRaises(HTTPError) as error:
+            self.post_json(path, {})
+        self.assertEqual(error.exception.code, 503)
+        self.assertIn("No local runtime manifest verifier is configured",
+                      error.exception.read().decode("utf-8"))
+
+        with self.assertRaises(HTTPError) as invalid:
+            self.post_json(path, {"success": True})
+        self.assertEqual(invalid.exception.code, 400)
+        invalid.exception.read()
+
     def test_logs_snapshot_accepts_bounded_limit_query(self):
         with self.request("/api/logs?limit=50") as response:
             payload = json.loads(response.read())
@@ -369,6 +382,37 @@ class HTTPAPITests(unittest.TestCase):
             })
         self.assertEqual(caught.exception.code, 404)
         caught.exception.read()
+        caught.exception.close()
+
+    def test_capability_preferences_patch_persists_and_updates_scheduler_eviction_policy(self):
+        from aidream.model_scheduler import ModelScheduler
+        from aidream.capabilities.preferences import CapabilityPreferenceStore
+
+        self.server.services.capability_preference_store = CapabilityPreferenceStore(
+            Path(self.temp.name) / "capability-preferences.json")
+        scheduler = ModelScheduler({})
+        self.server.services._orchestration_scheduler = scheduler
+        with self.request("/api/capability-preferences") as response:
+            initial = json.loads(response.read())["data"]
+        self.assertEqual(initial["selection_defaults"]["eviction_policy"], "lru")
+        with self.patch_json("/api/capability-preferences", {
+            "selection_defaults": {"eviction_policy": "never"},
+        }) as response:
+            updated = json.loads(response.read())["data"]
+        self.assertEqual(updated["selection_defaults"]["eviction_policy"], "never")
+        self.assertEqual(scheduler.eviction_policy, "never")
+        with self.request("/api/capability-preferences") as response:
+            self.assertEqual(json.loads(response.read())["data"]["selection_defaults"]["eviction_policy"], "never")
+
+    def test_assisted_draft_endpoint_is_explicit_and_off_by_default(self):
+        from aidream.capabilities.preferences import CapabilityPreferenceStore
+
+        self.server.services.capability_preference_store = CapabilityPreferenceStore(
+            Path(self.temp.name) / "planner-preferences.json")
+        with self.assertRaises(HTTPError) as caught:
+            self.post_json("/api/skills/chat.general/draft", {"goal": "summarize a local note"})
+        self.assertEqual(caught.exception.code, 409)
+        self.assertIn("disabled globally", caught.exception.read().decode())
         caught.exception.close()
 
     def test_rejects_unknown_routes_query_and_bad_host(self):

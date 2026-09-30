@@ -33,6 +33,8 @@ class CapabilityPreferenceStoreTests(unittest.TestCase):
                     "prefer_verified": True,
                     "prefer_loaded": True,
                     "resource_headroom_percent": 10,
+                    "eviction_policy": "lru",
+                    "assisted_planner_enabled": False,
                 },
             }
             first = store.get()
@@ -40,6 +42,22 @@ class CapabilityPreferenceStoreTests(unittest.TestCase):
             first["selection_defaults"]["mode"] = "manual"
             first["capability_preferences"]["text.chat"] = {"model_id": "model-a"}
             self.assertEqual(store.get(), expected)
+
+    def test_v1_store_without_eviction_policy_migrates_to_lru_default(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "preferences.json"
+            path.write_text(json.dumps({
+                "version": 1,
+                "capability_preferences": {},
+                "selection_defaults": {
+                    "mode": "guided", "prefer_verified": True,
+                    "prefer_loaded": True, "resource_headroom_percent": 15,
+                },
+            }), encoding="utf-8")
+            store = CapabilityPreferenceStore(path)
+            self.assertEqual(store.get()["selection_defaults"]["eviction_policy"], "lru")
+            store.patch({"selection_defaults": {"mode": "manual"}})
+            self.assertEqual(json.loads(path.read_text(encoding="utf-8"))["selection_defaults"]["eviction_policy"], "lru")
 
     def test_patch_merges_preferences_and_selection_defaults(self):
         with tempfile.TemporaryDirectory() as td:
@@ -58,7 +76,8 @@ class CapabilityPreferenceStoreTests(unittest.TestCase):
             })
             self.assertEqual(updated["selection_defaults"], {
                 "mode": "guided", "prefer_verified": True, "prefer_loaded": True,
-                "resource_headroom_percent": 25,
+                "resource_headroom_percent": 25, "eviction_policy": "lru",
+                "assisted_planner_enabled": False,
             })
 
             second = store.patch({
@@ -132,6 +151,8 @@ class CapabilityPreferenceStoreTests(unittest.TestCase):
                 {"resource_headroom_percent": True},
                 {"resource_headroom_percent": -1},
                 {"resource_headroom_percent": 101},
+                {"eviction_policy": "aggressive"},
+                {"assisted_planner_enabled": 1},
             )
             for value in invalid:
                 with self.subTest(value=value):
@@ -148,6 +169,8 @@ class CapabilityPreferenceStoreTests(unittest.TestCase):
             payload = json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual(payload["version"], 1)
             self.assertEqual(payload["selection_defaults"]["mode"], "manual")
+            store.patch({"selection_defaults": {"eviction_policy": "never"}})
+            self.assertEqual(CapabilityPreferenceStore(path).get()["selection_defaults"]["eviction_policy"], "never")
 
     def test_invalid_json_future_version_and_oversize_store_fail_safely(self):
         with tempfile.TemporaryDirectory() as td:

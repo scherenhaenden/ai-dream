@@ -18,6 +18,7 @@ from typing import Any, Callable, Mapping
 from aidream.runtime_adapters import RuntimeAdapter, RuntimeHandle
 
 _ANY_LEASE_OWNER = object()
+MAX_RESERVATION_BATCH = 8
 
 
 class SchedulerErrorCode(str, Enum):
@@ -113,6 +114,7 @@ class ModelScheduler:
                  resource_snapshot: Callable[[], ResourceSnapshot] | None = None,
                  ram_headroom_bytes: int = 0, vram_headroom_bytes: int = 0,
                  ram_headroom_ratio: float = 0.10, vram_headroom_ratio: float = 0.10,
+                 eviction_policy: str = "lru",
                  keep_last_model_loaded: bool = True,
                  event_callback: Callable[[SchedulerEvent], None] | None = None):
         self.adapters = dict(adapters)
@@ -121,6 +123,7 @@ class ModelScheduler:
         self.vram_headroom_bytes = self._nonnegative(vram_headroom_bytes, "vram_headroom_bytes")
         self.ram_headroom_ratio = self._ratio(ram_headroom_ratio, "ram_headroom_ratio")
         self.vram_headroom_ratio = self._ratio(vram_headroom_ratio, "vram_headroom_ratio")
+        self.eviction_policy = self._eviction_policy(eviction_policy)
         self.keep_last_model_loaded = bool(keep_last_model_loaded)
         self.event_callback = event_callback
         self._records: dict[tuple[str, str, str | None], ResidencyRecord] = {}
@@ -138,6 +141,18 @@ class ModelScheduler:
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value < 1:
             raise ValueError(f"{name} must be between 0 and 1")
         return float(value)
+
+    @staticmethod
+    def _eviction_policy(value: str) -> str:
+        if value not in {"lru", "never"}:
+            raise ValueError("eviction_policy must be 'lru' or 'never'")
+        return value
+
+    def set_eviction_policy(self, value: str) -> None:
+        """Change future automatic resource-pressure eviction behavior."""
+        policy = self._eviction_policy(value)
+        with self._mutation_lock:
+            self.eviction_policy = policy
 
     @staticmethod
     def _profile_id(profile: Any) -> str | None:
@@ -206,6 +221,9 @@ class ModelScheduler:
         released before the original error is re-raised; no route invocation
         should start until this method returns successfully.
         """
+        if len(requests) > MAX_RESERVATION_BATCH:
+            raise SchedulerError(SchedulerErrorCode.RESOURCE_UNAVAILABLE,
+                                 f"reservation batch exceeds the limit of {MAX_RESERVATION_BATCH}")
         batch = tuple(requests)
         if any(not isinstance(request, LeaseRequest) for request in batch):
             raise TypeError("requests must contain LeaseRequest values")
@@ -263,10 +281,16 @@ class ModelScheduler:
             if record.lease_count or record.pinned:
                 raise SchedulerError(SchedulerErrorCode.BUSY,
                                      "Runtime has another resident model that is busy or pinned")
+            if self.eviction_policy == "never":
+                raise SchedulerError(SchedulerErrorCode.RESOURCE_UNAVAILABLE,
+                                     "Runtime supports one resident model; automatic eviction is disabled")
             self._unload_record(record, reason="runtime supports one resident model")
 
     def _make_room(self, request: LeaseRequest) -> None:
         while not self._fits(request):
+            if self.eviction_policy == "never":
+                raise SchedulerError(SchedulerErrorCode.RESOURCE_UNAVAILABLE,
+                                     "Insufficient measured RAM/VRAM headroom; automatic eviction is disabled")
             candidates = sorted((r for r in self._records.values()
                                  if r.lease_count == 0 and not r.pinned),
                                 key=lambda r: r.last_used_at)
@@ -342,7 +366,8 @@ class ModelScheduler:
         record.last_used_at = time.monotonic()
         record.state = "busy" if record.lease_count else "idle"
         self._emit("model.lease.released", record)
-        if not self.keep_last_model_loaded and not record.pinned and not record.lease_count:
+        if (not self.keep_last_model_loaded and self.eviction_policy == "lru"
+                and not record.pinned and not record.lease_count):
             self._unload_record(record, reason="keep_last_model_loaded is disabled")
 
     def pin(self, model_id: str, runtime_id: str, pinned: bool = True,

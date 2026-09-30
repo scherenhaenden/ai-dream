@@ -8,6 +8,7 @@ from aidream.runtime_adapters import (
     LlamaCppRuntimeAdapter,
     RuntimeErrorCode,
     RuntimeFailure,
+    RuntimeAdapter,
     RuntimeRequest,
     VLLMRuntimeAdapter,
 )
@@ -16,6 +17,7 @@ from aidream.runtime_adapters import (
 class RuntimeAdapterContractTest(unittest.TestCase):
     def test_fake_adapter_lifecycle_is_normalized(self):
         adapter = FakeRuntimeAdapter(features={"text.chat"})
+        self.assertIsInstance(adapter, RuntimeAdapter)
         self.assertTrue(adapter.probe().available)
         self.assertEqual(adapter.supports({}).features, frozenset({"text.chat"}))
         prepared = adapter.prepare({"model_id": "model"})
@@ -41,12 +43,18 @@ class RuntimeAdapterContractTest(unittest.TestCase):
         with self.assertRaises(RuntimeFailure) as raised:
             adapter.invoke(handle, RuntimeRequest("text.generate", {"prompt": "x"}))
         self.assertEqual(raised.exception.code, RuntimeErrorCode.NOT_LOADED)
+        replacement = adapter.load(adapter.prepare({}))
+        self.assertNotEqual(handle, replacement)
+        with self.assertRaises(RuntimeFailure) as raised:
+            adapter.health(handle)
+        self.assertEqual(raised.exception.code, RuntimeErrorCode.NOT_LOADED)
 
     def test_llama_and_vllm_adapters_share_boundary_over_fake_engines(self):
         for adapter_type, kind in ((LlamaCppRuntimeAdapter, "llama.cpp"),
                                     (VLLMRuntimeAdapter, "vllm")):
             engine = FakeEngine()
             adapter = adapter_type(engine)
+            self.assertIsInstance(adapter, RuntimeAdapter)
             descriptor = adapter.probe()
             self.assertEqual(descriptor.kind, kind)
             self.assertIn("text.chat", descriptor.features)

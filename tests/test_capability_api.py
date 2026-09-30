@@ -66,7 +66,9 @@ class CapabilityAPITests(unittest.TestCase):
         full = {item["id"]: item for item in full_response["data"]["capabilities"]}
         self.assertEqual(set(full), {
             "text.chat", "text.generate", "audio.transcribe", "audio.synthesize",
-            "image.generate", "image.edit",
+            "audio.diarize", "audio.understand", "audio.prosody", "music.understand", "music.generate",
+            "image.generate", "image.edit", "document.parse", "retrieval.search",
+            "embedding.create", "rerank.score",
         })
         self.assertEqual(full["audio.transcribe"]["status"], "unavailable")
         self.assertEqual(full["audio.synthesize"]["status"], "unavailable")
@@ -114,17 +116,31 @@ class CapabilityAPITests(unittest.TestCase):
         full = api.get("/api/capabilities")[1]["data"]["capabilities"]
         compact = api.get("/api/capability-map")[1]["data"]["capabilities"]
         self.assertEqual({item["id"] for item in full}, {
-            "audio.transcribe", "audio.synthesize", "image.generate", "image.edit",
+            "audio.transcribe", "audio.synthesize", "audio.diarize", "audio.understand", "audio.prosody",
+            "music.understand", "music.generate", "image.generate", "image.edit", "document.parse",
+            "retrieval.search", "embedding.create", "rerank.score",
         })
-        self.assertTrue(all(item["status"] == "unavailable" for item in full))
+        full_by_id = {item["id"]: item for item in full}
+        self.assertEqual(full_by_id["document.parse"]["status"], "supported")
+        self.assertIn(full_by_id["retrieval.search"]["status"], {"supported", "unavailable"})
+        self.assertEqual(full_by_id["embedding.create"]["status"], "unavailable")
+        self.assertEqual(full_by_id["rerank.score"]["status"], "unavailable")
+        self.assertTrue(all(item["status"] == "unavailable" for item in full
+                            if item["id"].startswith(("audio.", "image.", "music."))))
         self.assertEqual({item["id"] for item in compact}, {
-            "audio.transcribe", "audio.synthesize", "image.generate", "image.edit",
+            "audio.transcribe", "audio.synthesize", "audio.diarize", "audio.understand", "audio.prosody",
+            "music.understand", "music.generate", "image.generate", "image.edit", "document.parse",
+            "retrieval.search", "embedding.create", "rerank.score",
         })
 
         api = _api([self.model], [])
         full = api.get("/api/capabilities")[1]["data"]["capabilities"]
         self.assertFalse(any(item["id"] == "text.chat" for item in full))
-        self.assertTrue(all(item["status"] == "unavailable" for item in full))
+        full_by_id = {item["id"]: item for item in full}
+        self.assertEqual(full_by_id["document.parse"]["status"], "supported")
+        self.assertIn(full_by_id["retrieval.search"]["status"], {"supported", "unavailable"})
+        self.assertTrue(all(item["status"] == "unavailable" for item in full
+                            if item["id"].startswith(("audio.", "image.", "music.", "embedding.", "rerank."))))
 
     def test_supported_route_requires_available_chat_runtime_and_loadable_model(self):
         cases = (
@@ -171,6 +187,54 @@ class CapabilityAPITests(unittest.TestCase):
         self.assertEqual(capabilities["image.edit"]["outputs"], [{"kind": "image"}])
         self.assertIn("No compatible local image generation runtime",
                       capabilities["image.generate"]["evidence"][0]["details"])
+
+    def test_image_routes_require_explicit_offline_backend_and_serialize_no_paths(self):
+        class LocalImageBackend:
+            runtime_id = "fixture-image"
+            local_only = True
+            network_access = False
+            def capabilities(self):
+                return {"available": True, "image_generation": True, "image_editing": True}
+            def list_models(self):
+                return [{"id": "fixture-image-model", "path": "/private/weights/model.safetensors"}]
+            def can_load(self, _model):
+                return True
+
+        api = _api()
+        api.image_backends = [LocalImageBackend()]
+        capabilities = {item["id"]: item for item in api.get("/api/capabilities")[1]["data"]["capabilities"]}
+        for capability_id in ("image.generate", "image.edit"):
+            with self.subTest(capability=capability_id):
+                item = capabilities[capability_id]
+                self.assertEqual(item["status"], "supported")
+                self.assertEqual(item["routes"][0]["model_id"], "fixture-image-model")
+                self.assertEqual(item["routes"][0]["runtime_id"], "fixture-image")
+                self.assertNotIn("/private/weights", json.dumps(item))
+
+        api.image_backends[0].network_access = True
+        unavailable = {item["id"]: item for item in api.get("/api/capabilities")[1]["data"]["capabilities"]}
+        self.assertEqual(unavailable["image.generate"]["status"], "unavailable")
+
+    def test_advanced_audio_and_music_capabilities_are_unavailable_with_typed_contracts(self):
+        api = _api()
+        full = api.get("/api/capabilities")[1]["data"]["capabilities"]
+        capabilities = {item["id"]: item for item in full}
+        contracts = {
+            "audio.diarize": ([{"kind": "audio"}], [{"kind": "json"}], "speaker-diarization"),
+            "audio.understand": ([{"kind": "audio"}], [{"kind": "json"}], "audio-understanding"),
+            "audio.prosody": ([{"kind": "audio"}], [{"kind": "json"}], "prosody-analysis"),
+            "music.understand": ([{"kind": "audio"}], [{"kind": "json"}], "music-analysis"),
+            "music.generate": ([{"kind": "text"}], [{"kind": "audio"}], "music-generation"),
+        }
+        for capability_id, (inputs, outputs, reason_part) in contracts.items():
+            with self.subTest(capability=capability_id):
+                item = capabilities[capability_id]
+                self.assertEqual(item["status"], "unavailable")
+                self.assertEqual(item["routes"], [])
+                self.assertEqual(item["preferred_route_id"], None)
+                self.assertEqual(item["inputs"], inputs)
+                self.assertEqual(item["outputs"], outputs)
+                self.assertIn(reason_part, item["evidence"][0]["details"])
 
     def test_responses_do_not_expose_local_paths_or_model_names(self):
         api = _api([self.model], [self.backend])

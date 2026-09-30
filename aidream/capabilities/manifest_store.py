@@ -183,5 +183,62 @@ class ModelManifestStore:
             if path == field_path or path.startswith(prefix)
         })
 
+    def with_generated_overrides(
+        self, overrides: Iterable[ModelManifest | Mapping[str, Any]],
+    ) -> ModelManifestStore:
+        """Apply locally verified generated claims below user metadata overrides."""
+        raw_items = tuple(_as_mapping(item) for item in overrides)
+        if not raw_items:
+            return self
+        # A generated probe must not replace a field already owned by a
+        # deliberate user override (most notably the manifest-level evidence).
+        override_items = []
+        for item in raw_items:
+            manifest_id = item.get("id")
+            user_fields = {
+                path.split(".", 1)[0]
+                for path, source in self._provenance.get(manifest_id, {}).items()
+                if source.layer == "user_override"
+            }
+            override_items.append({key: value for key, value in item.items()
+                                  if key == "id" or key not in user_fields})
+        result = ModelManifestStore.from_layers(
+            observed=self.list_manifests(), generated=override_items,
+        )
+        combined_sources: dict[str, Mapping[str, FieldProvenance]] = {}
+        for manifest_id in set(self._provenance) | set(result._provenance):
+            sources = dict(self._provenance.get(manifest_id, {}))
+            sources.update({
+                path: source for path, source in result._provenance.get(manifest_id, {}).items()
+                if source.layer == "generated"
+            })
+            combined_sources[manifest_id] = MappingProxyType(dict(sorted(sources.items())))
+        result._provenance = MappingProxyType(dict(sorted(combined_sources.items())))
+        return result
+
+    def with_user_overrides(
+        self, overrides: Iterable[ModelManifest | Mapping[str, Any]],
+    ) -> ModelManifestStore:
+        """Apply persisted user metadata while retaining provenance elsewhere."""
+        override_items = tuple(_as_mapping(item) for item in overrides)
+        if not override_items:
+            return self
+        result = ModelManifestStore.from_layers(
+            observed=self.list_manifests(), user_overrides=override_items,
+        )
+        # The temporary observed layer above is a merge input, not the source
+        # of the existing values. Keep the original layer evidence for every
+        # untouched field and use the new user layer only for changed paths.
+        combined_sources: dict[str, Mapping[str, FieldProvenance]] = {}
+        for manifest_id in set(self._provenance) | set(result._provenance):
+            sources = dict(self._provenance.get(manifest_id, {}))
+            sources.update({
+                path: source for path, source in result._provenance.get(manifest_id, {}).items()
+                if source.layer == "user_override"
+            })
+            combined_sources[manifest_id] = MappingProxyType(dict(sorted(sources.items())))
+        result._provenance = MappingProxyType(dict(sorted(combined_sources.items())))
+        return result
+
 
 __all__ = ["FieldProvenance", "ModelManifestStore"]

@@ -137,6 +137,8 @@ Acceptance criteria:
 - a profile clearly says which runtime it uses;
 - model detail shows runnable/not-runnable reason;
 - old profiles continue loading.
+- only a typed successful local runtime probe may promote verified claims/profile data;
+- user-authored metadata cannot overwrite generated capability evidence.
 
 ## Phase 3 — runtime adapter boundary
 
@@ -229,6 +231,7 @@ image.describe
 document.summarize
 voice.transcribe
 voice.conversation
+voice.respond
 ```
 
 These cover text, image, document and audio while using existing AI Dream functionality.
@@ -366,6 +369,8 @@ chapter summarization map/reduce
 Acceptance criteria:
 
 - deadlock-free resource reservation for bounded parallel branches;
+- nested capability/model routes resolve by stable skill-node path;
+- nested route invocation shares an inherited, cancellation-aware concurrency budget;
 - join node type-checking;
 - fallback creates traceable plan revision/event;
 - loops require explicit maximum iterations.
@@ -412,6 +417,12 @@ music generation/analysis
 Existing local voice integration can become a tool/runtime route rather than being discarded.
 
 The scheduler must support sequential unload/reload on machines that cannot keep STT + LLM + TTS resident together.
+
+Transcript review is an explicit branch: users may run `voice.transcribe`, inspect
+and edit its text output, then provide that text as the required input to
+`voice.respond`. Audio must never be auto-submitted from transcription to a
+response step without that user handoff. `voice.conversation` remains the direct,
+no-review sequential option when all three routes are available.
 
 ## Phase 13 — knowledge/RAG as skills
 
@@ -470,6 +481,8 @@ Acceptance criteria:
 - planner can be disabled globally;
 - generated plan is visible before side-effecting steps.
 
+Current local UI/API contract: the global `assisted_planner_enabled` preference defaults to false. An explicit `Generate assisted draft` action requires an already-loaded model and returns strict JSON only after the installed-skill validator accepts it. The UI requires an explicit review check before enabling Run. The action does not load a model or execute workflow nodes.
+
 ## Parallel team/workstream split
 
 The architecture is intentionally divisible.
@@ -520,7 +533,9 @@ canvas artifact integration
 chat.general
 image.describe
 document.summarize
+voice.transcribe
 voice.conversation
+voice.respond
 later RAG/image generation/editing
 ```
 

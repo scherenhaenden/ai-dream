@@ -28,6 +28,8 @@ export interface CapabilityDeclaration {
 
 export interface CapabilityRouteSummary {
   id: string;
-  model_id?: string;
+  model_id?: string | null;
   runtime_id?: string | null;
+  estimated_vram_bytes?: number;
+  available_vram_bytes?: number;
 }

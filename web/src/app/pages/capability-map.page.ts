@@ -82,7 +82,7 @@ type CapabilityCard = CapabilityMapItem & {
                     @if (item.detailsUnavailable) { <p class="detail-degraded">Detailed route records are unavailable; compact status is shown.</p> }
                     @if (item.routeDetails?.length) {
                       <div class="route-models" aria-label="Registered compatible routes"><span>COMPATIBLE ROUTES</span>
-                        @for (route of item.routeDetails; track route.id) {<div><code>{{ route.model_id || 'Model not reported' }}</code><small>{{ route.runtime_id || 'Runtime not reported' }}</small>@if (route.id === item.preferred_route_id) {<b>Preferred</b>}</div>}
+                        @for (route of item.routeDetails; track route.id) {<div><code>{{ routeLabel(route) }}</code><small>{{ route.runtime_id || 'Runtime not reported' }}</small>@if (route.id === item.preferred_route_id) {<b>Preferred</b>}</div>}
                       </div>
                     } @else if (item.status === 'unavailable') { <p class="route-reason">No compatible runtime route is currently reported for this capability.</p> }
                     @if (evidenceRecords(item).length) {
@@ -133,11 +133,19 @@ export class CapabilityMapPage implements OnInit {
     return this.items().filter(item => {
       if (status !== 'all' && item.status !== status) return false;
       if (!term) return true;
+      const routeTerms = (item.routeDetails || []).flatMap(route => [
+        route.id,
+        route.model_id || '',
+        route.runtime_id || '',
+        route.runtime_id?.startsWith('local-') && !route.model_id ? 'local tool' : '',
+      ]);
       const searchable = [
         item.id,
+        item.status,
         item.preferred_route_id || '',
         ...(item.inputs || []),
         ...(item.outputs || []),
+        ...routeTerms,
         ...((item.evidence || []).flatMap(evidence => [
           evidence.source,
           evidence.status || '',
@@ -228,7 +236,12 @@ export class CapabilityMapPage implements OnInit {
     return (item.evidenceDetails ?? item.evidence ?? []) as Array<{source:string;status?:string;confidence?:string;verified_at?:string;details?:string}>;
   }
 
+  routeLabel(route: NonNullable<CapabilityCard['routeDetails']>[number]): string {
+    if (route.model_id) return route.model_id;
+    return route.runtime_id?.startsWith('local-') ? 'Local tool' : 'Model not reported';
+  }
+
   artifactLabel(kind: string): string {
-    return ({ text: 'Text', image: 'Image', audio: 'Audio', document: 'Document', video: 'Video', json: 'Structured data', embedding: 'Embedding', file_reference: 'File reference', tool_result: 'Tool result' } as Record<string,string>)[kind] || 'Artifact';
+    return ({ text: 'Text', image: 'Image', audio: 'Audio', document: 'Document', video: 'Video', json: 'Structured data', embedding: 'Embedding', embedding_batch: 'Embedding batch', rerank_candidates: 'Rerank candidates', file_reference: 'File reference', tool_result: 'Tool result' } as Record<string,string>)[kind] || 'Artifact';
   }
 }

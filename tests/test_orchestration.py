@@ -1,5 +1,8 @@
 import tempfile
 import unittest
+from threading import Lock
+from time import sleep
+from dataclasses import replace
 from pathlib import Path
 
 from aidream.capabilities import (
@@ -81,6 +84,181 @@ class OrchestrationServiceTests(unittest.TestCase):
         self.assertEqual(first.plan_id, second.plan_id)
         self.assertEqual("model-b", first.resolved_nodes[0].route.model_id)
         self.assertTrue(first.resolved_nodes[0].why)
+
+    def test_image_model_pins_are_independent_per_capability(self):
+        image_skill = {
+            "schema_version": 1, "id": "image.pipeline", "name": "Image pipeline",
+            "version": "1.0.0", "description": "Generate then edit an image.",
+            "inputs": [
+                {"name": "prompt", "artifact": "text", "required": True},
+                {"name": "instruction", "artifact": "text", "required": True},
+            ],
+            "outputs": [{"name": "image", "artifact": "image", "required": True}],
+            "requirements": {"capabilities": ["image.generate", "image.edit"]},
+            "graph": [
+                {"id": "generate", "type": "capability", "capability": "image.generate",
+                 "in": {"prompt": "$input.prompt"}, "accepts": {"prompt": "text"},
+                 "out": {"image": "image"}},
+                {"id": "edit", "type": "capability", "capability": "image.edit",
+                 "in": {"image": "$generate.image", "instruction": "$input.instruction"},
+                 "accepts": {"image": "image", "instruction": "text"},
+                 "out": {"image": "image"}},
+                {"id": "result", "type": "output", "in": {"image": "$edit.image"}},
+            ],
+        }
+        text = ArtifactType(ArtifactKind.TEXT)
+        image = ArtifactType(ArtifactKind.IMAGE)
+        declarations = CapabilityRegistry([
+            CapabilityDeclaration(id="image.generate", inputs=(text,), outputs=(image,),
+                                  evidence=Evidence(source="runtime_probe", status="supported")),
+            CapabilityDeclaration(id="image.edit", inputs=(image, text), outputs=(image,),
+                                  evidence=Evidence(source="runtime_probe", status="supported")),
+        ])
+        routes = [
+            RouteCandidate(id=f"generate-{model}", capability_id="image.generate", model_id=model,
+                           runtime_id="local-image", inputs=(text,), outputs=(image,),
+                           metadata={"manifest": {"model": model}})
+            for model in ("gen-a", "gen-b")
+        ] + [
+            RouteCandidate(id=f"edit-{model}", capability_id="image.edit", model_id=model,
+                           runtime_id="local-image", inputs=(image, text), outputs=(image,),
+                           metadata={"manifest": {"model": model}})
+            for model in ("edit-a", "edit-b")
+        ]
+        service = OrchestrationService(
+            skills=SkillRegistry([image_skill]), executor=SkillExecutor(),
+            capabilities=declarations, routes=routes, preferences=self.preferences,
+        )
+        plan = service.build_plan("image.pipeline", {
+            "prompt": {"kind": "text", "value": "landscape"},
+            "instruction": {"kind": "text", "value": "warmer colors"},
+        }, capability_pins={
+            "image.generate": {"model_id": "gen-b"},
+            "image.edit": {"model_id": "edit-a"},
+        })
+        self.assertEqual([node.route.model_id for node in plan.resolved_nodes], ["gen-b", "edit-a"])
+        with self.assertRaises(ValueError):
+            service.build_plan("image.pipeline", {
+                "prompt": {"kind": "text", "value": "landscape"},
+                "instruction": {"kind": "text", "value": "warmer colors"},
+            }, capability_pins={"image.generate": {"model_id": "../private-model"}})
+
+    def test_nested_subskill_routes_are_resolved_reserved_and_invoked_by_stable_path(self):
+        child = {
+            "schema_version": 1, "id": "chat.child", "name": "Child chat",
+            "version": "1.0.0", "description": "Nested local chat",
+            "inputs": [{"name": "prompt", "artifact": "text", "required": True}],
+            "outputs": [{"name": "response", "artifact": "text", "required": True}],
+            "requirements": {"capabilities": ["text.chat"]},
+            "graph": [
+                {"id": "reply", "type": "capability", "capability": "text.chat",
+                 "in": {"prompt": "$input.prompt"}, "accepts": {"prompt": "text"},
+                 "out": {"response": "text"}},
+                {"id": "result", "type": "output", "in": {"response": "$reply.response"}},
+            ],
+        }
+        parent = {
+            "schema_version": 1, "id": "chat.parent", "name": "Parent chat",
+            "version": "1.0.0", "description": "Calls the nested chat skill",
+            "inputs": [{"name": "prompt", "artifact": "text", "required": True}],
+            "outputs": [{"name": "response", "artifact": "text", "required": True}],
+            "requirements": {"capabilities": ["text.chat"]},
+            "graph": [
+                {"id": "nested", "type": "skill", "skill_id": "chat.child",
+                 "in": {"prompt": "$input.prompt"}, "accepts": {"prompt": "text"},
+                 "out": {"response": "text"}},
+                {"id": "result", "type": "output", "in": {"response": "$nested.response"}},
+            ],
+        }
+        scheduler = FakeScheduler()
+        seen = []
+        route = candidate("nested-route", "model-a")
+        service = OrchestrationService(
+            skills=SkillRegistry([parent, child]),
+            executor=SkillExecutor(subskills={"chat.child": child}),
+            capabilities=self.declarations, routes=[route], preferences=self.preferences,
+            scheduler=scheduler,
+            route_invokers={"nested-route": lambda _route, node, values: (
+                seen.append(node["_orchestration_path"]) or
+                {"response": {"kind": "text", "value": values["prompt"]["value"] + " nested"}}
+            )},
+        )
+        self.assertEqual(
+            [{"node_id": "nested/reply", "component_id": "text.chat"}],
+            service.draft_components("chat.parent"),
+        )
+        plan = service.build_plan("chat.parent", self.inputs)
+        self.assertEqual(["nested/reply"], [node.node_id for node in plan.resolved_nodes])
+        result = service.execute(plan, self.inputs, owner_id="nested-run")
+        self.assertEqual("hello nested", result["response"]["value"])
+        self.assertEqual(["nested/reply"], seen)
+        self.assertEqual(1, len(scheduler.acquired))
+        self.assertEqual(1, len(scheduler.released))
+
+    def test_nested_parallel_routes_respect_parent_global_resource_budget(self):
+        child = {
+            "schema_version": 1, "id": "chat.parallel-child", "name": "Parallel child",
+            "version": "1.0.0", "description": "Two independent routes",
+            "inputs": [{"name": "prompt", "artifact": "text", "required": True}],
+            "outputs": [{"name": "left", "artifact": "text", "required": True},
+                        {"name": "right", "artifact": "text", "required": True}],
+            "requirements": {"capabilities": ["text.chat"]},
+            "policy": {"max_parallel_nodes": 2},
+            "graph": [
+                {"id": "left", "type": "capability", "capability": "text.chat",
+                 "in": {"prompt": "$input.prompt"}, "accepts": {"prompt": "text"},
+                 "out": {"left": "text"}},
+                {"id": "right", "type": "capability", "capability": "text.chat",
+                 "in": {"prompt": "$input.prompt"}, "accepts": {"prompt": "text"},
+                 "out": {"right": "text"}},
+                {"id": "result", "type": "output", "in": {
+                    "left": "$left.left", "right": "$right.right"}},
+            ],
+        }
+        parent = {
+            "schema_version": 1, "id": "chat.parallel-parent", "name": "Parent",
+            "version": "1.0.0", "description": "Two child workflows",
+            "inputs": [{"name": "prompt", "artifact": "text", "required": True}],
+            "outputs": [{"name": "answer", "artifact": "text", "required": True}],
+            "requirements": {"capabilities": ["text.chat"]},
+            "policy": {"max_parallel_nodes": 1},
+            "graph": [
+                {"id": "one", "type": "skill", "skill_id": child["id"],
+                 "in": {"prompt": "$input.prompt"}, "accepts": {"prompt": "text"},
+                 "out": {"left": "text", "right": "text"}},
+                {"id": "two", "type": "skill", "skill_id": child["id"],
+                 "in": {"prompt": "$input.prompt"}, "accepts": {"prompt": "text"},
+                 "out": {"left": "text", "right": "text"}},
+                {"id": "result", "type": "output", "in": {"answer": "$one.left"}},
+            ],
+        }
+        lock = Lock()
+        active = 0
+        peak = 0
+
+        def invoke(_route, _node, _inputs):
+            nonlocal active, peak
+            with lock:
+                active += 1
+                peak = max(peak, active)
+            sleep(0.01)
+            with lock:
+                active -= 1
+            port = "left" if _node["id"] == "left" else "right"
+            return {port: {"kind": "text", "value": port}}
+
+        service = OrchestrationService(
+            skills=SkillRegistry([parent, child]),
+            executor=SkillExecutor(subskills={child["id"]: child}),
+            capabilities=self.declarations, routes=[candidate("route", "model-a")],
+            preferences=self.preferences, scheduler=FakeScheduler(),
+            route_invokers={"route": invoke},
+        )
+        plan = service.build_plan("chat.parallel-parent", self.inputs)
+        self.assertEqual(1, plan.resource_budget["max_parallel_routes"])
+        result = service.execute(plan, self.inputs)
+        self.assertEqual("left", result["answer"]["value"])
+        self.assertEqual(1, peak)
 
     def test_plan_revision_hash_covers_workflow_policy_and_rejected_alternatives(self):
         base = self.service().build_plan("chat.general", self.inputs)
@@ -226,6 +404,77 @@ class OrchestrationServiceTests(unittest.TestCase):
         self.assertEqual([], invocations)
         self.assertEqual(1, len(scheduler.acquired))
         self.assertEqual(1, len(scheduler.released))
+
+    def test_parallel_multiruntime_batch_reservation_precedes_invocation_and_cancel_releases_all(self):
+        class AtomicScheduler:
+            def __init__(self):
+                self.batches = []
+                self.released = []
+
+            def acquire_many(self, requests):
+                batch = tuple(requests)
+                self.batches.append(batch)
+                return tuple({"model": request.model_id, "runtime": request.runtime_id} for request in batch)
+
+            def release(self, lease):
+                self.released.append(lease)
+
+        class RunCancelled(Exception):
+            pass
+
+        scheduler = AtomicScheduler()
+        routes = [replace(candidate("route-a", "model-a"), runtime_id="runtime-a"),
+                  replace(candidate("route-b", "model-b"), runtime_id="runtime-b")]
+        skill = self.parallel_skill()
+        skill["graph"][0]["select"] = {"pinned_model_id": "model-a"}
+        skill["graph"][1]["select"] = {"pinned_model_id": "model-b"}
+        invoked = []
+
+        def cancel_after_reservation(route, node, _inputs):
+            self.assertEqual(1, len(scheduler.batches))
+            self.assertEqual(2, len(scheduler.batches[0]))
+            invoked.append((node["id"], route.runtime_id))
+            if node["id"] == "left":
+                raise RunCancelled("cancel requested")
+            return {"text": {"kind": "text", "value": "done"}}
+
+        service = self.service(skill=skill, routes=routes, scheduler=scheduler,
+                               route_invokers={"route-a": cancel_after_reservation,
+                                               "route-b": cancel_after_reservation})
+        plan = service.build_plan("text.parallel", self.inputs)
+        with self.assertRaisesRegex(RunCancelled, "cancel requested"):
+            service.execute(plan, self.inputs)
+        self.assertCountEqual([("left", "runtime-a"), ("right", "runtime-b")], invoked)
+        self.assertEqual([("model-a", "runtime-a"), ("model-b", "runtime-b")],
+                         [(item.model_id, item.runtime_id) for item in scheduler.batches[0]])
+        self.assertCountEqual([{"model": "model-a", "runtime": "runtime-a"},
+                               {"model": "model-b", "runtime": "runtime-b"}], scheduler.released)
+
+    def test_parallel_release_attempts_every_lease_after_one_release_fails(self):
+        class ReleaseFailureScheduler(FakeScheduler):
+            def acquire_many(self, requests):
+                batch = tuple(requests)
+                self.acquired.extend(batch)
+                return tuple({"model": request.model_id} for request in batch)
+
+            def release(self, lease):
+                self.released.append(lease)
+                if lease["model"] == "model-a":
+                    raise RuntimeError("fake unload failure")
+
+        scheduler = ReleaseFailureScheduler()
+        routes = [replace(candidate("route-a", "model-a"), runtime_id="runtime-a"),
+                  replace(candidate("route-b", "model-b"), runtime_id="runtime-b")]
+        skill = self.parallel_skill()
+        skill["graph"][0]["select"] = {"pinned_model_id": "model-a"}
+        skill["graph"][1]["select"] = {"pinned_model_id": "model-b"}
+        result = {"text": {"kind": "text", "value": "ok"}}
+        service = self.service(skill=skill, routes=routes, scheduler=scheduler,
+                               route_invokers={"route-a": lambda *_: result, "route-b": lambda *_: result})
+        plan = service.build_plan("text.parallel", self.inputs)
+        with self.assertRaisesRegex(PlanResolutionError, "could not release every parallel route lease"):
+            service.execute(plan, self.inputs)
+        self.assertEqual(2, len(scheduler.released))
 
     def test_route_failure_still_releases_lease(self):
         scheduler = FakeScheduler()

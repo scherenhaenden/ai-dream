@@ -195,11 +195,13 @@ class ModelProfileStore:
                 return _copy_json(profile)
         raise KeyError(f"Model profile not found: {identity}")
 
-    def create(self, profile: Mapping[str, Any]) -> dict[str, Any]:
+    def create(self, profile: Mapping[str, Any], *, allow_verified: bool = False) -> dict[str, Any]:
         data = dict(profile)
         data.pop("id", None)
         data.pop("created_at", None)
         data.pop("updated_at", None)
+        if data.get("profile_class") == "verified" and not allow_verified:
+            raise ValueError("verified profiles can only be created from a successful runtime verification")
         normalized = _validate_profile(data)
         now = _now()
         normalized.update(id=uuid.uuid4().hex, created_at=now, updated_at=now)
@@ -208,12 +210,18 @@ class ModelProfileStore:
         self._write(records)
         return _copy_json(normalized)
 
-    def update(self, profile_id: str, changes: Mapping[str, Any]) -> dict[str, Any]:
+    def update(self, profile_id: str, changes: Mapping[str, Any], *, allow_verified: bool = False) -> dict[str, Any]:
         identity = _validate_id(profile_id)
         if not isinstance(changes, Mapping) or set(changes) - (_PROFILE_KEYS - {"id", "created_at", "updated_at"}):
             raise ValueError("profile update contains unsupported fields")
         if "verification" in changes and "verification_summary" in changes:
             raise ValueError("provide verification or verification_summary, not both")
+        supplied_verification = changes.get("verification", changes.get("verification_summary"))
+        if not allow_verified and (
+                changes.get("profile_class") == "verified"
+                or isinstance(supplied_verification, Mapping)
+                and supplied_verification.get("status") == "verified"):
+            raise ValueError("verification evidence can only be changed by a successful runtime verification")
         records = self._read()
         for index, current in enumerate(records):
             if current["id"] == identity:
@@ -230,6 +238,18 @@ class ModelProfileStore:
                         updated[key] = merged
                     else:
                         updated[key] = value
+                verified_profile_fields = {
+                    "model_id", "runtime_id", "backend_name", "placement", "load", "generation",
+                    "purpose", "companion_artifacts", "hardware_signature", "profile_class",
+                    "verification", "verification_summary",
+                }
+                if (not allow_verified and current.get("profile_class") == "verified"
+                        and verified_profile_fields.intersection(normalized_changes)):
+                    # Capability verification is tied to the tested launch
+                    # configuration. Editing those settings keeps the user's
+                    # work but explicitly demotes its evidence.
+                    updated["profile_class"] = "user"
+                    updated["verification"] = None
                 updated["updated_at"] = _now()
                 records[index] = _validate_profile(updated)
                 self._write(records)

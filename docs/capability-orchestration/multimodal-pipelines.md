@@ -165,6 +165,14 @@ If a music model already produces natural-language output, the second step may b
 
 ## 9. Document Q&A with RAG
 
+The first local implementation uses a stateless BM25-style lexical score over
+bounded chunks. Every returned citation includes the bounded matched query terms
+and lexical score so tests and reviewers can inspect why that passage ranked.
+This score is a retrieval heuristic, not a probability of relevance. Keep the
+ranking deterministic and evaluate it against fixed labeled passages before
+claiming broader relevance quality; do not imply embeddings or reranking are
+active when those routes are unavailable.
+
 ```text
 document
   -> document.parse

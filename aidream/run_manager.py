@@ -349,7 +349,13 @@ class RunManager:
         self._pool.shutdown(wait=wait, cancel_futures=True)
         with self._changed:
             for run in active:
-                if run.state not in _TERMINAL:
+                # A non-waiting shutdown cannot claim an executing runtime
+                # has stopped. Keep its run and leases alive until _execute
+                # observes cancellation and completes cleanup. Queued futures
+                # cancelled by shutdown never enter _execute, so finalize
+                # those here (and any remaining runs after a waiting shutdown).
+                future_was_cancelled = run.future is not None and run.future.cancelled()
+                if run.state not in _TERMINAL and (wait or future_was_cancelled):
                     self._finish_locked(run, "cancelled")
 
 

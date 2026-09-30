@@ -85,6 +85,30 @@ class RunManagerTests(unittest.TestCase):
         finally:
             manager.close()
 
+    def test_nonwaiting_close_keeps_active_run_and_leases_until_executor_stops(self):
+        started = threading.Event()
+        finish_runtime = threading.Event()
+        released = []
+
+        def execute(*, plan, cancel_event, emit):
+            started.set()
+            # Simulate a runtime callback that only returns after its own
+            # cancellation hook has completed.
+            finish_runtime.wait(2)
+            return []
+
+        manager = RunManager(executor=execute, release_leases=released.append)
+        run = manager.create(skill_id="chat.general", skill_version="1", plan={})
+        self.assertTrue(started.wait(1))
+        manager.close(wait=False)
+        self.assertEqual(manager.get(run["id"])["state"], "running")
+        self.assertEqual(released, [])
+
+        finish_runtime.set()
+        final = wait_terminal(manager, run["id"])
+        self.assertEqual(final["state"], "cancelled")
+        self.assertEqual(released, [run["id"]])
+
     def test_normalized_failure_is_retained_without_traceback(self):
         manager = RunManager(executor=lambda **kwargs: (_ for _ in ()).throw(RuntimeError("backend broke")))
         try:

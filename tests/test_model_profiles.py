@@ -179,6 +179,32 @@ class ModelProfileResolutionTests(unittest.TestCase):
             profile = store.create({"name": "Conservative", "profile_class": "safe/default"})
             self.assertEqual(profile["profile_class"], "safe/default")
 
+    def test_verified_profiles_require_trusted_creation_and_downgrade_when_settings_change(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = ModelProfileStore(Path(td) / "profiles.json")
+            verified = {
+                "name": "Verified chat",
+                "model_id": "local-model",
+                "runtime_id": "runtime.fake",
+                "purpose": ["text.chat"],
+                "profile_class": "verified",
+                "verification": {
+                    "status": "verified",
+                    "runtime_version": "fake-1.0",
+                    "verified_at": "2026-09-30T15:00:00+00:00",
+                },
+            }
+            with self.assertRaisesRegex(ValueError, "only be created from a successful runtime verification"):
+                store.create(verified)
+
+            saved = store.create(verified, allow_verified=True)
+            with self.assertRaisesRegex(ValueError, "only be changed by a successful runtime verification"):
+                store.update(saved["id"], {"verification": {"status": "verified"}})
+
+            edited = store.update(saved["id"], {"load": {"context_size": 4096}})
+            self.assertEqual(edited["profile_class"], "user")
+            self.assertIsNone(edited["verification"])
+
 
 if __name__ == "__main__":
     unittest.main()

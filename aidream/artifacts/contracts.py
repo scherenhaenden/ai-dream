@@ -60,7 +60,11 @@ class ArtifactOwner(TypedDict):
 
 
 class ArtifactEnvelope(TypedDict):
-    """Public metadata envelope. Binary content is always stored separately."""
+    """Public v1 envelope; bounded metadata is its extension bag.
+
+    New top-level fields require a schema-version change. Binary content is
+    always stored separately.
+    """
 
     schema_version: int
     id: str

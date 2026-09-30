@@ -12,6 +12,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import re
+import threading
 from collections.abc import Mapping, Sequence
 from typing import Any, Callable
 
@@ -21,6 +23,7 @@ from aidream.capabilities.preferences import CapabilityPreferenceStore
 from aidream.capabilities.registry import CapabilityRegistry, artifact_types_compatible
 from aidream.capabilities.resolver import ResolutionRequest, RouteCandidate, resolve_route
 from aidream.model_scheduler import LeaseRequest, ModelScheduler
+from aidream.run_manager import RunCancelled
 from aidream.skills import FallbackCallback, SkillContractError, SkillExecutor, SkillRegistry
 
 
@@ -65,6 +68,8 @@ class ExecutionPlan:
     resolved_nodes: tuple[ResolvedNode, ...]
     input_kinds: Mapping[str, str]
     manifest: Mapping[str, Any]
+    resource_budget: Mapping[str, int]
+    nested_skill_fingerprints: tuple[tuple[str, str, str, str], ...]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -72,6 +77,7 @@ class ExecutionPlan:
             "skill": {"id": self.skill_id, "version": self.skill_version},
             "mode": self.mode,
             "input_kinds": dict(self.input_kinds),
+            "resource_budget": dict(self.resource_budget),
             "nodes": [node.to_dict() for node in self.resolved_nodes],
         }
 
@@ -80,9 +86,14 @@ RouteInvoker = Callable[[RouteCandidate, Mapping[str, Any], Mapping[str, Any]], 
 
 
 def _route_summary(route: RouteCandidate) -> dict[str, Any]:
-    return {"id": route.id, "capability_id": route.capability_id,
-            "model_id": route.model_id, "profile_id": route.profile_id,
-            "runtime_id": route.runtime_id}
+    result = {"id": route.id, "capability_id": route.capability_id,
+              "model_id": route.model_id, "profile_id": route.profile_id,
+              "runtime_id": route.runtime_id}
+    if route.required_memory_bytes is not None:
+        result["estimated_vram_bytes"] = route.required_memory_bytes
+    if route.available_memory_bytes is not None:
+        result["available_vram_bytes"] = route.available_memory_bytes
+    return result
 
 
 def _artifact_type(kind: str) -> ArtifactType:
@@ -115,8 +126,27 @@ class OrchestrationService:
             raise ValueError("assisted_planner_enabled must be a boolean")
         self.assisted_planner_enabled = assisted_planner_enabled
 
+    def draft_components(self, skill_id: str) -> list[dict[str, str]]:
+        """Return the validated routable components, including nested skill nodes.
+
+        Node ids use the same stable slash-separated paths as plan resolution,
+        so an assisted planner can describe a nested component without
+        inventing a root-level node id.
+        """
+        manifest = self.skills.get(skill_id)
+        if manifest is None:
+            raise PlanDraftError(f"draft names uninstalled skill {skill_id!r}")
+        return [
+            {
+                "node_id": path,
+                "component_id": node["capability"] if node["type"] == "capability" else node["operation"],
+            }
+            for path, node, _inputs, _graph in self._route_nodes(manifest)
+        ]
+
     def resolve_assisted_draft(self, draft: Mapping[str, Any], inputs: Mapping[str, Any], *,
-                               mode: str | None = None) -> ExecutionPlan:
+                               mode: str | None = None,
+                               capability_pins: Mapping[str, Mapping[str, str]] | None = None) -> ExecutionPlan:
         """Validate a draft against one installed skill, then run deterministic planning.
 
         This method never invokes an LLM or executes a node. Drafts may select
@@ -139,10 +169,7 @@ class OrchestrationService:
         manifest = self.skills.get(skill_id)
         if manifest is None:
             raise PlanDraftError(f"draft names uninstalled skill {skill_id!r}")
-        expected = {
-            node["id"]: node["capability"] if node["type"] == "capability" else node["operation"]
-            for node in manifest["graph"] if node["type"] in {"capability", "model"}
-        }
+        expected = {item["node_id"]: item["component_id"] for item in self.draft_components(skill_id)}
         raw_components = draft.get("components")
         if not isinstance(raw_components, list):
             raise PlanDraftError("draft.components must be a list")
@@ -165,10 +192,11 @@ class OrchestrationService:
                 f"draft components do not match the installed skill (unknown={unknown_nodes}, "
                 f"missing={missing_nodes}, mismatched={mismatched})"
             )
-        return self.build_plan(skill_id, inputs, mode=mode)
+        return self.build_plan(skill_id, inputs, mode=mode, capability_pins=capability_pins)
 
     def build_plan(self, skill_id: str, inputs: Mapping[str, Any], *, mode: str | None = None,
-                   pinned_model_id: str | None = None, pinned_profile_id: str | None = None) -> ExecutionPlan:
+                   pinned_model_id: str | None = None, pinned_profile_id: str | None = None,
+                   capability_pins: Mapping[str, Mapping[str, str]] | None = None) -> ExecutionPlan:
         """Type-check first, then resolve every static model/capability node."""
         manifest = self.skills.get(skill_id)
         if manifest is None:
@@ -183,20 +211,42 @@ class OrchestrationService:
         chosen_mode = mode or defaults["mode"]
         if chosen_mode not in {"auto", "guided", "manual"}:
             raise ValueError("mode must be auto, guided, or manual")
-        declared_inputs = {item["name"]: item["artifact"] for item in clean["inputs"]}
-        graph_by_id = {node["id"]: node for node in clean["graph"]}
+        if capability_pins is None:
+            capability_pins = {}
+        if not isinstance(capability_pins, Mapping) or len(capability_pins) > 32:
+            raise ValueError("capability_pins must be a bounded object")
+        clean_capability_pins: dict[str, dict[str, str]] = {}
+        for capability_id, pin in capability_pins.items():
+            from aidream.capabilities.contracts import validate_capability_id
+            try:
+                clean_id = validate_capability_id(capability_id)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("capability_pins contains an invalid capability ID") from exc
+            if not isinstance(pin, Mapping) or set(pin) - {"model_id", "profile_id"} or not pin:
+                raise ValueError(f"capability_pins.{clean_id} must select model_id or profile_id")
+            clean_pin = {}
+            if "model_id" in pin:
+                model_id = pin["model_id"]
+                if (not isinstance(model_id, str) or len(model_id) > 256
+                        or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,255}", model_id)):
+                    raise ValueError(f"capability_pins.{clean_id}.model_id is invalid")
+                clean_pin["model_id"] = model_id
+            if "profile_id" in pin:
+                profile_id = pin["profile_id"]
+                if not isinstance(profile_id, str) or len(profile_id) != 32 or any(char not in "0123456789abcdef" for char in profile_id):
+                    raise ValueError(f"capability_pins.{clean_id}.profile_id is invalid")
+                clean_pin["profile_id"] = profile_id
+            clean_capability_pins[clean_id] = clean_pin
         resolved_nodes: list[ResolvedNode] = []
         failures: list[dict[str, Any]] = []
 
-        for node in clean["graph"]:
+        for node_path, node, declared_inputs, graph_by_id in self._route_nodes(clean):
             node_type = node["type"]
-            if node_type not in {"capability", "model"}:
-                continue
             capability_id = node["capability"] if node_type == "capability" else node["operation"]
             incoming = self._incoming_types(node, declared_inputs, graph_by_id)
             outgoing = tuple(_artifact_type(kind) for kind in node.get("out", {}).values())
             if not incoming:
-                failures.append({"node_id": node["id"], "capability_id": capability_id,
+                failures.append({"node_id": node_path, "capability_id": capability_id,
                                  "reason": "no_typed_input", "routes": []})
                 continue
             declarations = self.capabilities.find_by_id(capability_id)
@@ -209,11 +259,15 @@ class OrchestrationService:
                         for actual in outgoing)
             )
             if not declarations:
-                failures.append({"node_id": node["id"], "capability_id": capability_id,
+                failures.append({"node_id": node_path, "capability_id": capability_id,
                                  "reason": "capability_not_declared_for_typed_io", "routes": []})
                 continue
             pin_model, pin_profile, prefer_model, prefer_profile = self._preferences(
                 capability_id, node, preference_snapshot)
+            explicit_pin = clean_capability_pins.get(capability_id)
+            if explicit_pin:
+                pin_model = explicit_pin.get("model_id", pin_model)
+                pin_profile = explicit_pin.get("profile_id", pin_profile)
             # Request-level chat selection is a hard, one-run pin. It does not
             # mutate the user's persistent capability preferences.
             if capability_id in {"text.chat", "text.generate"}:
@@ -225,7 +279,7 @@ class OrchestrationService:
                 # In manual mode a saved per-capability choice becomes a hard pin.
                 pin_model = prefer_model
             if chosen_mode == "manual" and not pin_model:
-                failures.append({"node_id": node["id"], "capability_id": capability_id,
+                failures.append({"node_id": node_path, "capability_id": capability_id,
                                  "reason": "manual_mode_requires_model_pin", "routes": []})
                 continue
             request = ResolutionRequest(
@@ -265,17 +319,19 @@ class OrchestrationService:
                                      key=lambda item: (str(item.get("route_id", "")),
                                                        tuple(item.get("reasons", ())))))
             if resolution.selected is None:
-                failures.append({"node_id": node["id"], "capability_id": capability_id,
+                failures.append({"node_id": node_path, "capability_id": capability_id,
                                  "reason": "no_compatible_available_route",
                                  "routes": [dict(item) for item in route_why]})
                 continue
             selected = resolution.selected
             why = route_why
-            resolved_nodes.append(ResolvedNode(node["id"], node_type, capability_id,
+            resolved_nodes.append(ResolvedNode(node_path, node_type, capability_id,
                                                selected, resolution.alternatives, why))
 
         if failures:
             raise PlanResolutionError("skill has unresolved required capability/model nodes", why=failures)
+        resource_budget = {"max_parallel_routes": clean.get("policy", {}).get("max_parallel_nodes", 1)}
+        nested_skill_fingerprints = self._nested_skill_fingerprints(clean)
         digest_data = {
             "skill": [clean["id"], clean["version"]], "mode": chosen_mode,
             "inputs": input_kinds,
@@ -283,11 +339,14 @@ class OrchestrationService:
                          "permissions": clean["permissions"]},
             "preferences": preference_snapshot,
             "routes": [item.to_dict() for item in resolved_nodes],
+            "resource_budget": resource_budget,
+            "nested_skills": nested_skill_fingerprints,
         }
         plan_id = hashlib.sha256(json.dumps(digest_data, sort_keys=True, separators=(",", ":"),
                                   ensure_ascii=True).encode()).hexdigest()[:24]
         return ExecutionPlan(plan_id, clean["id"], clean["version"], chosen_mode,
-                             tuple(resolved_nodes), dict(input_kinds), clean)
+                             tuple(resolved_nodes), dict(input_kinds), clean, resource_budget,
+                             nested_skill_fingerprints)
 
     @staticmethod
     def _validate_inputs(manifest: Mapping[str, Any], inputs: Mapping[str, Any]) -> dict[str, str]:
@@ -308,6 +367,39 @@ class OrchestrationService:
                 raise SkillContractError(f"inputs.{name}: expected artifact kind {port['artifact']!r}")
             result[name] = str(port["artifact"])
         return dict(sorted(result.items()))
+
+    def _route_nodes(self, manifest: Mapping[str, Any], prefix: str = ""):
+        """Yield every routable node, including nodes inside validated sub-skills.
+
+        The path is stable within a plan and identifies a nested node even when
+        the same child skill is called more than once.
+        """
+        graph = manifest["graph"]
+        graph_by_id = {node["id"]: node for node in graph}
+        input_kinds = {item["name"]: item["artifact"] for item in manifest["inputs"]}
+        for node in graph:
+            node_path = f"{prefix}{node['id']}"
+            if node["type"] in {"capability", "model"}:
+                yield node_path, node, input_kinds, graph_by_id
+            elif node["type"] == "skill":
+                child = self.skills.get(node["skill_id"], node.get("skill_version"))
+                if child is None:
+                    raise PlanResolutionError(f"nested skill {node['skill_id']!r} is no longer installed")
+                yield from self._route_nodes(child, f"{node_path}/")
+
+    def _nested_skill_fingerprints(self, manifest: Mapping[str, Any], prefix: str = ""):
+        fingerprints = []
+        for node in manifest["graph"]:
+            if node["type"] != "skill":
+                continue
+            path = f"{prefix}{node['id']}"
+            child = self.skills.get(node["skill_id"], node.get("skill_version"))
+            if child is None:
+                raise PlanResolutionError(f"nested skill {node['skill_id']!r} is no longer installed")
+            payload = json.dumps(child, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+            fingerprints.append((path, child["id"], child["version"], hashlib.sha256(payload.encode()).hexdigest()))
+            fingerprints.extend(self._nested_skill_fingerprints(child, f"{path}/"))
+        return tuple(fingerprints)
 
     @staticmethod
     def _incoming_types(node: Mapping[str, Any], input_types: Mapping[str, str],
@@ -342,16 +434,18 @@ class OrchestrationService:
 
     def execute(self, plan: ExecutionPlan, inputs: Mapping[str, Any], *, owner_id: str | None = None,
                 event_callback: Callable[[str, str], None] | None = None,
-                fallback_callback: FallbackCallback | None = None) -> dict[str, Any]:
+                fallback_callback: FallbackCallback | None = None,
+                cancel_event: threading.Event | None = None) -> dict[str, Any]:
         """Execute a previously resolved plan after rechecking it before leases."""
         current = self.skills.get(plan.skill_id, plan.skill_version)
         if current is None:
             raise PlanResolutionError("planned skill version is no longer installed")
         self.executor.type_check(current)
         self._validate_inputs(current, inputs)
+        if plan.nested_skill_fingerprints != self._nested_skill_fingerprints(current):
+            raise PlanResolutionError("nested skill definitions changed after this plan was resolved")
         route_by_node = {node.node_id: node.route for node in plan.resolved_nodes}
-        graph_capability_nodes = {node["id"] for node in current["graph"]
-                                  if node["type"] in {"capability", "model"}}
+        graph_capability_nodes = {path for path, _node, _inputs, _graph in self._route_nodes(current)}
         if set(route_by_node) != graph_capability_nodes:
             raise PlanResolutionError("plan does not resolve every capability/model node")
         missing_invokers = sorted({route.id for route in route_by_node.values()} - set(self.route_invokers))
@@ -369,13 +463,39 @@ class OrchestrationService:
         callbacks: dict[str, Callable[..., Mapping[str, Any]]] = {}
         model_callbacks: dict[str, Callable[..., Mapping[str, Any]]] = {}
         held_leases: dict[str, Any] = {}
+        try:
+            max_parallel_routes = plan.resource_budget["max_parallel_routes"]
+        except (AttributeError, KeyError, TypeError) as exc:
+            raise PlanResolutionError("plan has no bounded route resource budget") from exc
+        if isinstance(max_parallel_routes, bool) or not isinstance(max_parallel_routes, int) or not 1 <= max_parallel_routes <= 64:
+            raise PlanResolutionError("plan route resource budget must be between 1 and 64")
+        current_route_budget = current.get("policy", {}).get("max_parallel_nodes", 1)
+        if max_parallel_routes != current_route_budget:
+            raise PlanResolutionError("planned route resource budget no longer matches the installed skill")
+        route_slots = threading.BoundedSemaphore(max_parallel_routes)
+        held_route_slots: dict[str, int] = {}
 
         def reserve_layer(node_ids: tuple[str, ...]) -> None:
             routed = [(node_id, route_by_node[node_id]) for node_id in node_ids if node_id in route_by_node]
             if not routed:
                 return
+            if len(routed) > max_parallel_routes:
+                raise PlanResolutionError("route layer exceeds the inherited concurrency budget")
             if self.scheduler is None:
                 raise PlanResolutionError("model scheduler is required before reserving parallel routes")
+            acquired_slots = 0
+            try:
+                for _node_id, _route in routed:
+                    while not route_slots.acquire(timeout=0.05):
+                        if cancel_event is not None and cancel_event.is_set():
+                            raise RunCancelled("run cancelled while waiting for route capacity")
+                    acquired_slots += 1
+                if cancel_event is not None and cancel_event.is_set():
+                    raise RunCancelled("run cancelled before route reservation")
+            except Exception:
+                for _ in range(acquired_slots):
+                    route_slots.release()
+                raise
             same_route_counts: dict[tuple[str, str, str | None], int] = {}
             for _, route in routed:
                 key = (route.model_id, route.runtime_id, route.profile_id)
@@ -389,40 +509,53 @@ class OrchestrationService:
                 allow_concurrent=same_route_counts[(route.model_id, route.runtime_id, route.profile_id)] > 1,
             ) for _, route in routed]
             acquire_many = getattr(self.scheduler, "acquire_many", None)
-            if callable(acquire_many):
-                leases = tuple(acquire_many(requests))
-            else:
-                leases_list = []
-                try:
+            leases_list = []
+            try:
+                if callable(acquire_many):
+                    leases = tuple(acquire_many(requests))
+                else:
                     for request in requests:
                         leases_list.append(self.scheduler.acquire(request))
-                except Exception:
-                    for lease in reversed(leases_list):
-                        self.scheduler.release(lease)
-                    raise
-                leases = tuple(leases_list)
+                    leases = tuple(leases_list)
+            except Exception:
+                for lease in reversed(leases_list):
+                    self.scheduler.release(lease)
+                for _ in range(acquired_slots):
+                    route_slots.release()
+                raise
             if len(leases) != len(routed):
                 for lease in reversed(leases):
                     self.scheduler.release(lease)
+                for _ in range(acquired_slots):
+                    route_slots.release()
                 raise PlanResolutionError("scheduler returned an incomplete parallel lease reservation")
             held_leases.update({node_id: lease for (node_id, _), lease in zip(routed, leases)})
+            held_route_slots.update({node_id: 1 for node_id, _route in routed})
 
         def release_layer(node_ids: tuple[str, ...]) -> None:
             if self.scheduler is None:
                 return
+            failures: list[Exception] = []
             for node_id in reversed(node_ids):
                 lease = held_leases.pop(node_id, None)
                 if lease is not None:
-                    self.scheduler.release(lease)
+                    try:
+                        self.scheduler.release(lease)
+                    except Exception as exc:
+                        failures.append(exc)
+                slots = held_route_slots.pop(node_id, 0)
+                for _ in range(slots):
+                    route_slots.release()
+            if failures:
+                raise PlanResolutionError("could not release every parallel route lease") from failures[0]
 
-        for node in current["graph"]:
-            if node["type"] not in {"capability", "model"}:
-                continue
+        for _path, node, _inputs, _graph in self._route_nodes(current):
             capability_id = node["capability"] if node["type"] == "capability" else node["operation"]
             def invoke(_node: Mapping[str, Any], node_inputs: Mapping[str, Any]) -> Mapping[str, Any]:
-                route = route_by_node[_node["id"]]
-                if _node["id"] not in held_leases:
-                    raise PlanResolutionError(f"route node {_node['id']!r} started without a reserved lease")
+                path = _node.get("_orchestration_path", _node["id"])
+                route = route_by_node[path]
+                if path not in held_leases:
+                    raise PlanResolutionError(f"route node {path!r} started without a reserved lease")
                 return self.route_invokers[route.id](route, _node, node_inputs)
 
             if node["type"] == "capability":
@@ -434,6 +567,8 @@ class OrchestrationService:
         )
         return execution.execute(current, inputs, event_callback=event_callback,
                                 fallback_callback=fallback_callback,
+                                cancel_event=cancel_event,
+                                _max_parallel_nodes_limit=max_parallel_routes,
                                 plan_revision=plan.plan_id,
                                 layer_start_callback=reserve_layer,
                                 layer_end_callback=release_layer)

@@ -167,6 +167,8 @@ A node releases the lease when its work ends. The scheduler decides whether to k
 
 Loading large local models is expensive. A minimal initial policy can be LRU-like but capability-aware:
 
+The persisted global policy currently supports `lru` and `never`. `lru` unloads the least-recently-used idle, unpinned resident when memory headroom is insufficient. `never` prevents implicit pressure eviction and also refuses an implicit model switch for runtimes that support only one resident. Explicit user unload remains available; neither policy can unload a busy lease or pinned resident.
+
 ```text
 never evict busy models
 prefer keeping user-pinned model loaded
@@ -359,6 +361,13 @@ RunManager marks run cancelling
 ```
 
 A process that refuses graceful cancellation may be terminated by its runtime adapter according to bounded policy.
+
+`RunManager.close(wait=False)` requests cancellation and returns without
+releasing a running execution's leases or marking it terminal. The execution
+owns cleanup until its runtime callback returns; queued futures cancelled by
+pool shutdown are finalized immediately because they never acquired runtime
+resources. This prevents shutdown from reporting a stopped run while its
+runtime is still using the lease.
 
 ## 17. Concurrency
 

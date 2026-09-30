@@ -22,5 +22,6 @@ export interface ArtifactEnvelope {
   size_bytes: number;
   lifetime: ArtifactLifetime;
   owner: { type: ArtifactOwnerType; id: string };
+  /** Bounded extension data; new top-level fields require a schema version change. */
   metadata: Record<string, ArtifactJsonValue>;
 }

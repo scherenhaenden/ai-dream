@@ -1,10 +1,12 @@
-import { ChangeDetectionStrategy, Component, ElementRef, OnInit, effect, inject, signal, viewChild, ViewEncapsulation } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, OnInit, effect, inject, signal, untracked, viewChild, ViewEncapsulation } from '@angular/core';
+import { Router } from '@angular/router';
 import { ApiService } from '../core/api.service';
 import { firstValueFrom } from 'rxjs';
 import { ArtifactService, MAX_ARTIFACT_UPLOAD_BYTES } from '../core/artifact.service';
 import type { ArtifactEnvelope, UploadArtifactKind } from '../core/artifact.types';
 import { SkillService } from '../core/skill.service';
 import type { SkillCatalogItem } from '../core/skill.types';
+import { CanvasWorkspaceService } from '../core/canvas-workspace.service';
 
 type Model = { id: string; path?: string; format?: string };
 type ChatSummary = { id: string; title?: string; created_at?: string; updated_at?: string };
@@ -14,6 +16,7 @@ type ChatAttachment = { artifact: ArtifactEnvelope; suggestedSkillIds: string[] 
 type ChatEvent = { text?: string; chat_id?: string; incident_id?: string; assistant?: string | { role?: string; content?: string }; response?: string | { content?: string }; message?: string; error?: string };
 type RuntimeStatus = { loaded?: boolean; backend?: string; runtime_id?: string; model?: string; placement?: unknown[] };
 type CodeArtifact = { language: string; content: string; messageKey: string };
+type MessageCanvasArtifact = { id: string; label: string; kind: 'code' | 'html' | 'json' | 'markdown'; content: string };
 type ChatGeneration = { temperature: number; top_p: number | null; top_k: number | null; min_p: number | null; repeat_penalty: number | null; max_tokens: number | null };
 
 @Component({
@@ -53,7 +56,7 @@ type ChatGeneration = { temperature: number; top_p: number | null; top_k: number
           <div class="rail-footer"><span class="online-dot" [class.offline]="!api.connected()"></span><span>{{ api.connected() ? 'LOCAL API ONLINE' : 'API OFFLINE' }}</span></div>
         </aside>
         <section class="chat-center">
-          <div class="active-thread-bar"><div><span class="eyebrow">CURRENT THREAD</span><b>{{ activeChatTitle() }}</b></div><div class="thread-actions"><button class="chat-action-button canvas-toggle" (click)="toggleCanvas()" [attr.aria-expanded]="canvasOpen()" title="Show or hide the code canvas">{{ canvasOpen() ? 'Hide Canvas' : 'Canvas' }}@if (latestCodeArtifact()) { · Code}</button>@if (selectedChatId()) {<button class="chat-action-button" (click)="renameChat()" [disabled]="busy()" title="Rename conversation">Rename</button><button class="chat-action-button chat-delete-button" (click)="deleteChat()" [disabled]="busy()" title="Delete conversation">Delete</button>}<button class="chat-action-button" (click)="exportTranscript()" [disabled]="messages().length === 0 || streaming()" title="Export Markdown">Export</button></div></div>
+          <div class="active-thread-bar"><div><span class="eyebrow">CURRENT THREAD</span><b>{{ activeChatTitle() }}</b></div><div class="thread-actions"><button class="chat-action-button canvas-toggle" (click)="toggleCanvas()" [attr.aria-expanded]="canvasOpen()" title="Show or hide the inline code preview">{{ canvasOpen() ? 'Hide code preview' : 'Code preview' }}@if (latestCodeArtifact()) { · Available}</button>@if (selectedChatId()) {<button class="chat-action-button" (click)="renameChat()" [disabled]="busy()" title="Rename conversation">Rename</button><button class="chat-action-button chat-delete-button" (click)="deleteChat()" [disabled]="busy()" title="Delete conversation">Delete</button>}<button class="chat-action-button" (click)="exportTranscript()" [disabled]="messages().length === 0 || streaming()" title="Export Markdown">Export</button></div></div>
           <section class="transcript" #transcript aria-label="Conversation messages" [attr.aria-busy]="transcriptLoading() || streaming()">
         @if (transcriptLoading()) { <div class="transcript-loading" role="status">Loading conversation…</div> }
         @if (messages().length === 0 && !streaming() && !turnError()) {
@@ -62,7 +65,9 @@ type ChatGeneration = { temperature: number; top_p: number | null; top_k: number
         @for (message of messages(); track message.key) {
           <article class="message-row" [class.user-message]="message.role === 'user'" [class.assistant-message]="message.role !== 'user'">
             <div class="message-avatar" [class.user-avatar]="message.role === 'user'">{{ message.role === 'user' ? 'ED' : 'A' }}</div>
-            <div class="message-body"><div class="message-author">{{ message.role === 'user' ? 'You' : 'AI Dream' }} @if (message.created_at) {<time>{{ formatTime(message.created_at) }}</time>} @if (message.role !== 'user' && message.run_id) {<span class="message-run-link" title="Associated orchestration run">Run · {{ message.run_id.slice(0, 8) }}</span>} @if (message.role !== 'user') {<button class="message-copy" (click)="copyMessage(message)" [attr.aria-label]="copiedKey() === message.key ? 'Copied response' : 'Copy response'">{{ copiedKey() === message.key ? 'Copied' : 'Copy' }}</button>}</div><div class="message-content">{{ messageDisplayContent(message) }}</div></div>
+            <div class="message-body"><div class="message-author">{{ message.role === 'user' ? 'You' : 'AI Dream' }} @if (message.created_at) {<time>{{ formatTime(message.created_at) }}</time>} @if (message.role !== 'user' && message.run_id) {<span class="message-run-link" title="Associated orchestration run">Run · {{ message.run_id.slice(0, 8) }}</span>} @if (message.role !== 'user') {<button class="message-copy" (click)="copyMessage(message)" [attr.aria-label]="copiedKey() === message.key ? 'Copied response' : 'Copy response'">{{ copiedKey() === message.key ? 'Copied' : 'Copy' }}</button>}</div><div class="message-content">{{ messageDisplayContent(message) }}</div>
+              @if (message.role !== 'user') { <div class="message-canvas-actions"><button type="button" (click)="openMessageInCanvas(message)">Open response in Canvas</button>@for (artifact of messageCanvasArtifacts(message); track artifact.id) {<button type="button" (click)="openCodeInCanvas(artifact)">Open {{ artifact.label }} in Canvas</button>}</div> }
+            </div>
           </article>
         }
         @if (streaming()) {
@@ -89,13 +94,13 @@ type ChatGeneration = { temperature: number; top_p: number | null; top_k: number
               <button class="plan-preview-button" (click)="previewChatPlan()" [disabled]="!prompt().trim() || !selectedModelId() || planningChat() || busy()">{{ planningChat() ? 'Resolving…' : 'Preview plan' }}</button>
               @if (planInspectorOpen() && orchestrationPlan(); as plan) {
                 <section class="chat-plan-inspector" aria-label="Resolved chat plan">
-                  <header><div><b>Plan inspector</b><small>Resolved locally · no inference started</small></div><span>{{ plan.mode || 'automatic' }}</span></header>
+                  <header><div><b>Plan inspector</b><small>Resolved locally · no inference started</small></div><span>{{ plan.mode || 'automatic' }} · Up to {{ plan.resource_budget?.max_parallel_routes ?? 'unknown' }} parallel routes</span></header>
                   @for (node of orchestrationNodes(); track node.node_id) {
                     <article class="plan-node">
                       <div class="plan-node-heading"><b>{{ node.node_id }}</b><span>RESOLVED</span></div>
                       <dl><div><dt>Capability</dt><dd>{{ node.capability_id }}</dd></div><div><dt>Model</dt><dd>{{ node.selected?.model_id || 'Not reported' }}</dd></div><div><dt>Profile</dt><dd>{{ profileNameFor(node.selected?.profile_id) }}</dd></div><div><dt>Runtime</dt><dd>{{ node.selected?.runtime_id || 'Not reported' }}</dd></div><div><dt>Types</dt><dd>{{ node.capability_id === 'text.chat' ? 'Prompt · Text → Response · Text' : 'Not reported by plan' }}</dd></div><div><dt>Timing</dt><dd>Not started</dd></div><div><dt>Resources</dt><dd>Not estimated by this plan</dd></div></dl>
                       @if (selectedRouteWhy(node); as why) {<p class="route-why"><b>Selection reason:</b> {{ why.reasons?.join(', ') || 'No reason details reported' }}@if (why.ranking?.length) { · ranking: {{ why.ranking.join(' → ') }}}</p>}
-                      @if (node.alternatives?.length) {<div class="plan-alternatives"><span>ALTERNATIVES · SELECT TO PIN FOR THIS TURN</span>@for (route of node.alternatives; track route.id) {<div><button type="button" (click)="replacePlanRoute(route)" [disabled]="busy()">Use {{ route.model_id }} · {{ route.runtime_id }}@if (route.profile_id) { · {{ profileNameFor(route.profile_id) }}</button><small>{{ alternativeReason(node, route.id) }}</small></div>}</div>}
+                      @if (node.alternatives?.length) {<div class="plan-alternatives"><span>ALTERNATIVES · SELECT TO PIN FOR THIS TURN</span>@for (route of node.alternatives; track route.id) {<div><button type="button" (click)="replacePlanRoute(route)" [disabled]="busy()">Use {{ route.model_id }} · {{ route.runtime_id }}{{ route.profile_id ? ' · ' + profileNameFor(route.profile_id) : '' }}</button><small>{{ alternativeReason(node, route.id) }}</small></div>}</div>}
                       @else {<small class="no-alternatives">No compatible alternatives reported.</small>}
                     </article>
                   }
@@ -112,9 +117,9 @@ type ChatGeneration = { temperature: number; top_p: number | null; top_k: number
               <div class="chat-attachment-card">
                 <div class="attachment-file"><span class="attachment-kind">{{ item.artifact.kind }}</span><b>{{ item.artifact.name }}</b><small>{{ formatBytes(item.artifact.size_bytes) }}</small></div>
                 <div class="attachment-suggestions"><span class="eyebrow">SUGGESTED SKILLS</span>
-                  @for (skill of suggestedSkills(item); track skill.id) {<div class="skill-suggestion"><span><b>{{ skill.name }}</b><small [class.suggestion-ready]="skill.status === 'ready'" [class.suggestion-unknown]="skill.status === 'unknown'">{{ skill.status === 'ready' ? 'READY' : skill.status === 'unknown' ? 'READINESS UNKNOWN' : 'NOT READY' }}</small></span><p>{{ skill.status === 'ready' ? skill.description : (skill.not_ready_reasons?.[0] || skill.alternatives?.[0] || 'This skill needs a compatible local capability route.') }}</p></div>}
+                  @for (skill of suggestedSkills(item); track skill.id) {<div class="skill-suggestion"><span><b>{{ skill.name }}</b><small [class.suggestion-ready]="skill.status === 'ready'" [class.suggestion-unknown]="skill.status === 'unknown'">{{ skill.status === 'ready' ? 'READY' : skill.status === 'unknown' ? 'READINESS UNKNOWN' : 'NOT READY' }}</small></span><p>{{ skill.status === 'ready' ? skill.description : (skill.not_ready_reasons?.[0] || skill.alternatives?.[0] || 'This skill needs a compatible local capability route.') }}</p>@if (supportsAttachmentSkill(item, skill)) {<button type="button" class="attachment-route-button" (click)="openAttachmentSkill(item, skill)">Use this {{ item.artifact.kind }} in skill</button>} @else {<small class="attachment-route-limit">No declared {{ item.artifact.kind }} input; attachment is not converted.</small>}</div>}
                   @if (!suggestedSkills(item).length) {<span class="attachment-help">No matching skill is registered. Browse <a href="/skills">Skills</a>.</span>}
-                  @else {<a class="browse-skills" href="/skills">Open Skills catalog</a><small class="attachment-reupload-note">Select the file again in the Skills workspace to use it there.</small>}
+                  @else {<a class="browse-skills" href="/skills">Open Skills catalog</a><small class="attachment-reupload-note">Choose “Use this {{ item.artifact.kind }} in skill” to pass this session upload directly.</small>}
                 </div>
                 <button type="button" class="remove-attachment" (click)="removeChatAttachment(item)" [disabled]="busy() || uploadingAttachments()" [attr.aria-label]="'Remove ' + item.artifact.name">Remove</button>
               </div>
@@ -132,15 +137,15 @@ type ChatGeneration = { temperature: number; top_p: number | null; top_k: number
         <p class="composer-footnote">Responses can be incorrect. Selected files are offered to matching skills; chat turns remain text-only.</p>
           </footer>
         </section>
-        @if (canvasOpen()) {<aside class="code-canvas" aria-label="Canvas and code view">
-          <div class="canvas-tabs"><span class="canvas-tab active">&lt;/&gt; Canvas / Code View</span><span class="canvas-indicator" [class.present]="latestCodeArtifact()"></span></div>
+        @if (canvasOpen()) {<aside class="code-canvas" aria-label="Inline code preview">
+          <div class="canvas-tabs"><span class="canvas-tab active">&lt;/&gt; Inline code preview</span><span class="canvas-indicator" [class.present]="latestCodeArtifact()"></span></div>
           @if (latestCodeArtifact(); as artifact) {
             <div class="canvas-filebar"><div><span class="file-symbol">▤</span><b>{{ artifact.language || 'Code artifact' }}</b><span class="artifact-source">from assistant response</span></div><span>{{ artifact.content.split('\n').length }} lines</span></div>
             <div class="code-scroll"><div class="code-source"><ol aria-hidden="true">@for (line of artifact.content.split('\n'); track $index) { <li>{{ $index + 1 }}</li> }</ol><pre><code>{{ artifact.content }}</code></pre></div></div>
             <footer class="canvas-footer"><span>READ ONLY</span><span>Extracted from {{ activeChatTitle() }}</span></footer>
           } @else {
-            <div class="canvas-empty"><span class="canvas-empty-icon">&lt;/&gt;</span><b>No code artifact in this thread</b><p>Code blocks in assistant responses will appear here.</p></div>
-            <footer class="canvas-footer"><span>CANVAS</span><span>Waiting for a code block</span></footer>
+            <div class="canvas-empty"><span class="canvas-empty-icon">&lt;/&gt;</span><b>No code artifact in this thread</b><p>Assistant code blocks can be opened as stable Canvas tabs from the response.</p></div>
+            <footer class="canvas-footer"><span>PREVIEW</span><span>Waiting for a code block</span></footer>
           }
         </aside>}
         <aside class="chat-inspector" aria-label="Runtime inspector">
@@ -194,6 +199,8 @@ type ChatGeneration = { temperature: number; top_p: number | null; top_k: number
     .skill-suggestion p { margin:0;color:#96a2b3;font-size:8px;line-height:1.35; }
     .browse-skills { color:#9db7e8;font-size:8px;text-decoration:none; }
     .attachment-reupload-note { color:#8490a2;font-size:8px; }
+    .attachment-route-button { justify-self:start;border:1px solid #365341;border-radius:3px;background:#17251e;color:#a8e0bb;padding:4px 6px;font:8px ui-monospace,monospace;cursor:pointer; }
+    .attachment-route-limit { color:#d3b47e;font-size:8px; }
     .browse-skills:hover { text-decoration:underline; }
     .remove-attachment { border:1px solid #614342;border-radius:3px;background:#2a2022;color:#e2b3ac;padding:4px 6px;font-size:8px;cursor:pointer; }
     .remove-attachment:disabled { opacity:.5;cursor:not-allowed; }
@@ -222,6 +229,7 @@ type ChatGeneration = { temperature: number; top_p: number | null; top_k: number
     .plan-alternatives { display:grid;gap:4px;padding-top:5px;border-top:1px solid #2a3443; }.plan-alternatives>span,.no-alternatives { color:#8492a7;font:7px ui-monospace,monospace; }
     .plan-alternatives>div { display:flex;align-items:center;gap:7px;flex-wrap:wrap; }.plan-alternatives button { border:1px solid #394a63;border-radius:3px;background:#192435;color:#bed0ef;padding:4px 6px;font:8px ui-monospace,monospace;cursor:pointer; }.plan-alternatives button:disabled { opacity:.5;cursor:not-allowed; }.plan-alternatives small { color:#8f9cb0;font-size:8px; }
     .message-run-link { border:1px solid #34435a;border-radius:3px;padding:2px 5px;color:#9db7e8;font:8px ui-monospace,monospace; }
+    .message-canvas-actions{display:flex;gap:5px;flex-wrap:wrap;margin-top:5px}.message-canvas-actions button{padding:4px 7px;border:1px solid #394a63;border-radius:3px;background:#182334;color:#bdd1f1;font:8px ui-monospace,monospace;cursor:pointer}.message-canvas-actions button:hover{border-color:#8caddd;color:#e0ebfc}
     @media(max-width:700px) { .orchestration-strip { grid-template-columns:1fr auto; }.orchestration-route { grid-column:1 / 3;grid-row:2; }.orchestration-error,.plan-notice { grid-column:1 / 3; }.chat-attachment-card { grid-template-columns:1fr auto; }.attachment-suggestions { grid-column:1 / 3;grid-row:2; }.remove-attachment { grid-column:2;grid-row:1; }.plan-node dl { grid-template-columns:1fr; } }
     .generation-control>span button{padding:0;border:0;background:none;color:#a0caff;font:inherit;text-decoration:underline;cursor:pointer}
     .generation-control>span button:disabled{opacity:.5;cursor:wait}
@@ -233,6 +241,8 @@ type ChatGeneration = { temperature: number; top_p: number | null; top_k: number
 })
 export class ChatPage implements OnInit {
   private readonly artifactService = inject(ArtifactService);
+  private readonly canvasWorkspace = inject(CanvasWorkspaceService);
+  private readonly router = inject(Router);
   private readonly skillService = inject(SkillService);
   readonly chats = signal<ChatSummary[]>([]);
   readonly models = signal<Model[]>([]);
@@ -311,19 +321,65 @@ export class ChatPage implements OnInit {
   private aborter: AbortController | null = null;
   private streamCompleted = false;
   private serverDiagnosticReceived = false;
-  private canvasManuallySet = false;
-  private lastCanvasArtifactKey = '';
   private readonly scrollAnchor = viewChild<ElementRef<HTMLElement>>('scrollAnchor');
 
-  constructor(readonly api: ApiService) { effect(() => { const artifact = this.latestCodeArtifact(); this.streaming(); this.messages(); if (artifact && artifact.messageKey !== this.lastCanvasArtifactKey) { this.lastCanvasArtifactKey = artifact.messageKey; if (!this.canvasManuallySet) this.canvasOpen.set(true); } this.scrollAnchor()?.nativeElement.scrollIntoView({ block: 'end' }); }); }
+  constructor(readonly api: ApiService) {
+    effect(() => { this.streaming(); this.messages(); this.scrollAnchor()?.nativeElement.scrollIntoView({ block: 'end' }); });
+    effect(() => {
+      const messages = this.messages();
+      const chatId = this.selectedChatId() || 'draft';
+      untracked(() => {
+        for (const message of messages) {
+          if (message.role !== 'assistant') continue;
+          const markdownId = `chat:${message.key}:markdown`;
+          this.canvasWorkspace.registerText(markdownId, 'Assistant response.md', 'markdown', message.content, 'chat', chatId);
+          for (const artifact of this.messageCanvasArtifacts(message)) {
+            this.canvasWorkspace.registerText(artifact.id, artifact.label, artifact.kind,
+              artifact.content, 'chat', chatId);
+          }
+        }
+      });
+    });
+  }
 
-  toggleCanvas(): void { this.canvasManuallySet = true; this.canvasOpen.update(open => !open); }
+  messageCanvasArtifacts(message: TranscriptMessage): MessageCanvasArtifact[] {
+    if (message.role === 'user') return [];
+    const pattern = /(^|\n)(`{3,}|~{3,})([^\n]*)\n([\s\S]*?)\n\2(?=\n|$)/g;
+    const artifacts: MessageCanvasArtifact[] = [];
+    let match: RegExpExecArray | null;
+    let index = 0;
+    while ((match = pattern.exec(message.content)) !== null) {
+      const language = (match[3] || '').trim().toLowerCase();
+      const kind: MessageCanvasArtifact['kind'] = ['html', 'htm'].includes(language) ? 'html'
+        : ['json', 'jsonc'].includes(language) ? 'json'
+        : ['md', 'markdown'].includes(language) ? 'markdown' : 'code';
+      artifacts.push({ id: `chat:${message.key}:code:${index}`, label: language || 'Code', kind,
+        content: match[4].replace(/\n$/, '') });
+      index++;
+    }
+    return artifacts;
+  }
+
+  openMessageInCanvas(message: TranscriptMessage): void {
+    const chatId = this.selectedChatId() || 'draft';
+    this.canvasWorkspace.openText(`chat:${message.key}:markdown`, 'Assistant response.md', 'markdown',
+      message.content, 'chat', chatId);
+    void this.router.navigate(['/canvas']);
+  }
+
+  openCodeInCanvas(artifact: MessageCanvasArtifact): void {
+    const chatId = this.selectedChatId() || 'draft';
+    this.canvasWorkspace.openText(artifact.id, artifact.label, artifact.kind, artifact.content, 'chat', chatId);
+    void this.router.navigate(['/canvas']);
+  }
+
+  toggleCanvas(): void { this.canvasOpen.update(open => !open); }
 
   messageDisplayContent(message: TranscriptMessage): string {
     const artifact = this.latestCodeArtifact();
     if (!artifact || artifact.messageKey !== message.key) return message.content;
     const codeFence = /(^|\n)(`{3,}|~{3,})([^\n]*)\n([\s\S]*?)\n\2(?=\n|$)/g;
-    return message.content.replace(codeFence, (_block, prefix: string, _fence: string, language: string) => `${prefix}[${(language || 'Code').trim() || 'Code'} block is shown in Canvas]`);
+    return message.content.replace(codeFence, (_block, prefix: string, _fence: string, language: string) => `${prefix}[${(language || 'Code').trim() || 'Code'} block is available to open in Canvas]`);
   }
 
   ngOnInit(): void { void this.initialize(); }
@@ -370,6 +426,15 @@ export class ChatPage implements OnInit {
   suggestedSkills(item: ChatAttachment): SkillCatalogItem[] {
     const byId = new Map(this.skills().map(skill => [skill.id, skill]));
     return item.suggestedSkillIds.map(id => byId.get(id)).filter((skill): skill is SkillCatalogItem => !!skill);
+  }
+
+  supportsAttachmentSkill(item: ChatAttachment, skill: SkillCatalogItem): boolean {
+    return skill.inputs.some(input => input.artifact === item.artifact.kind);
+  }
+
+  openAttachmentSkill(item: ChatAttachment, skill: SkillCatalogItem): void {
+    if (!this.supportsAttachmentSkill(item, skill)) return;
+    void this.router.navigate(['/skills'], { queryParams: { skill: skill.id, artifact: item.artifact.id } });
   }
 
   async removeChatAttachment(item: ChatAttachment): Promise<void> {
@@ -530,8 +595,6 @@ export class ChatPage implements OnInit {
 
   selectChat(id: string): void {
     const version = ++this.selectionVersion;
-    this.canvasManuallySet = false;
-    this.lastCanvasArtifactKey = '';
     this.canvasOpen.set(false);
     this.generationLoadVersion++;
     this.selectedChatId.set(id);
@@ -648,8 +711,6 @@ export class ChatPage implements OnInit {
         if (!chat?.id) { this.apiError.set('The server created a conversation but returned no chat ID.'); return; }
         this.selectedChatId.set(chat.id);
         this.messages.set([]);
-        this.canvasManuallySet = false;
-        this.lastCanvasArtifactKey = '';
         this.canvasOpen.set(false);
         this.loadChats(chat.id);
       },
@@ -976,7 +1037,7 @@ function attachmentKind(file: File): UploadArtifactKind | null {
 }
 function suggestedSkillIds(kind: UploadArtifactKind): string[] {
   if (kind === 'image') return ['image.describe'];
-  if (kind === 'audio') return ['voice.transcribe'];
+  if (kind === 'audio') return ['voice.transcribe', 'voice.conversation'];
   return ['document.summarize', 'document.extract-text'];
 }
 async function responseMessage(response: Response): Promise<string> {

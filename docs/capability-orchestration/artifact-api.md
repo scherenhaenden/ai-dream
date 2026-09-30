@@ -53,6 +53,20 @@ the HTTP layer must retain loopback Host/Origin protections. Envelopes carry
 opaque storage keys only. Never accept a filesystem path as a storage key or
 return the temporary root to a client.
 
+## Retention and cleanup
+
+The temporary store defaults to a one-hour TTL for `ephemeral` artifacts and a
+24-hour TTL for `session` artifacts; callers may configure these values. A
+TTL begins after the artifact bytes have been written and fsynced. Expiry is
+enforced lazily before create, list, metadata/content reads, per-artifact
+delete, and owner cleanup, and can also be triggered explicitly with
+`cleanup_expired()`. Owner cleanup removes only records matching the requested
+owner and optional lifetime. The store does not start a background sweeper
+thread; closing the process-local store removes its private temporary root.
+After an unclean process exit, stale private temp directories may remain for
+the operating system's normal temp cleanup because in-memory expiry records
+cannot safely identify another live store's files.
+
 The HTTP routes are not wired by this change. Wiring still needs review of the
 request body reader, response streaming, route dispatch, Origin/Host checks and
 pre-allocation size rejection in `aidream/http_api.py`.

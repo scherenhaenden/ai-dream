@@ -60,7 +60,7 @@ export class LocalApiPage {
     { path: '/api/capabilities', note: 'Typed capability declarations' },
     { path: '/api/capability-map', note: 'Compact capability map' },
     { path: '/api/model-manifests', note: 'Observed model manifests and orchestration metadata' },
-    { path: '/api/capability-preferences', note: 'Read or update semantic route preferences' },
+    { path: '/api/capability-preferences', note: 'Read or update route preferences, Auto/Guided/Manual defaults and LRU/Never eviction policy' },
     { path: '/api/resources', note: 'RAM, GPU, CPU and temporary disk snapshot' },
     { path: '/api/models/residency', note: 'Loaded model residency and leases' },
     { path: '/api/models/residency/actions', note: 'Pin, unpin or unload an existing allowlisted orchestration resident (POST)' },

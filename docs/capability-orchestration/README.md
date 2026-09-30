@@ -97,6 +97,7 @@ Examples:
 - `image.describe`
 - `image.edit-from-instruction`
 - `voice.conversation`
+- `voice.respond` (explicit, user-reviewed transcript input)
 - `code.review`
 - `research.local-files`
 - `document.create-pdf`

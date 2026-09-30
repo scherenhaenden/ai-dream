@@ -74,6 +74,12 @@ Set as preferred for capability
 
 The current control-plane profile work fits naturally here.
 
+`Verify` must explain that it starts the selected local runtime and performs a
+bounded capability probe. Show the action only when that runtime probe is
+configured; otherwise show the exact unavailable reason. A profile or claim
+becomes verified only from the typed successful probe result, never from user
+metadata.
+
 ## 4. Profiles in context
 
 Profiles should appear under the model they belong to and show purpose clearly:
@@ -136,11 +142,18 @@ Examples:
 ```text
 attach image -> suggest Describe image / Edit image / OCR
 attach PDF -> suggest Summarize / Ask document / Translate
-attach audio -> suggest Transcribe / Summarize / Voice analysis
+attach audio -> suggest Transcribe / Voice conversation
 attach code folder/diff -> suggest Review code
 ```
 
 These are suggestions, not automatic task changes.
+
+Voice conversation is a sequential STT → text chat → TTS workflow and is offered
+as a selectable skill, not an automatic change to chat. Its readiness must show
+missing local routes (including the whisper model or speech synthesizer); when
+unavailable, the catalog should point to transcript-only or text-chat alternatives.
+Do not label diarization, general audio understanding, or music analysis as
+available unless a compatible local route is discovered.
 
 A user can still send an image to normal multimodal chat if the selected model supports it.
 
@@ -215,6 +228,8 @@ RAM: 23 / 32 GiB
 Loaded: 2 models
 ```
 
+Keep a compact version in the global header. Show free/total VRAM for each reported GPU, available RAM and loaded model count; use `Unknown` when an observation is missing. Link the indicator directly to Resources.
+
 Clicking opens the model residency drawer:
 
 ```text
@@ -231,6 +246,8 @@ Pin / unpin residency
 Change default eviction policy
 Open model profile
 ```
+
+The initial policy control offers `LRU idle models` and `Never evict automatically`. LRU may unload only the oldest idle, unpinned resident under measured memory pressure. Never preserves existing residents and explains when a requested route cannot fit.
 
 ## 10. Explain why something cannot run
 
@@ -429,3 +446,9 @@ how to override the automatic choice
 ```
 
 If those answers require reading runtime logs or moving between unrelated configuration screens, the UX has failed even if the underlying orchestrator works.
+
+## Assisted plan drafts (Phase 15)
+
+The global assisted-planner opt-in is off by default. When enabled, the user must request a draft explicitly; generation can use only a model already loaded in Chat or Runtime and must explain when none is loaded. Never load a model just to draft a plan.
+
+Show the generated JSON draft beside its deterministically resolved plan. Validate the draft against the installed skill and reject extra nodes, tools, fields or permissions. Require an explicit review acknowledgement before enabling Run. A normal deterministic plan preview remains available while assisted drafting is off.

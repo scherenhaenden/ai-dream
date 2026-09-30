@@ -30,6 +30,8 @@ export interface ModelManifestView {
   provenance?: ManifestEvidence;
   modalities?: { inputs?: string[]; outputs?: string[] };
   runtime_compatibility?: { runtime_id?: string; backend?: string; status?: string; evidence?: ManifestEvidence }[];
+  verification_available?: boolean;
+  verification?: { success: boolean; completed_at: string } | null;
 }
 
 export interface ModelCapabilityEvidence {
@@ -40,6 +42,20 @@ export interface ModelCapabilityEvidence {
 
 interface CapabilityListResponse { data?: { capabilities?: CapabilityDeclaration[] } }
 interface ManifestListResponse { data?: { manifests?: ModelManifestView[] } }
+interface ManifestDetailResponse {
+  data?: {
+    manifest?: ModelManifestView;
+    verification_available?: boolean;
+    verification?: { success: boolean; completed_at: string } | null;
+  };
+}
+interface ManifestVerificationResponse {
+  data?: {
+    verification?: { success: boolean; completed_at: string };
+    profile?: Record<string, unknown> | null;
+    manifest?: ModelManifestView;
+  };
+}
 
 interface CapabilityMapResponse {
   data: { capabilities: CapabilityMapItem[] };
@@ -68,13 +84,33 @@ export class CapabilityService {
     const manifestRows = manifests.status === 'fulfilled' && Array.isArray(manifests.value?.data?.manifests)
       ? manifests.value.data.manifests : [];
     if (manifests.status === 'rejected') errors.push('Model manifest provenance could not be loaded.');
-    const manifest = manifestRows.find(item => Array.isArray(item.artifacts)
+    let manifest = manifestRows.find(item => Array.isArray(item.artifacts)
       && item.artifacts.some(artifact => artifact.model_id === modelId)) ?? null;
+    if (manifest) {
+      try {
+        const detail = await firstValueFrom(this.api.get<ManifestDetailResponse>(
+          `/api/model-manifests/${encodeURIComponent(manifest.id)}`));
+        manifest = {
+          ...manifest,
+          ...(detail?.data?.manifest || {}),
+          verification_available: detail?.data?.verification_available === true,
+          verification: detail?.data?.verification || null,
+        };
+      } catch {
+        errors.push('Model manifest verification state could not be loaded.');
+      }
+    }
     return {
       manifest,
       routes: declarations.filter(item => Array.isArray(item.routes)
         && item.routes.some(route => route.model_id === modelId)),
       error: errors.join(' '),
     };
+  }
+
+  async verifyModelManifest(manifestId: string): Promise<ManifestVerificationResponse['data']> {
+    const response = await firstValueFrom(this.api.post<ManifestVerificationResponse>(
+      `/api/model-manifests/${encodeURIComponent(manifestId)}/verify`, {}));
+    return response?.data;
   }
 }

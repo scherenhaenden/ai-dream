@@ -1,9 +1,10 @@
-import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, effect, inject, signal, untracked } from '@angular/core';
 import { DomSanitizer } from '@angular/platform-browser';
 import { ActivatedRoute, Router } from '@angular/router';
 import { Subscription } from 'rxjs';
 import { RunService } from '../core/run.service';
 import { ArtifactService } from '../core/artifact.service';
+import { CanvasWorkspaceService } from '../core/canvas-workspace.service';
 import type { ArtifactEnvelope } from '../core/artifact.types';
 import type { RunEvent, RunSnapshot } from '../core/run.types';
 
@@ -52,18 +53,22 @@ import type { RunEvent, RunSnapshot } from '../core/run.types';
           } @else if (run.plan) { <section class="plan-unavailable"><b>Plan details were not included</b><p>This run record contains a plan without resolved route nodes.</p><details><summary>Inspect recorded plan data</summary><pre>{{ json(run.plan) }}</pre></details></section> }
           @if (run.outputs?.length) { <section class="run-outputs"><h3>Run outputs</h3>
             @if (citations().length) { <section class="run-citations" aria-label="Document citations"><h4>Document sources</h4><p>Passages returned by document retrieval, with exact character offsets in each source file.</p>
-              <ol>@for (citation of citations(); track citation['id'] ?? $index) { <li><header><b>{{ text(citation['id']) || 'Source' }} · {{ text(citation['document_name']) || 'Selected document' }}</b><code>Characters {{ citation['start_char'] }}–{{ citation['end_char'] }}</code></header><blockquote>{{ text(citation['quote']) || 'No quoted passage was returned.' }}</blockquote></li> }</ol>
+              <ol>@for (citation of citations(); track citation['id'] ?? $index) { <li><header><b>{{ text(citation['id']) || 'Source' }} · {{ text(citation['document_name']) || 'Selected document' }}</b><code>Characters {{ citation['start_char'] }}–{{ citation['end_char'] }}</code></header><blockquote>{{ text(citation['quote']) || 'No quoted passage was returned.' }}</blockquote>@if (citationTerms(citation).length) { <small class="citation-relevance">Matched terms: {{ citationTerms(citation).join(' · ') }} · lexical score {{ citationScoreLabel(citation) }} (heuristic)</small> }</li> }</ol>
             </section> }
             @if (outputContent().values.length) { <div class="run-value-list" aria-label="Text and structured outputs">
               @for (output of outputContent().values; track output.id) { <article class="run-value"><header><b>{{ output.name }}</b><span>{{ output.kind }}</span></header>
                 @if (output.kind === 'text') { <pre>{{ output.value }}</pre> }
                 @else { <pre>{{ json(output.value) }}</pre> }
+                @if (run.skill_id === 'voice.transcribe' && run.state === 'succeeded' && output.kind === 'text') { <button type="button" class="review-transcript-button" (click)="reviewTranscript(output, run)">Review/edit this transcript in Voice respond</button><small class="transcript-handoff-hint">This opens an editable draft. Nothing is sent or run until you review it and choose Run skill.</small> }
+                <button type="button" class="canvas-open-button" (click)="openValueInCanvas(output)">Open in Canvas</button>
               </article> }
             </div> }
+            @if (transcriptHandoffError()) { <p class="transcript-handoff-error" role="alert">{{ transcriptHandoffError() }}</p> }
             @if (outputContent().artifacts.length) { <div class="artifact-list" aria-label="Run output artifacts">
-              @for (artifact of outputContent().artifacts; track artifact.id) { <button type="button" class="artifact-card" [class.selected]="selectedArtifact()?.id === artifact.id" (click)="selectArtifact(artifact)">
+              @for (artifact of outputContent().artifacts; track artifact.id) { <article class="artifact-card" [class.selected]="selectedArtifact()?.id === artifact.id">
                 <span class="artifact-kind">{{ artifact.kind }}</span><b>{{ artifact.name }}</b><small>{{ artifact.media_type }} · {{ artifactService.formatSize(artifact.size_bytes) }}</small>
-              </button> }
+                <div class="artifact-card-actions"><button type="button" class="canvas-open-button" (click)="selectArtifact(artifact)">Preview here</button><button type="button" class="canvas-open-button" (click)="openArtifactInCanvas(artifact)">Open in Canvas</button></div>
+              </article> }
             </div>
               @if (selectedArtifact(); as artifact) { <div class="artifact-canvas" aria-label="Artifact workspace preview">
                 <header><div><b>{{ artifact.name }}</b><span>{{ artifact.kind }} · {{ artifact.media_type }}</span></div><button type="button" class="secondary" (click)="closeArtifact()">Close preview</button></header>
@@ -102,15 +107,16 @@ import type { RunEvent, RunSnapshot } from '../core/run.types';
     </main>
   `,
   styles: [`
-    .run-value-list{display:grid;gap:7px;margin:9px 0}.run-value{min-width:0;padding:9px;border:1px solid #303a49;border-radius:4px;background:#111721}.run-value>header{display:flex;justify-content:space-between;gap:8px;color:#d5deec;font-size:10px}.run-value>header span{color:#98a9c0;font:8px ui-monospace,monospace;text-transform:uppercase}.run-value pre{max-height:280px;overflow:auto;margin:7px 0 0;padding:8px;border-radius:3px;background:#0b1018;color:#c4d1e2;font:10px/1.5 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere}.preview-error p{margin:0 0 7px}.artifact-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:7px;margin-top:9px}.artifact-card{display:grid;gap:4px;min-width:0;padding:9px;border:1px solid #344257;border-radius:5px;background:#171f2a;color:#dce4ef;text-align:left;cursor:pointer}.artifact-card.selected{border-color:#91b8ee;background:#202d3e}.artifact-card b{font-size:10px;overflow-wrap:anywhere}.artifact-card small,.artifact-kind{color:#98a9c0;font:8px ui-monospace,monospace;overflow-wrap:anywhere}.artifact-kind{text-transform:uppercase}.artifact-canvas{margin-top:10px;padding:10px;border:1px solid #3b4a60;border-radius:5px;background:#0e141d}.artifact-canvas>header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:9px}.artifact-canvas>header>div{display:grid;gap:4px;min-width:0}.artifact-canvas>header b{font-size:10px;overflow-wrap:anywhere}.artifact-canvas>header span{color:#98a9c0;font:8px ui-monospace,monospace}.artifact-image{display:block;max-width:100%;max-height:65vh;margin:auto;object-fit:contain}.artifact-canvas audio{width:100%}.artifact-download{display:inline-block;padding:8px 10px;border:1px solid #40516a;border-radius:4px;color:#c8dafa;font-size:10px}.preview-error{padding:8px;color:#ffb4ab;font-size:10px}
+    .run-value-list{display:grid;gap:7px;margin:9px 0}.run-value{min-width:0;padding:9px;border:1px solid #303a49;border-radius:4px;background:#111721}.run-value>header{display:flex;justify-content:space-between;gap:8px;color:#d5deec;font-size:10px}.run-value>header span{color:#98a9c0;font:8px ui-monospace,monospace;text-transform:uppercase}.run-value pre{max-height:280px;overflow:auto;margin:7px 0 0;padding:8px;border-radius:3px;background:#0b1018;color:#c4d1e2;font:10px/1.5 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere}.preview-error p{margin:0 0 7px}.artifact-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:7px;margin-top:9px}.artifact-card{display:grid;gap:4px;min-width:0;padding:9px;border:1px solid #344257;border-radius:5px;background:#171f2a;color:#dce4ef}.artifact-card.selected{border-color:#91b8ee;background:#202d3e}.artifact-card b{font-size:10px;overflow-wrap:anywhere}.artifact-card small,.artifact-kind{color:#98a9c0;font:8px ui-monospace,monospace;overflow-wrap:anywhere}.artifact-kind{text-transform:uppercase}.artifact-card-actions{display:flex;gap:5px;flex-wrap:wrap}.canvas-open-button,.review-transcript-button{width:max-content;max-width:100%;padding:5px 7px;border:1px solid #3b4d67;border-radius:3px;background:#182233;color:#c7dafa;font:8px ui-monospace,monospace;cursor:pointer}.review-transcript-button{border-color:#3d684f;background:#203229;color:#9de2b9}.transcript-handoff-hint{display:block;margin:3px 0 7px;color:#94a2b7;font-size:8px}.transcript-handoff-error{color:#ffb4ab;font-size:9px}.artifact-canvas{margin-top:10px;padding:10px;border:1px solid #3b4a60;border-radius:5px;background:#0e141d}.artifact-canvas>header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:9px}.artifact-canvas>header>div{display:grid;gap:4px;min-width:0}.artifact-canvas>header b{font-size:10px;overflow-wrap:anywhere}.artifact-canvas>header span{color:#98a9c0;font:8px ui-monospace,monospace}.artifact-image{display:block;max-width:100%;max-height:65vh;margin:auto;object-fit:contain}.artifact-canvas audio{width:100%}.artifact-download{display:inline-block;padding:8px 10px;border:1px solid #40516a;border-radius:4px;color:#c8dafa;font-size:10px}.preview-error{padding:8px;color:#ffb4ab;font-size:10px}
     .artifact-actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:9px}.artifact-document-preview{display:block;width:100%;height:min(68vh,720px);border:1px solid #303b4b;border-radius:4px;background:#fff}.artifact-canvas a:focus-visible,.artifact-card:focus-visible{outline:2px solid #adc6ff;outline-offset:2px}
-    .run-citations{margin-top:10px;padding:9px;border:1px solid #35435a;border-radius:4px;background:#172131}.run-citations h4{margin:0;color:#d5deec;font-size:10px}.run-citations>p{margin:4px 0;color:#929fb2;font-size:9px}.run-citations ol{display:grid;gap:7px;margin:8px 0 0;padding:0;list-style:none}.run-citations li{padding:8px;border-radius:4px;background:#111923}.run-citations li header{display:flex;justify-content:space-between;gap:8px}.run-citations li b,.run-citations li code{font:9px ui-monospace,monospace;overflow-wrap:anywhere}.run-citations li b{color:#cbd8ec}.run-citations li code{color:#a6b3c7}.run-citations blockquote{margin:7px 0 0;padding-left:8px;border-left:2px solid #7694bd;color:#bac6d7;font-size:10px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
+    .run-citations{margin-top:10px;padding:9px;border:1px solid #35435a;border-radius:4px;background:#172131}.run-citations h4{margin:0;color:#d5deec;font-size:10px}.run-citations>p{margin:4px 0;color:#929fb2;font-size:9px}.run-citations ol{display:grid;gap:7px;margin:8px 0 0;padding:0;list-style:none}.run-citations li{padding:8px;border-radius:4px;background:#111923}.run-citations li header{display:flex;justify-content:space-between;gap:8px}.run-citations li b,.run-citations li code{font:9px ui-monospace,monospace;overflow-wrap:anywhere}.run-citations li b{color:#cbd8ec}.run-citations li code{color:#a6b3c7}.run-citations blockquote{margin:7px 0 0;padding-left:8px;border-left:2px solid #7694bd;color:#bac6d7;font-size:10px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}.citation-relevance{display:block;margin-top:6px;color:#93a8c6;font:8px/1.45 ui-monospace,monospace;overflow-wrap:anywhere}
     :host{display:block;color:var(--text,#e4e9f2)}.runs-page{max-width:1180px;margin:auto;padding:20px;display:grid;gap:12px}.page-head{display:flex;justify-content:space-between;align-items:center;gap:14px;border-bottom:1px solid #2b3240;padding-bottom:12px}.eyebrow{color:#8793a8;font:9px ui-monospace,monospace;letter-spacing:.06em;text-transform:uppercase}.page-head h1{margin:4px 0;font-size:24px;font-weight:550}.page-head p{margin:4px 0 0;color:#929aaa;font-size:11px}.secondary,.danger,.open-form button,.notice button{border:1px solid #364050;border-radius:4px;background:#171c26;color:#c8d0de;padding:7px 10px;font:10px ui-monospace,monospace;cursor:pointer}.danger{border-color:#694044;background:#302125;color:#ffb4ab}.secondary:disabled,.danger:disabled{opacity:.55;cursor:wait}.open-form{display:grid;gap:6px;padding:12px;border:1px solid #2d3542;border-radius:5px;background:#171c26}.open-form>label{color:#aab5c6;font-size:10px}.open-form>div{display:flex;gap:7px}.open-form input{min-width:0;flex:1;padding:8px 9px;border:1px solid #343e4e;border-radius:4px;background:#10151e;color:#dce3ef;font:11px ui-monospace,monospace}.form-error{color:#ffb4ab}.notice{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px;border:1px solid #303744;border-radius:5px;background:#171c26}.notice b{font-size:11px}.notice p{margin:4px 0 0;color:#9ca6b6;font-size:10px}.notice.error{border-color:#53323a;background:#2b2025;color:#ffb4ab}.notice.error p{color:#d8b8bd}.recent,.run-summary,.timeline{border:1px solid #2b3340;border-radius:5px;background:#171c26}.recent>header,.timeline>header{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:11px 12px;border-bottom:1px solid #2b3340}.recent h2,.timeline h2{margin:0;font-size:13px;font-weight:550}.recent>header>span,.timeline>header>span{color:#8994a7;font:9px ui-monospace,monospace}.recent ul{list-style:none;margin:0;padding:0}.recent li+li{border-top:1px solid #2b3340}.run-row{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;padding:10px 12px;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer}.run-row:hover{background:#1d2532}.run-row-main{display:grid;gap:4px;min-width:0}.run-row-main b{font-size:10px}.run-row-main code{color:#99a6ba;font:8px ui-monospace,monospace;overflow-wrap:anywhere}.state-badge{flex:none;padding:4px 6px;border-radius:3px;background:#292e37;color:#bec7d4;font:8px ui-monospace,monospace;text-transform:uppercase}.state-badge.queued{color:#d6c083}.state-badge.running{background:#1e2d40;color:#a9c8f5}.state-badge.succeeded{background:#1c302d;color:#82dbac}.state-badge.failed{background:#342326;color:#ffb4ab}.state-badge.cancelled{color:#b9c2d0}.run-summary{padding:12px}.run-summary>header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.run-summary h2{margin:4px 0;font-size:15px}.run-summary>header code{color:#9da9bb;font:9px ui-monospace,monospace;overflow-wrap:anywhere}.state-badge.large{padding:6px 8px}.run-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin:12px 0}.run-facts>div{min-width:0;padding:8px;border-radius:4px;background:#111721}.run-facts dt{color:#8793a8;font:8px ui-monospace,monospace;text-transform:uppercase}.run-facts dd{margin:5px 0 0;color:#c4ccda;font-size:9px;overflow-wrap:anywhere}.stream-state.live{color:#82dbac}.stream-state.reconnecting,.stream-state.connecting{color:#e6c27c}.stream-state.error{color:#ffb4ab}.run-error{padding:8px;border-left:2px solid #c46e6c;background:#291f22}.run-error b{font-size:10px;color:#ffb4ab}.run-error p{margin:4px 0;color:#d7bfc2;font-size:10px}.resolved-plan,.plan-unavailable,.run-outputs{margin:11px 0;padding:10px;border:1px solid #2d3a4d;border-radius:4px;background:#121923}.resolved-plan>header{display:flex;justify-content:space-between;gap:8px;align-items:center}.resolved-plan h3,.run-outputs h3{margin:0;color:#d5deec;font-size:11px}.resolved-plan>header p,.run-outputs>p,.plan-unavailable p{margin:4px 0 0;color:#929fb2;font-size:9px;line-height:1.45}.resolved-plan>header>span{color:#9eabc0;font:8px ui-monospace,monospace}.resolved-plan ol{display:grid;gap:6px;list-style:none;margin:9px 0 0;padding:0}.resolved-plan li{display:grid;grid-template-columns:20px minmax(0,1fr);gap:7px;padding:8px;border:1px solid #293444;border-radius:4px;background:#171f2a}.step-index{display:grid;place-items:center;width:18px;height:18px;border-radius:50%;background:#29384c;color:#bfd2f1;font:8px ui-monospace,monospace}.step-content{display:grid;gap:4px;min-width:0}.step-content>b{color:#dbe3ef;font-size:10px}.step-content>span{color:#aab7ca;font:9px ui-monospace,monospace}.step-content>code{color:#9dc5a9;font:9px ui-monospace,monospace;overflow-wrap:anywhere}.resolved-plan details,.plan-unavailable details{margin-top:4px}.resolved-plan summary,.plan-unavailable summary{color:#9aabc3;font-size:9px;cursor:pointer}.resolved-plan pre,.plan-unavailable pre,.run-outputs pre{max-height:220px;overflow:auto;padding:8px;border-radius:4px;background:#0d121a;color:#bac8dd;font:9px/1.45 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere}.plan-unavailable>b{color:#e3c18b;font-size:10px}.run-outputs>p{margin-bottom:0}.actions{display:flex;gap:7px;flex-wrap:wrap}.timeline>header p{margin:4px 0 0;color:#8f9bad;font-size:9px}.timeline ol{list-style:none;margin:0;padding:2px 12px 10px}.timeline li{position:relative;display:grid;grid-template-columns:12px minmax(0,1fr);gap:9px;padding:10px 0}.timeline li+li{border-top:1px solid #2a303b}.event-marker{width:7px;height:7px;margin-top:4px;border-radius:50%;background:#9cb3d8}.artifact-event .event-marker{background:#d3a46c}.timeline article{min-width:0}.timeline article>header{display:flex;justify-content:space-between;gap:8px}.timeline article>header b{color:#d5deec;font:10px ui-monospace,monospace;overflow-wrap:anywhere}.timeline article>header span{color:#8390a3;font:8px ui-monospace,monospace}.timeline article>p{margin:5px 0;color:#aab5c5;font-size:9px;overflow-wrap:anywhere}.timeline details{margin-top:5px}.timeline summary{width:max-content;max-width:100%;color:#9aabc3;font-size:9px;cursor:pointer}.timeline pre{max-height:260px;overflow:auto;padding:8px;border-radius:4px;background:#10151e;color:#bac8dd;font:9px/1.45 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere}.muted{padding:10px;color:#9aa5b7;font-size:10px}.runs-page button:focus-visible,.runs-page input:focus-visible,.timeline summary:focus-visible{outline:2px solid #adc6ff;outline-offset:2px}@media(max-width:600px){.runs-page{padding:14px 11px}.page-head{align-items:flex-start}.run-facts{grid-template-columns:repeat(2,minmax(0,1fr))}.timeline>header{align-items:flex-start}.run-summary>header{flex-direction:column}}
   `],
 })
 export class RunsPage implements OnInit, OnDestroy {
   readonly service = inject(RunService);
   readonly artifactService = inject(ArtifactService);
+  private readonly canvasWorkspace = inject(CanvasWorkspaceService);
   private readonly sanitizer = inject(DomSanitizer);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
@@ -118,12 +124,30 @@ export class RunsPage implements OnInit, OnDestroy {
   readonly runId = signal('');
   readonly runIdInput = signal('');
   readonly formError = signal('');
+  readonly transcriptHandoffError = signal('');
   readonly cancelling = signal(false);
   readonly selectedArtifact = signal<ArtifactEnvelope | null>(null);
   readonly previewUrls = signal<Record<string, string>>({});
   readonly previewErrors = signal<Record<string, string>>({});
   readonly outputContent = computed(() => collectRunOutputs(this.service.run()?.outputs ?? []));
   readonly lastSequence = () => this.service.events().at(-1)?.sequence ?? 0;
+
+  constructor() {
+    effect(() => {
+      const run = this.service.run();
+      if (!run) return;
+      const outputs = this.outputContent();
+      untracked(() => {
+        for (const artifact of outputs.artifacts) this.canvasWorkspace.registerArtifact(artifact);
+        for (const output of outputs.values) {
+          const kind = output.kind === 'text' ? 'markdown' : 'json';
+          const content = output.kind === 'text' ? output.value : JSON.stringify(output.value, null, 2) ?? 'null';
+          this.canvasWorkspace.registerText(`run:${run.id}:${output.id}`, output.name, kind,
+            content, 'run', run.id);
+        }
+      });
+    });
+  }
 
   ngOnInit(): void {
     this.routeSub = this.route.paramMap.subscribe(params => {
@@ -196,6 +220,15 @@ export class RunsPage implements OnInit, OnDestroy {
     }
     return result;
   }
+  citationTerms(citation: Record<string, unknown>): string[] {
+    return Array.isArray(citation['matched_terms'])
+      ? citation['matched_terms'].filter((term): term is string => typeof term === 'string' && term.length > 0).slice(0, 24)
+      : [];
+  }
+  citationScoreLabel(citation: Record<string, unknown>): string {
+    const score = citation['lexical_score'];
+    return typeof score === 'number' && Number.isFinite(score) && score >= 0 ? score.toFixed(3) : 'not reported';
+  }
 
   isHtmlDocument(artifact: ArtifactEnvelope): boolean {
     return artifact.kind === 'document' && ['text/html', 'application/xhtml+xml'].includes(artifact.media_type.toLowerCase());
@@ -220,6 +253,29 @@ export class RunsPage implements OnInit, OnDestroy {
   }
 
   closeArtifact(): void { this.selectedArtifact.set(null); }
+
+  openArtifactInCanvas(artifact: ArtifactEnvelope): void {
+    this.canvasWorkspace.openArtifact(artifact);
+    void this.router.navigate(['/canvas']);
+  }
+
+  openValueInCanvas(output: RunTextValue): void {
+    const runId = this.runId();
+    if (!runId) return;
+    const kind = output.kind === 'text' ? 'markdown' : 'json';
+    const content = output.kind === 'text' ? output.value : JSON.stringify(output.value, null, 2) ?? 'null';
+    this.canvasWorkspace.openText(`run:${runId}:${output.id}`, output.name, kind, content, 'run', runId);
+    void this.router.navigate(['/canvas']);
+  }
+
+  reviewTranscript(output: RunTextValue, run: RunSnapshot): void {
+    if (run.skill_id !== 'voice.transcribe' || run.state !== 'succeeded' || output.kind !== 'text') return;
+    const transcript = output.value;
+    if (!transcript.trim()) { this.transcriptHandoffError.set('This transcription is empty and cannot be reviewed.'); return; }
+    if (transcript.length > 16_000) { this.transcriptHandoffError.set('This transcription exceeds the 16,000-character review limit.'); return; }
+    this.transcriptHandoffError.set('');
+    void this.router.navigate(['/skills'], { state: { voiceTranscriptHandoff: { runId: run.id, transcript } } });
+  }
 
   retryArtifact(artifact: ArtifactEnvelope): void {
     this.previewErrors.update(current => { const next = { ...current }; delete next[artifact.id]; return next; });

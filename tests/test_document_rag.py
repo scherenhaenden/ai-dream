@@ -26,6 +26,27 @@ class DocumentRetrievalTests(unittest.TestCase):
         self.assertIn("[C1]", first["context"]["text"])
         self.assertNotIn('"citations"', first["context"]["text"])
         self.assertIn("Cite each factual claim", first["prompt"]["text"])
+        self.assertGreater(citation["lexical_score"], 0)
+        self.assertEqual(citation["matched_terms"], ["lunar", "samples"])
+
+    def test_deterministic_relevance_fixture_ranks_gold_passages_first(self):
+        cases = [
+            ("solar archive basalt vault", "The solar archive is secured in a basalt vault."),
+            ("habitat xenon propellant", "The habitat module uses xenon propellant during vacuum tests."),
+            ("copper battery electrolyte", "Copper battery cells use a ceramic electrolyte separator."),
+        ]
+        reciprocal_ranks = []
+        for question, relevant in cases:
+            text = ("General records contain no matching technical detail. " * 34
+                    + "\n\n" + relevant + "\n\n" + "Unrelated appendix material. " * 24)
+            result = retrieve_document_context(text, question)
+            citations = sorted(result["citations"]["value"], key=lambda item: (-item["lexical_score"], item["start_char"]))
+            rank = next((index for index, item in enumerate(citations, 1) if relevant in item["quote"]), None)
+            self.assertIsNotNone(rank, f"gold passage was not retrieved for {question!r}")
+            reciprocal_ranks.append(1 / rank)
+            self.assertTrue(set(question.split()).issubset(set(citations[rank - 1]["matched_terms"])))
+        self.assertEqual(sum(reciprocal_ranks) / len(reciprocal_ranks), 1.0,
+                         "fixed relevance fixtures should have MRR@5 of 1.0")
 
     def test_no_match_is_explicit_and_has_no_citations(self):
         result = retrieve_document_context("A document about oak trees.", "volcano eruption", name="x.txt")

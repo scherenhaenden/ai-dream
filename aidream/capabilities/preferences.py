@@ -18,7 +18,8 @@ _MAX_MODEL_ID_LENGTH = 256
 _MODEL_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,255}\Z")
 _PROFILE_ID_RE = re.compile(r"[a-f0-9]{32}\Z")
 _PREFERENCE_KEYS = {"model_id", "profile_id"}
-_SELECTION_KEYS = {"mode", "prefer_verified", "prefer_loaded", "resource_headroom_percent"}
+_SELECTION_KEYS = {"mode", "prefer_verified", "prefer_loaded", "resource_headroom_percent",
+                   "eviction_policy", "assisted_planner_enabled"}
 _DEFAULTS: dict[str, Any] = {
     "capability_preferences": {},
     "selection_defaults": {
@@ -26,6 +27,8 @@ _DEFAULTS: dict[str, Any] = {
         "prefer_verified": True,
         "prefer_loaded": True,
         "resource_headroom_percent": 10,
+        "eviction_policy": "lru",
+        "assisted_planner_enabled": False,
     },
 }
 
@@ -97,6 +100,11 @@ def _validate_selection_defaults(value: Any) -> dict[str, Any]:
     mode = defaults["mode"]
     if not isinstance(mode, str) or mode not in {"auto", "guided", "manual"}:
         raise ValueError("selection_defaults.mode must be 'auto', 'guided', or 'manual'")
+    eviction_policy = defaults["eviction_policy"]
+    if not isinstance(eviction_policy, str) or eviction_policy not in {"lru", "never"}:
+        raise ValueError("selection_defaults.eviction_policy must be 'lru' or 'never'")
+    if not isinstance(defaults["assisted_planner_enabled"], bool):
+        raise ValueError("selection_defaults.assisted_planner_enabled must be a boolean")
     for key in ("prefer_verified", "prefer_loaded"):
         if not isinstance(defaults[key], bool):
             raise ValueError(f"selection_defaults.{key} must be a boolean")

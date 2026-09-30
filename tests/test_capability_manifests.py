@@ -184,6 +184,65 @@ class ModelManifestStoreTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             store.provenance_for("example.model")["display_name"] = None
 
+    def test_generated_verification_overrides_claims_but_user_metadata_keeps_priority(self):
+        base = ModelManifestStore.from_layers(observed=[_manifest()])
+        generated = base.with_generated_overrides([{
+            "id": "example.model",
+            "provenance": {"source": "verified_run", "status": "verified"},
+            "capabilities": [{
+                "id": "text.summarize", "inputs": [{"kind": "text"}], "outputs": [{"kind": "text"}],
+                "evidence": {"source": "verified_run", "status": "verified",
+                             "verified_at": "2026-09-30T12:30:00+00:00"},
+            }],
+        }])
+        merged = generated.with_user_overrides([{
+            "id": "example.model", "display_name": "My label",
+            "provenance": {"source": "user_override", "status": "unknown"},
+        }])
+        self.assertEqual([item.id for item in merged.get("example.model").capabilities], ["text.summarize"])
+        self.assertEqual(merged.get("example.model").provenance.source, EvidenceSource.USER_OVERRIDE)
+        self.assertEqual(merged.provenance_for("example.model", "capabilities")["capabilities"].layer, "generated")
+        self.assertEqual(merged.provenance_for("example.model", "display_name")["display_name"].layer,
+                         "user_override")
+
+    def test_generated_claims_do_not_replace_preexisting_user_fields(self):
+        base = ModelManifestStore.from_layers(
+            observed=[_manifest()],
+            user_overrides=[{
+                "id": "example.model", "display_name": "Chosen name",
+                "provenance": {"source": "user_override", "status": "unknown"},
+            }],
+        )
+        merged = base.with_generated_overrides([{
+            "id": "example.model",
+            "display_name": "Generated name",
+            "provenance": {"source": "verified_run", "status": "verified"},
+            "capabilities": [],
+        }])
+        self.assertEqual(merged.get("example.model").display_name, "Chosen name")
+        self.assertEqual(merged.get("example.model").provenance.source, EvidenceSource.USER_OVERRIDE)
+        self.assertEqual(merged.provenance_for("example.model", "display_name")["display_name"].layer,
+                         "user_override")
+        self.assertEqual(merged.provenance_for("example.model", "capabilities")["capabilities"].layer,
+                         "generated")
+
+    def test_user_override_merge_preserves_existing_field_provenance(self):
+        base = ModelManifestStore.from_layers(
+            observed=[_manifest(description="Observed description")],
+            curated=[{"id": "example.model", "provenance": {"source": "bundled_manifest", "status": "supported"},
+                      "family": "example-family"}],
+        )
+        merged = base.with_user_overrides([{
+            "id": "example.model", "display_name": "My name",
+            "provenance": {"source": "user_override", "status": "unknown"},
+        }])
+        self.assertEqual(merged.get("example.model").display_name, "My name")
+        self.assertEqual(merged.provenance_for("example.model", "display_name")["display_name"].layer,
+                         "user_override")
+        self.assertEqual(merged.provenance_for("example.model", "family")["family"].layer, "curated")
+        self.assertEqual(merged.provenance_for("example.model", "description")["description"].layer,
+                         "observed")
+
 
 if __name__ == "__main__":
     unittest.main()

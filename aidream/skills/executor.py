@@ -7,26 +7,47 @@ static fan-in barrier: `in` maps distinct branch names to typed node-output
 references, `accepts` declares each artifact kind, and `out` republishes the
 same names and kinds. Independent upstream nodes execute in stable topological
 layers, bounded by `policy.max_parallel_nodes`; the barrier itself is a
-deterministic pass-through. It does not define nested graphs or reserve model
-resources across different runtimes.
+deterministic pass-through. Bounded typed sub-skills inherit permissions,
+resource limits and cancellation state. Nested model/capability calls are
+identified by their skill-node path so the orchestration planner can resolve
+and reserve their routes before invocation.
 """
 from __future__ import annotations
 
 import re
 import hashlib
 import json
+import threading
 from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor
 from collections.abc import Callable, Mapping
 from typing import Any
 
 from ..artifacts.contracts import ARTIFACT_KINDS
+from ..run_manager import RunCancelled
 from .contracts import SkillContractError, validate_skill_manifest
 
 SUPPORTED_NODE_TYPES = frozenset({"input", "capability", "model", "tool", "transform", "router", "parallel", "join", "loop", "fallback", "skill", "output"})
 _REFERENCE = re.compile(r"^\$([A-Za-z][A-Za-z0-9_-]*)\.([A-Za-z][A-Za-z0-9_-]*)$")
 NodeExecutor = Callable[[Mapping[str, Any], Mapping[str, Any]], Mapping[str, Any]]
 MAX_SUBSKILL_DEPTH = 4
+_PERMISSION_GRANTS = {
+    "filesystem_read": {"none": frozenset(), "user-selected-only": frozenset({"read-selected"}),
+                        "scoped-paths": frozenset({"read-selected", "read-scoped"})},
+    "filesystem_write": {"none": frozenset(), "user-approved-output": frozenset({"write-approved"}),
+                         "scoped-paths": frozenset({"write-approved", "write-scoped"})},
+    "network": {"none": frozenset(), "specific-hosts": frozenset({"network-specific"}),
+                "unrestricted": frozenset({"network-specific", "network-any"})},
+    "shell": {"none": frozenset(), "registered-command-only": frozenset({"registered-command"})},
+    "browser_control": {"none": frozenset(), "allowed": frozenset({"browser"})},
+    "computer_control": {"none": frozenset(), "allowed": frozenset({"computer"})},
+    "desktop_control": {"none": frozenset(), "allowed": frozenset({"desktop"})},
+    "microphone": {"none": frozenset(), "allowed": frozenset({"microphone"})},
+    "camera": {"none": frozenset(), "allowed": frozenset({"camera"})},
+    "clipboard": {"none": frozenset(), "read": frozenset({"clipboard-read"}),
+                  "write": frozenset({"clipboard-write"}),
+                  "read-write": frozenset({"clipboard-read", "clipboard-write"})},
+}
 
 
 @dataclass(frozen=True)
@@ -160,6 +181,13 @@ class SkillExecutor:
                 if len(stack) >= MAX_SUBSKILL_DEPTH:
                     raise SkillContractError(f"graph.{node['id']}: sub-skill nesting exceeds depth {MAX_SUBSKILL_DEPTH}")
                 child_skill = self._type_check(child, stack=(*stack, skill_key))
+                widened = [permission for permission, child_level in child_skill["permissions"].items()
+                           if not _PERMISSION_GRANTS[permission][child_level].issubset(
+                               _PERMISSION_GRANTS[permission][skill["permissions"].get(permission, "none")])]
+                if widened:
+                    raise SkillContractError(
+                        f"graph.{node['id']}: sub-skill widens inherited permissions: " +
+                        ", ".join(sorted(widened)))
                 child_inputs = {port["name"]: port for port in child_skill["inputs"]}
                 child_outputs = {port["name"]: port for port in child_skill["outputs"]}
                 supplied = node.get("in", {})
@@ -180,11 +208,6 @@ class SkillExecutor:
                 expected_outputs = {name: port["artifact"] for name, port in child_outputs.items()}
                 if not isinstance(outputs, Mapping) or dict(outputs) != expected_outputs:
                     raise SkillContractError(f"graph.{node['id']}.out: must match the child skill output names and kinds")
-                # Route planning currently resolves model/capability nodes at the
-                # top-level only. Reject nested route execution rather than
-                # silently running an unplanned or unreserved model.
-                if any(item["type"] in {"capability", "model"} for item in child_skill["graph"]):
-                    raise SkillContractError(f"graph.{node['id']}: nested model/capability routes require orchestration planning support")
                 declared[node["id"]] = dict(outputs)
             elif node_type == "fallback":
                 ports = node.get("out", {})
@@ -352,6 +375,9 @@ class SkillExecutor:
                 plan_revision: str | None = None,
                 layer_start_callback: Callable[[tuple[str, ...]], None] | None = None,
                 layer_end_callback: Callable[[tuple[str, ...]], None] | None = None,
+                cancel_event: threading.Event | None = None,
+                _max_parallel_nodes_limit: int | None = None,
+                _node_path_prefix: str = "",
                 _skill_stack: tuple[str, ...] = ()) -> dict[str, Any]:
         skill = self.type_check(manifest)  # Always before invoking any callback.
         if skill["id"] in _skill_stack:
@@ -376,6 +402,7 @@ class SkillExecutor:
             ).encode()).hexdigest()[:24]
         else:
             base_plan_revision = plan_revision or ""
+        self._preflight_registered_handlers(skill)
         if not isinstance(inputs, Mapping):
             raise SkillExecutionError("inputs must be an object")
         input_ports = {port["name"]: port for port in skill["inputs"]}
@@ -409,21 +436,30 @@ class SkillExecutor:
             "plan_revision": base_plan_revision,
             "layer_start_callback": layer_start_callback,
             "layer_end_callback": layer_end_callback,
+            "cancel_event": cancel_event,
+            "max_parallel_nodes_limit": _max_parallel_nodes_limit,
+            "node_path_prefix": _node_path_prefix,
             "skill_stack": (*_skill_stack, skill["id"]),
             "child_trace": child_trace,
         }
         max_parallel = skill.get("policy", {}).get("max_parallel_nodes", 1)
+        inherited_limit = _max_parallel_nodes_limit
+        if isinstance(inherited_limit, int) and not isinstance(inherited_limit, bool):
+            max_parallel = min(max_parallel, inherited_limit)
         for layer in self._execution_layers(skill["graph"]):
+            _raise_if_cancelled(cancel_event)
             # Chunk ready nodes so resource reservation and execution have the
             # same hard concurrency bound, even for very wide DAG layers.
             for start in range(0, len(layer), max_parallel):
+                _raise_if_cancelled(cancel_event)
                 batch = layer[start:start + max_parallel]
                 node_ids = tuple(node["id"] for node in batch)
+                route_node_ids = tuple(f"{_node_path_prefix}{node_id}" for node_id in node_ids)
                 prepared = [(node, self._resolve_inputs(node, inputs, state)) for node in batch]
                 reserved = False
                 try:
                     if layer_start_callback is not None:
-                        layer_start_callback(node_ids)
+                        layer_start_callback(route_node_ids)
                         reserved = True
                     if event_callback:
                         for node, _ in prepared:
@@ -477,7 +513,7 @@ class SkillExecutor:
                         raise errors[0]
                 finally:
                     if reserved and layer_end_callback is not None:
-                        layer_end_callback(node_ids)
+                        layer_end_callback(route_node_ids)
         return result
 
     @staticmethod
@@ -498,6 +534,7 @@ class SkillExecutor:
     def _run_node(self, node: Mapping[str, Any], resolved: Mapping[str, Any],
                   base_plan_revision: str = "",
                   execution_context: Mapping[str, Any] | None = None) -> tuple[dict[str, Any], FallbackTrace | None]:
+        _raise_if_cancelled((execution_context or {}).get("cancel_event"))
         node_type = node["type"]
         if node_type in {"input", "output"}:
             return dict(resolved), None
@@ -508,7 +545,8 @@ class SkillExecutor:
             # publish their artifacts under the barrier's stable branch names.
             return dict(resolved), None
         if node_type == "fallback":
-            return self._run_fallback(node, resolved, base_plan_revision)
+            return self._run_fallback(node, resolved, base_plan_revision,
+                                     (execution_context or {}).get("cancel_event"))
         if node_type == "skill":
             return self._run_subskill(node, resolved, execution_context or {})
         executor_type = "transform" if node_type == "loop" else node_type
@@ -520,7 +558,13 @@ class SkillExecutor:
         current = dict(resolved)
         produced = None
         for _ in range(node.get("max_iterations", 1) if node_type == "loop" else 1):
-            produced = executor(node, current)
+            _raise_if_cancelled((execution_context or {}).get("cancel_event"))
+            if node_type in {"capability", "model"}:
+                path_prefix = (execution_context or {}).get("node_path_prefix", "")
+                invocation_node = {**node, "_orchestration_path": f"{path_prefix}{node['id']}"}
+            else:
+                invocation_node = node
+            produced = executor(invocation_node, current)
             if node_type == "loop":
                 if not isinstance(produced, Mapping) or set(produced) != set(node["out"]):
                     raise SkillExecutionError(f"loop node {node['id']!r} returned unexpected output ports")
@@ -571,15 +615,20 @@ class SkillExecutor:
             plan_revision=child_revision,
             layer_start_callback=context.get("layer_start_callback"),
             layer_end_callback=context.get("layer_end_callback"),
+            cancel_event=context.get("cancel_event"),
+            _max_parallel_nodes_limit=context.get("max_parallel_nodes_limit"),
+            _node_path_prefix=f"{context.get('node_path_prefix', '')}{node['id']}/",
             _skill_stack=tuple(context.get("skill_stack", ())),
         )
         return outputs, None
 
     def _run_fallback(self, node: Mapping[str, Any], resolved: Mapping[str, Any],
-                      base_plan_revision: str) -> tuple[dict[str, Any], FallbackTrace | None]:
+                      base_plan_revision: str, cancel_event: threading.Event | None = None
+                      ) -> tuple[dict[str, Any], FallbackTrace | None]:
         failed_candidates: list[str] = []
         failure_kinds: list[str] = []
         for candidate in node["fallbacks"]:
+            _raise_if_cancelled(cancel_event)
             candidate_id = candidate["id"]
             handler = self._executors["transform"][candidate["transform_id"]]
             candidate_node = {**node, "transform_id": candidate["transform_id"],
@@ -603,6 +652,8 @@ class SkillExecutor:
                                       revision_id, tuple(failed_candidates + [candidate_id]),
                                       candidate_id, tuple(failure_kinds))
                 return dict(produced), trace
+            except RunCancelled:
+                raise
             except Exception as exc:
                 failed_candidates.append(candidate_id)
                 failure_kinds.append(type(exc).__name__)
@@ -610,6 +661,41 @@ class SkillExecutor:
             "fallback.exhausted", node["id"], base_plan_revision, None,
             tuple(failed_candidates), None, tuple(failure_kinds),
         ))
+
+    def _preflight_registered_handlers(self, skill: Mapping[str, Any]) -> None:
+        """Confirm the complete nested graph is executable before first side effect."""
+        missing: dict[str, set[str]] = {}
+        missing_fallbacks: set[str] = set()
+
+        def visit(manifest: Mapping[str, Any], prefix: str) -> None:
+            for node in manifest["graph"]:
+                node_id = f"{prefix}{node['id']}"
+                kind = node["type"]
+                if kind in {"input", "output", "join", "parallel"}:
+                    continue
+                if kind == "skill":
+                    child = self._lookup_subskill(node)
+                    if child is not None:
+                        visit(child, node_id + "/")
+                    continue
+                if kind == "fallback":
+                    missing_fallbacks.update(candidate["transform_id"] for candidate in node["fallbacks"]
+                                             if candidate["transform_id"] not in self._executors["transform"])
+                    continue
+                executor_type = "transform" if kind == "loop" else kind
+                lookup_key = {"capability": "capability", "model": "model_id", "tool": "tool_id",
+                              "transform": "transform_id", "router": "router_id", "loop": "transform_id"}[kind]
+                executor_id = str(node.get(lookup_key, ""))
+                if executor_id not in self._executors[executor_type]:
+                    missing.setdefault(executor_type, set()).add(f"{node_id} ({executor_id})")
+
+        visit(skill, "")
+        if missing_fallbacks:
+            raise SkillExecutionError("unregistered fallback transform(s): " + ", ".join(sorted(missing_fallbacks)))
+        if missing:
+            executor_type = sorted(missing)[0]
+            raise SkillExecutionError(
+                f"no registered {executor_type} executor for: " + ", ".join(sorted(missing[executor_type])))
 
     @staticmethod
     def _execution_order(graph: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -634,6 +720,7 @@ class SkillExecutor:
                 emitted.add(node["id"])
         return ordered
 
+
     @staticmethod
     def _execution_layers(graph: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
         """Stable topological layers; independent branches are parallel opt-in."""
@@ -654,3 +741,8 @@ class SkillExecutor:
             layers.append(ready)
             emitted.update(node["id"] for node in ready)
         return layers
+
+
+def _raise_if_cancelled(cancel_event: threading.Event | None) -> None:
+    if cancel_event is not None and cancel_event.is_set():
+        raise RunCancelled("run cancelled")

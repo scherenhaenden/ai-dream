@@ -7,13 +7,16 @@ class BuiltinSkillTests(unittest.TestCase):
     def test_all_builtins_validate_and_are_discoverable(self):
         manifests = builtin_skill_manifests()
         self.assertEqual(
-            {"chat.general", "image.describe", "image.generate", "image.edit-from-instruction", "document.summarize", "document.answer-with-rag", "document.extract-text", "voice.transcribe", "voice.conversation", "document.create-html", "document.create-pdf", "document.create-report"},
+            {"chat.general", "image.describe", "image.generate", "image.edit-from-instruction", "document.summarize", "document.answer-with-rag", "document.extract-text", "voice.transcribe", "voice.conversation", "voice.respond", "document.create-html", "document.create-pdf", "document.create-report", "document.create-report-pdf"},
             {manifest["id"] for manifest in manifests},
         )
         registry = SkillRegistry(manifests)
-        self.assertEqual(12, len(registry.snapshot()))
+        self.assertEqual(14, len(registry.snapshot()))
         self.assertEqual((), registry.invalid_skills())
         self.assertEqual("Audio", registry.get("voice.conversation")["ui"]["category"])
+        self.assertEqual(["text.chat", "audio.synthesize"],
+                         registry.get("voice.respond")["requirements"]["capabilities"])
+        self.assertIn("user-reviewed", registry.get("voice.respond")["description"])
         by_id = {item["id"]: item for item in manifests}
         self.assertEqual(["vision.understand"], by_id["image.describe"]["requirements"]["capabilities"])
         self.assertEqual(["image.generate"], by_id["image.generate"]["requirements"]["capabilities"])
@@ -58,6 +61,7 @@ class BuiltinSkillTests(unittest.TestCase):
             "document.render-html": fake_for("document.render-html"),
             "document.render-pdf": fake_for("document.render-pdf"),
             "document.render-report": fake_for("document.render-report"),
+            "document.render-report-pdf": fake_for("document.render-report-pdf"),
             "document.retrieve-temporary": fake_for("document.retrieve-temporary"),
             "audio.transcribe": fake_for("audio.transcribe"),
             "audio.synthesize": fake_for("audio.synthesize"),
@@ -75,9 +79,11 @@ class BuiltinSkillTests(unittest.TestCase):
             "document.extract-text": {"document": {"kind": "document", "value": "opaque-doc-ref"}},
             "voice.transcribe": {"audio": {"kind": "audio", "value": "opaque-audio-ref"}},
             "voice.conversation": {"audio": {"kind": "audio", "value": "opaque-audio-ref"}},
+            "voice.respond": {"transcript": {"kind": "text", "value": "reviewed fixture transcript"}},
             "document.create-html": {"text": {"kind": "text", "value": "A report"}},
             "document.create-pdf": {"text": {"kind": "text", "value": "A report"}},
             "document.create-report": {"report": {"kind": "json", "value": {"title": "A report", "sections": [{"heading": "Summary", "body": "Done."}]}}},
+            "document.create-report-pdf": {"report": {"kind": "json", "value": {"title": "A report", "sections": [{"heading": "Summary", "body": "Done."}]}}},
             "document.answer-with-rag": {
                 "document": {"kind": "document", "value": "opaque-doc-ref"},
                 "question": {"kind": "text", "value": "What happened?"},
@@ -88,7 +94,7 @@ class BuiltinSkillTests(unittest.TestCase):
                 output = executor.execute(registry.get(skill_id), inputs)
                 self.assertTrue(output)
                 self.assertTrue(all(value["kind"] in {"text", "image", "audio", "document", "json"} for value in output.values()))
-        self.assertEqual(16, len(called))
+        self.assertEqual(19, len(called))
 
 
 if __name__ == "__main__":

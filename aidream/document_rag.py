@@ -6,6 +6,7 @@ refer to the bounded, extracted text passed to :func:`retrieve_document_context`
 from __future__ import annotations
 
 from collections import Counter
+import math
 import re
 from typing import Any
 
@@ -43,21 +44,35 @@ def retrieve_document_context(document_text: str, question: str, *, name: str = 
     safe_name = _safe_name(name)
     chunks = _chunk_document(document_text)
     query_terms = set(_tokens(question))
-    ranked: list[tuple[int, int, int]] = []
+    ranked: list[tuple[float, int, int, tuple[str, ...]]] = []
     if query_terms:
+        frequencies_by_chunk = [Counter(_tokens(chunk)) for _start, _end, chunk in chunks]
+        document_frequencies = {
+            term: sum(term in frequencies for frequencies in frequencies_by_chunk)
+            for term in query_terms
+        }
+        token_lengths = [sum(frequencies.values()) for frequencies in frequencies_by_chunk]
+        average_length = sum(token_lengths) / max(1, len(token_lengths))
+        k1, b = 1.2, 0.75
         for index, (start, end, chunk) in enumerate(chunks):
-            frequencies = Counter(_tokens(chunk))
+            frequencies = frequencies_by_chunk[index]
             matched = query_terms.intersection(frequencies)
             if matched:
-                # Favor broad query coverage, then repeated evidence. All ties
-                # break by source order, so the same input always yields same IDs.
-                score = len(matched) * 100 + sum(min(frequencies[term], 3) for term in matched)
-                ranked.append((score, index, start))
+                # BM25-style local lexical ranking rewards query coverage and
+                # rare terms while normalizing repeated terms and chunk length.
+                score = 0.0
+                for term in sorted(matched):
+                    df = document_frequencies[term]
+                    inverse_document_frequency = math.log(1 + (len(chunks) - df + 0.5) / (df + 0.5))
+                    term_frequency = frequencies[term]
+                    length_norm = 1 - b + b * token_lengths[index] / max(1.0, average_length)
+                    score += inverse_document_frequency * (term_frequency * (k1 + 1)) / (term_frequency + k1 * length_norm)
+                ranked.append((score, index, start, tuple(sorted(matched))))
     ranked.sort(key=lambda row: (-row[0], row[1]))
 
-    selected: list[tuple[int, int, int, str]] = []
+    selected: list[tuple[float, int, int, int, str, tuple[str, ...]]] = []
     context_size = 0
-    for _score, index, start in ranked:
+    for score, index, start, matched_terms in ranked:
         end, chunk = chunks[index][1], chunks[index][2]
         citation_number = len(selected) + 1
         prefix_size = len(f"[C{citation_number}] ")
@@ -65,16 +80,16 @@ def retrieve_document_context(document_text: str, question: str, *, name: str = 
         addition_size = separator_size + prefix_size + len(chunk)
         if context_size + addition_size > MAX_CONTEXT_CHARS:
             continue
-        selected.append((index, start, end, chunk))
+        selected.append((score, index, start, end, chunk, matched_terms))
         context_size += addition_size
         if len(selected) == MAX_SELECTED_CHUNKS:
             break
     # Present evidence in source order while preserving rank selection.
-    selected.sort(key=lambda row: row[1])
+    selected.sort(key=lambda row: row[2])
 
     context_parts: list[str] = []
     citations: list[dict[str, Any]] = []
-    for index, start, end, chunk in selected:
+    for score, index, start, end, chunk, matched_terms in selected:
         citation_id = f"C{len(citations) + 1}"
         context_parts.append(f"[{citation_id}] {chunk}")
         citations.append({
@@ -83,6 +98,8 @@ def retrieve_document_context(document_text: str, question: str, *, name: str = 
             "start_char": start,
             "end_char": end,
             "quote": chunk[:MAX_CITATION_QUOTE_CHARS],
+            "lexical_score": round(score, 6),
+            "matched_terms": list(matched_terms),
         })
     context = "\n".join(context_parts)
     if not context:

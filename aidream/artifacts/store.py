@@ -144,7 +144,10 @@ class ArtifactStore:
                 except OSError:
                     pass
                 raise
-            self._records[artifact_id] = (envelope, path, now + self._ttls[lifetime])
+            # Start retention after bytes are durably written. Large or slow
+            # writes should not consume the caller's artifact lifetime.
+            expires_at = self._clock() + self._ttls[lifetime]
+            self._records[artifact_id] = (envelope, path, expires_at)
             return envelope
 
     def metadata(self, artifact_id: str, *, owner_type: str | None = None, owner_id: str | None = None) -> ArtifactEnvelope:
@@ -171,6 +174,8 @@ class ArtifactStore:
 
     def delete(self, artifact_id: str, *, owner_type: str | None = None, owner_id: str | None = None) -> bool:
         with self._lock:
+            self._ensure_open()
+            self._cleanup_expired_locked(self._clock())
             row = self._records.get(artifact_id)
             if row is None:
                 return False
@@ -182,6 +187,7 @@ class ArtifactStore:
         """Delete artifacts for an owner; call on run cancellation/completion."""
         with self._lock:
             self._ensure_open()
+            self._cleanup_expired_locked(self._clock())
             targets = [(key, row) for key, row in self._records.items()
                        if row[0]["owner"] == {"type": owner_type, "id": owner_id}
                        and (lifetime is None or row[0]["lifetime"] == lifetime)]

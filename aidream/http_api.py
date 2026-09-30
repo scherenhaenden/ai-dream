@@ -180,9 +180,11 @@ class ReadOnlyAPI:
     def __init__(self, *, hardware=None, catalog=None, runtimes=None, chat_store=None, hub=None, download_dir=None,
                  runtime_installations=None, profile_store=None, settings_store=None, knowledge_index=None,
                  diagnostics_log=None, capability_registry=None, manifest_store=None,
+                 manifest_overlay_store=None,
+                 manifest_verifier=None, manifest_verification_store=None,
                  capability_preference_store=None, skill_registry=None, run_manager=None, run_planner=None,
                  resource_snapshot_service=None, artifact_api=None, local_voice=None,
-                 voice_render_speech=None):
+                 voice_render_speech=None, image_backends=None):
         if hardware is None:
             from aidream.hardware import HardwareService
             hardware = HardwareService()
@@ -198,6 +200,7 @@ class ReadOnlyAPI:
         self.hardware = hardware
         self.catalog = catalog
         self.runtimes = runtimes
+        self.image_backends = image_backends
         self.chat_store = chat_store
         from aidream.runtime_installations import RuntimeInstallationRegistry
         from aidream.model_profiles import ModelProfileStore
@@ -214,6 +217,12 @@ class ReadOnlyAPI:
         # Explicit stores can provide curated/generated/user layers. The
         # default view is rebuilt from current observed catalog records.
         self.manifest_store = manifest_store
+        from aidream.capabilities import UserManifestOverlayStore
+        self.manifest_overlay_store = manifest_overlay_store or UserManifestOverlayStore()
+        from aidream.capabilities import ManifestVerificationStore
+        self.manifest_verifier = manifest_verifier
+        self.manifest_verification_store = manifest_verification_store or ManifestVerificationStore()
+        self._manifest_verification_lock = threading.Lock()
         from aidream.capabilities import CapabilityPreferenceStore
         self.capability_preference_store = capability_preference_store or CapabilityPreferenceStore()
         if skill_registry is None:
@@ -267,11 +276,15 @@ class ReadOnlyAPI:
             from aidream.model_scheduler import ModelScheduler
             from aidream.resource_snapshots import ResourceSnapshotService
             self._orchestration_scheduler = ModelScheduler(
-                {}, resource_snapshot=self._scheduler_resource_snapshot)
+                {}, resource_snapshot=self._scheduler_resource_snapshot,
+                eviction_policy=self.capability_preference_store.get()["selection_defaults"]["eviction_policy"])
             self.resource_snapshot_service = ResourceSnapshotService(
                 scheduler=self._orchestration_scheduler, hardware=self.hardware)
         else:
             self._orchestration_scheduler = getattr(resource_snapshot_service, "scheduler", None)
+            if self._orchestration_scheduler is not None:
+                self._orchestration_scheduler.set_eviction_policy(
+                    self.capability_preference_store.get()["selection_defaults"]["eviction_policy"])
         uses_default_planner = self.run_planner is None
         if uses_default_planner:
             self.run_planner = self._build_orchestration_plan
@@ -325,6 +338,36 @@ class ReadOnlyAPI:
                 known_paths.add(item["executable"])
                 known.add(item["id"])
         return existing
+
+    def _local_image_adapters(self):
+        """Return explicitly injected local image adapters without loading models."""
+        from aidream.image_runtime import LocalImageRuntimeAdapter
+        backends = getattr(self, "image_backends", None)
+        if backends is None:
+            provider = getattr(getattr(self, "runtimes", None), "list_image_backends", None)
+            try:
+                backends = provider() if callable(provider) else ()
+            except (OSError, RuntimeError, TypeError, ValueError):
+                backends = ()
+        if not isinstance(backends, (list, tuple)):
+            return ()
+        adapters = []
+        cache = getattr(self, "_image_orchestration_adapters", None)
+        if cache is None:
+            cache = self._image_orchestration_adapters = {}
+        for backend in backends[:32]:
+            runtime_id = getattr(backend, "runtime_id", None) or "local-image"
+            if not isinstance(runtime_id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", runtime_id):
+                continue
+            try:
+                adapter = cache.get(runtime_id)
+                if adapter is None or adapter.backend is not backend:
+                    adapter = LocalImageRuntimeAdapter(backend, runtime_id=runtime_id)
+                    cache[runtime_id] = adapter
+                adapters.append(adapter)
+            except (OSError, RuntimeError, TypeError, ValueError):
+                continue
+        return tuple(adapters)
 
     def _resolve_settings(self, model_id, *, chat_settings=None, request_settings=None):
         from aidream.model_profiles import resolve_effective_settings
@@ -918,10 +961,21 @@ class ReadOnlyAPI:
         if manifest_match:
             if query:
                 raise APIError("Query strings are not supported for model manifest endpoints")
-            manifest = self._model_manifest_store().get(manifest_match.group(1))
+            manifest_store = self._model_manifest_store()
+            manifest = manifest_store.get(manifest_match.group(1))
             if manifest is None:
                 raise APINotFound("Model manifest not found")
-            return 200, {"data": {"manifest": manifest.to_dict()}}
+            provenance = {field: evidence.to_dict() for field, evidence in
+                          manifest_store.provenance_for(manifest_match.group(1)).items()}
+            verification_store = getattr(self, "manifest_verification_store", None)
+            record = verification_store.get(manifest_match.group(1)) if verification_store is not None else None
+            verifier = getattr(self, "manifest_verifier", None)
+            return 200, {"data": {
+                "manifest": manifest.to_dict(), "field_provenance": provenance,
+                "verification_available": callable(getattr(verifier, "verify", None)),
+                "verification": ({"success": record["success"], "completed_at": record["completed_at"]}
+                                 if record is not None else None),
+            }}
         skill_match = re.fullmatch(r"/api/skills/([a-z][a-z0-9]*(?:[.-][a-z0-9]+)*)", path)
         if skill_match:
             if query:
@@ -1149,6 +1203,86 @@ class ReadOnlyAPI:
         result, _skill = self._resolve_skill_request(skill_id, request)
         return {"data": {"plan": _jsonable(result["plan"])}}
 
+    def draft_skill(self, skill_id: str, request: Mapping[str, Any]) -> dict[str, Any]:
+        """Generate one opt-in assisted draft using only the already-loaded local model."""
+        from aidream.orchestration import PlanDraftError
+
+        if not isinstance(request, Mapping) or set(request) - {"goal", "inputs", "selection"}:
+            raise APIError("Assisted draft accepts only goal, inputs, and selection")
+        defaults = self.capability_preference_store.get()["selection_defaults"]
+        if defaults["assisted_planner_enabled"] is not True:
+            raise APIConflict("Assisted planner is disabled globally. Enable it in Skills settings first.")
+        goal = request.get("goal")
+        if not isinstance(goal, str) or not goal.strip() or len(goal) > 4000:
+            raise APIError("goal must contain 1 to 4000 characters")
+        inputs = request.get("inputs", {})
+        selection = request.get("selection", {})
+        if not isinstance(inputs, Mapping) or not isinstance(selection, Mapping):
+            raise APIError("Skill inputs and selection must be objects")
+        backend = getattr(self, "_active_backend", None)
+        loaded_model = getattr(backend, "_loaded_model", None) if backend is not None else None
+        if backend is None or loaded_model is None or not callable(getattr(backend, "generate", None)):
+            raise APIConflict("No local model is already loaded. Load one in Models or Chat before requesting a draft.")
+        if not self._chat_lock.acquire(blocking=False):
+            raise APIConflict("A local chat request is active. Retry the draft when it finishes.")
+        saved_messages = None
+        try:
+            result, skill = self._resolve_skill_request(skill_id, {
+                "inputs": dict(inputs), "selection": dict(selection),
+            })
+            service = result.get("service")
+            if service is None or not callable(getattr(service, "resolve_assisted_draft", None)):
+                raise APIUnavailable("The deterministic draft validator is unavailable for this skill")
+            draft_components = getattr(service, "draft_components", None)
+            if not callable(draft_components):
+                raise APIUnavailable("The deterministic draft component catalog is unavailable")
+            try:
+                components = draft_components(skill_id)
+            except PlanDraftError as exc:
+                raise APIUnavailable(f"The installed skill component catalog is invalid: {exc}") from exc
+            allowed_draft = {"skill_id": skill_id, "components": components}
+            planner_prompt = (
+                "Return exactly one JSON object matching this schema: "
+                '{"skill_id":"installed id","components":[{"node_id":"installed node id",'
+                '"component_id":"installed component id"}]}. Do not use markdown. '
+                "Select only from this installed skill contract and preserve its component list. "
+                "Do not add tools, nodes, permissions, routes, or fields. The server validates your JSON.\n"
+                f"User goal:\n{goal.strip()}\n"
+                f"Installed skill:\n{json.dumps({key: skill.get(key) for key in ('id', 'name', 'description', 'inputs', 'outputs', 'graph')}, ensure_ascii=False)}\n"
+                f"Allowed draft shape:\n{json.dumps(allowed_draft, ensure_ascii=False)}"
+            )
+            saved_messages = getattr(backend, "_messages", None)
+            if isinstance(saved_messages, list):
+                saved_messages = list(saved_messages)
+            try:
+                generated = backend.generate(planner_prompt, {"temperature": 0.1, "max_tokens": 256})
+            except (OSError, RuntimeError, ValueError) as exc:
+                raise APIUnavailable(f"Assisted draft generation failed on the loaded model: {exc}") from exc
+            if not isinstance(generated, str) or len(generated) > 32_000:
+                raise PlanDraftError("planner output must be bounded JSON text")
+            try:
+                draft = json.loads(generated.strip())
+            except (ValueError, TypeError) as exc:
+                raise PlanDraftError("planner output is not valid JSON") from exc
+            if not isinstance(draft, Mapping):
+                raise PlanDraftError("planner output must be a JSON object")
+            draft_options = {"mode": selection.get("mode")}
+            if selection.get("capability_pins") is not None:
+                draft_options["capability_pins"] = selection["capability_pins"]
+            plan = service.resolve_assisted_draft(draft, inputs, **draft_options)
+            binding = getattr(self, "_active_binding", None)
+            return {"data": {
+                "draft": dict(draft), "plan": _jsonable(plan.to_dict()),
+                "model": {"id": binding[1] if isinstance(binding, tuple) and len(binding) > 1 else str(loaded_model),
+                          "runtime_id": getattr(backend, "runtime_id", None)},
+            }}
+        except PlanDraftError as exc:
+            raise APIError(str(exc)) from exc
+        finally:
+            if saved_messages is not None and isinstance(getattr(backend, "_messages", None), list):
+                backend._messages[:] = saved_messages
+            self._chat_lock.release()
+
     def _local_voice_instance(self):
         """Lazily construct local voice discovery for lightweight API fixtures."""
         voice = getattr(self, "local_voice", None)
@@ -1164,7 +1298,7 @@ class ReadOnlyAPI:
                                           CapabilityRegistry, Evidence, EvidenceConfidence,
                                           EvidenceSource, EvidenceStatus, RouteCandidate)
         from aidream.model_scheduler import ModelScheduler
-        from aidream.orchestration import OrchestrationService
+        from aidream.orchestration import OrchestrationService, PlanResolutionError
         from aidream.runtime_adapters import LlamaCppRuntimeAdapter, VLLMRuntimeAdapter, RuntimeRequest
         from aidream.skills import SkillExecutor
         from aidream.voice_orchestration import create_local_voice_callbacks
@@ -1176,6 +1310,20 @@ class ReadOnlyAPI:
         declarations = []
         text = ArtifactType(ArtifactKind.TEXT)
         preference = self.capability_preference_store
+        verified_capabilities_by_model: dict[str, set[str]] = {}
+        try:
+            for manifest in self._model_manifest_store().list_manifests():
+                verified = {
+                    item.id for item in manifest.capabilities
+                    if item.evidence.source == EvidenceSource.VERIFIED_RUN
+                    and item.evidence.status == EvidenceStatus.VERIFIED
+                }
+                if verified:
+                    for artifact in manifest.artifacts:
+                        if artifact.role == "model":
+                            verified_capabilities_by_model.setdefault(artifact.artifact_id, set()).update(verified)
+        except (OSError, RuntimeError, ValueError, TypeError, AttributeError):
+            verified_capabilities_by_model = {}
         for backend in backends:
             try:
                 caps = backend.capabilities()
@@ -1204,6 +1352,9 @@ class ReadOnlyAPI:
                     for profile, scheduler_profile in variants:
                         profile_id = profile.get("id") if profile else None
                         for capability_id in ("text.chat", "text.generate"):
+                            if (profile and profile.get("purpose")
+                                    and capability_id not in profile["purpose"]):
+                                continue
                             route_id = "route_" + hashlib.sha256(
                                 f"{runtime_id}\0{model.id}\0{profile_id or ''}".encode("utf-8")).hexdigest()[:24]
                             # Route IDs are globally unique within the planner even
@@ -1213,32 +1364,83 @@ class ReadOnlyAPI:
                                 capability_id=capability_id, model_id=model.id,
                                 runtime_id=runtime_id, profile_id=profile_id,
                                 inputs=(text,), outputs=(text,),
-                                evidence_status=EvidenceStatus.SUPPORTED.value,
+                                evidence_status=(EvidenceStatus.VERIFIED.value
+                                    if capability_id in verified_capabilities_by_model.get(model.id, set())
+                                    else EvidenceStatus.SUPPORTED.value),
                                 metadata={"manifest": {"model": model, "required_features": []},
                                           "profile": scheduler_profile},
                             ))
             except (OSError, RuntimeError, ValueError, TypeError, AttributeError):
                 continue
+        image_artifacts = {
+            "image.generate": ((ArtifactType(ArtifactKind.TEXT),), (ArtifactType(ArtifactKind.IMAGE),)),
+            "image.edit": ((ArtifactType(ArtifactKind.IMAGE), ArtifactType(ArtifactKind.TEXT)),
+                           (ArtifactType(ArtifactKind.IMAGE),)),
+        }
+        try:
+            image_resources = self._scheduler_resource_snapshot()
+        except Exception:
+            image_resources = None
+        for adapter in self._local_image_adapters():
+            runtime_id = adapter.runtime_id
+            descriptor = adapter.probe()
+            if not descriptor.available:
+                continue
+            adapters[runtime_id] = adapter
+            for model in adapter.list_models():
+                for capability_id in ("image.generate", "image.edit"):
+                    if capability_id not in descriptor.features:
+                        continue
+                    support = adapter.supports({"model": model,
+                                                "required_capability": capability_id})
+                    if not support.compatible:
+                        continue
+                    estimated_ram, estimated_vram = adapter.resource_estimates(model)
+                    route_id = "route_" + hashlib.sha256(
+                        f"{runtime_id}\0{model.id}\0{capability_id}".encode("utf-8")
+                    ).hexdigest()[:24]
+                    inputs, outputs = image_artifacts[capability_id]
+                    route_rows.append(RouteCandidate(
+                        id=route_id, capability_id=capability_id, model_id=model.id,
+                        runtime_id=runtime_id, inputs=inputs, outputs=outputs,
+                        evidence_status=EvidenceStatus.SUPPORTED.value,
+                        required_memory_bytes=estimated_vram,
+                        available_memory_bytes=(getattr(image_resources, "vram_available_bytes", None)
+                                                if image_resources is not None else None),
+                        metadata={"manifest": {"model": model,
+                                                "required_capability": capability_id},
+                                  "profile": None,
+                                  "estimated_ram_bytes": estimated_ram,
+                                  "estimated_vram_bytes": estimated_vram},
+                    ))
         capability_ids = sorted({route.capability_id for route in route_rows})
         self._orchestration_route_allowlist = {
             route.id: (route.model_id, route.runtime_id, route.profile_id) for route in route_rows
         }
         for capability_id in capability_ids:
+            inputs, outputs = image_artifacts.get(capability_id, ((text,), (text,)))
             declarations.append(CapabilityDeclaration(
-                id=capability_id, inputs=(text,), outputs=(text,),
+                id=capability_id, inputs=inputs, outputs=outputs,
                 evidence=Evidence(source=EvidenceSource.RUNTIME_PROBE,
                                   status=EvidenceStatus.SUPPORTED,
                                   confidence=EvidenceConfidence.MEDIUM,
-                                  details=("Runtime advertises chat completions and accepts this model; "
+                                  details=("An explicitly local, network-disabled backend reports a compatible image model; "
+                                           "generation has not been verified."
+                                           if capability_id.startswith("image.") else
+                                           "Runtime advertises chat completions and accepts this model; "
                                            "inference has not been verified.")),
             ))
         registry = CapabilityRegistry(declarations)
         scheduler = getattr(self, "_orchestration_scheduler", None)
         if scheduler is None:
-            scheduler = ModelScheduler(adapters, resource_snapshot=self._scheduler_resource_snapshot)
+            scheduler = ModelScheduler(
+                adapters, resource_snapshot=self._scheduler_resource_snapshot,
+                eviction_policy=self.capability_preference_store.get()["selection_defaults"]["eviction_policy"])
             self._orchestration_scheduler = scheduler
         else:
             scheduler.adapters.update(adapters)
+            scheduler.set_eviction_policy(
+                self.capability_preference_store.get()["selection_defaults"]["eviction_policy"])
         invokers = {}
         for route in route_rows:
             def invoke(selected, node, node_inputs, *, _route=route):
@@ -1247,6 +1449,24 @@ class ReadOnlyAPI:
                                                profile_id=_route.profile_id)
                 if lease is None:
                     raise RuntimeError("scheduler lease is unavailable for selected route")
+                if _route.capability_id.startswith("image."):
+                    if _route.capability_id == "image.generate":
+                        prompt = node_inputs.get("prompt")
+                        prompt = prompt.get("text", prompt.get("value")) if isinstance(prompt, Mapping) else None
+                        inputs = {"prompt": prompt}
+                    else:
+                        instruction = node_inputs.get("instruction")
+                        instruction = (instruction.get("text", instruction.get("value"))
+                                       if isinstance(instruction, Mapping) else None)
+                        envelope = node_inputs.get("image")
+                        image_bytes, media_type = self._read_image_artifact(envelope)
+                        inputs = {"image": image_bytes, "media_type": media_type,
+                                  "instruction": instruction}
+                    output = adapters[_route.runtime_id].invoke(
+                        lease.handle, RuntimeRequest(operation=_route.capability_id,
+                                                     inputs=inputs))
+                    port = next(iter(node.get("out", {"image": "image"})))
+                    return {port: output.value}
                 artifact = next((item for item in node_inputs.values()
                                  if isinstance(item, Mapping) and item.get("kind") == "text"), None)
                 if artifact is None or not isinstance(artifact.get("text"), str):
@@ -1268,6 +1488,7 @@ class ReadOnlyAPI:
             "document.render-html": self._render_html_document,
             "document.render-pdf": self._render_pdf_document,
             "document.render-report": self._render_report_document,
+            "document.render-report-pdf": self._render_report_pdf_document,
             "document.retrieve-temporary": self._retrieve_temporary_document_context,
             **voice_callbacks,
         }, subskills={item["id"]: item for item in self.skill_registry.snapshot()})
@@ -1275,16 +1496,40 @@ class ReadOnlyAPI:
             skills=self.skill_registry, executor=executor, capabilities=registry,
             routes=route_rows, preferences=preference, scheduler=scheduler,
             route_invokers=invokers,
+            assisted_planner_enabled=preference.get()["selection_defaults"]["assisted_planner_enabled"],
         )
         selection = request.get("selection") or {}
         if (not isinstance(selection, Mapping) or set(selection) -
-                {"mode", "pinned_model_id", "pinned_profile_id"}):
-            raise APIError("Skill selection accepts mode, pinned_model_id, and pinned_profile_id")
+                {"mode", "pinned_model_id", "pinned_profile_id", "capability_pins"}):
+            raise APIError("Skill selection accepts mode, pinned_model_id, pinned_profile_id, and capability_pins")
         try:
             execution_plan = service.build_plan(
                 skill["id"], request.get("inputs", {}), mode=selection.get("mode"),
                 pinned_model_id=selection.get("pinned_model_id"),
-                pinned_profile_id=selection.get("pinned_profile_id"))
+                pinned_profile_id=selection.get("pinned_profile_id"),
+                capability_pins=selection.get("capability_pins"))
+        except PlanResolutionError as exc:
+            routes_by_id = {route.id: route for route in route_rows}
+            low_vram = []
+            headroom = preference.get()["selection_defaults"]["resource_headroom_percent"]
+            for failure in exc.why:
+                if not isinstance(failure, Mapping) or not str(failure.get("capability_id", "")).startswith("image."):
+                    continue
+                for why in failure.get("routes", ()):
+                    if not isinstance(why, Mapping) or "insufficient_resources" not in why.get("reasons", ()):
+                        continue
+                    route = routes_by_id.get(why.get("route_id"))
+                    if route is None or route.required_memory_bytes is None or route.available_memory_bytes is None:
+                        continue
+                    required = route.required_memory_bytes * (100 + headroom) // 100
+                    low_vram.append(
+                        f"{failure.get('capability_id')} route {route.model_id} estimates "
+                        f"{route.required_memory_bytes / (1024 ** 3):.1f} GiB VRAM; "
+                        f"{route.available_memory_bytes / (1024 ** 3):.1f} GiB is free and "
+                        f"{headroom}% headroom requires {required / (1024 ** 3):.1f} GiB. "
+                        "Choose a lower-memory image model or free VRAM, then preview again."
+                    )
+            raise APIError(" ".join(low_vram) if low_vram else str(exc)) from exc
         except (ValueError, RuntimeError) as exc:
             raise APIError(str(exc)) from exc
         plan = execution_plan.to_dict()
@@ -1338,6 +1583,35 @@ class ReadOnlyAPI:
                 raise APIError(exc.message) from exc
             raise APIUnavailable("Selected audio artifact is temporarily unavailable") from exc
         return content
+
+    def _read_image_artifact(self, artifact):
+        """Resolve only the caller-selected, owner-scoped bounded image artifact."""
+        from aidream.artifacts.contracts import validate_artifact_envelope
+        from aidream.image_runtime import MAX_IMAGE_BYTES, LocalImageRuntimeAdapter
+        try:
+            envelope = validate_artifact_envelope(artifact)
+        except (TypeError, ValueError) as exc:
+            raise APIError("Image input must reference a valid selected artifact") from exc
+        if envelope["kind"] != "image" or envelope["media_type"] not in {
+                "image/png", "image/jpeg", "image/webp"}:
+            raise APIError("Image operation accepts selected PNG, JPEG, or WebP artifacts")
+        if envelope["size_bytes"] > MAX_IMAGE_BYTES:
+            raise APIError("Selected image exceeds the local processing limit")
+        owner = envelope["owner"]
+        try:
+            stored, content = self.get_artifact_api().content(
+                envelope["id"], owner_type=owner["type"], owner_id=owner["id"])
+        except Exception as exc:
+            from aidream.artifacts import ArtifactAPIError
+            if isinstance(exc, ArtifactAPIError):
+                raise APIError(exc.message) from exc
+            raise APIUnavailable("Selected image artifact is temporarily unavailable") from exc
+        if (stored.get("id") != envelope["id"] or stored.get("owner") != owner
+                or stored.get("kind") != "image" or stored.get("media_type") != envelope["media_type"]
+                or len(content) != envelope["size_bytes"]
+                or not LocalImageRuntimeAdapter._valid_image(content, envelope["media_type"])):
+            raise APIError("Selected image artifact metadata or content is invalid")
+        return content, envelope["media_type"]
 
     def _extract_document_text(self, _node, node_inputs):
         from aidream.document_input import load_document_bytes
@@ -1399,6 +1673,21 @@ class ReadOnlyAPI:
                              "name": suggested_filename(title, "html"),
                              "content_bytes": content}}
 
+    @staticmethod
+    def _render_report_pdf_document(_node, node_inputs):
+        from aidream.document_render import render_pdf_report, suggested_filename
+        artifact = node_inputs.get("report")
+        report = artifact.get("value") if isinstance(artifact, Mapping) else None
+        if not isinstance(report, Mapping):
+            raise APIError("PDF report renderer requires a JSON object artifact")
+        content = render_pdf_report(report)
+        title = report.get("title", "report")
+        if not isinstance(title, str):
+            title = "report"
+        return {"document": {"kind": "document", "media_type": "application/pdf",
+                             "name": suggested_filename(title, "pdf"),
+                             "content_bytes": content}}
+
     def _retrieve_temporary_document_context(self, _node, node_inputs):
         from aidream.document_input import load_document_bytes
         from aidream.document_rag import MAX_DOCUMENT_CHARS, retrieve_document_context
@@ -1448,6 +1737,7 @@ class ReadOnlyAPI:
             try:
                 outputs = service.execute(
                     execution_plan, inputs, owner_id=owner_id,
+                    cancel_event=cancel_event,
                     event_callback=lambda state, node_id: emit(f"node.{state}", {"node_id": node_id}),
                     fallback_callback=lambda trace: emit("plan.revised", {
                         "event": trace.event_type,
@@ -1621,7 +1911,11 @@ class ReadOnlyAPI:
             selected_runtime = defaults.get("runtime_id")
             routes: dict[str, list[dict[str, Any]]] = {
                 "text.chat": [], "text.generate": [], "audio.transcribe": [], "audio.synthesize": [],
+                "audio.diarize": [], "audio.understand": [], "audio.prosody": [],
+                "music.understand": [], "music.generate": [],
                 "image.generate": [], "image.edit": [],
+                "document.parse": [], "retrieval.search": [],
+                "embedding.create": [], "rerank.score": [],
             }
             backends = self._all_backends()
         except (OSError, RuntimeError, ValueError, TypeError):
@@ -1658,6 +1952,36 @@ class ReadOnlyAPI:
                 except (OSError, RuntimeError, ValueError, TypeError, AttributeError):
                     continue
 
+        for adapter in self._local_image_adapters():
+            try:
+                descriptor = adapter.probe()
+                if not descriptor.available:
+                    continue
+                try:
+                    observed_image_vram = self._scheduler_resource_snapshot().vram_available_bytes
+                except Exception:
+                    observed_image_vram = None
+                for model in adapter.list_models():
+                    estimated_ram, estimated_vram = adapter.resource_estimates(model)
+                    for capability_id in ("image.generate", "image.edit"):
+                        if capability_id not in descriptor.features:
+                            continue
+                        if not adapter.supports({"model": model,
+                                                 "required_capability": capability_id}).compatible:
+                            continue
+                        routes[capability_id].append({
+                            "id": "route_" + hashlib.sha256(
+                                f"{adapter.runtime_id}\0{model.id}\0{capability_id}".encode("utf-8")
+                            ).hexdigest()[:24],
+                            "model_id": model.id,
+                            "runtime_id": adapter.runtime_id,
+                            "preferred": False,
+                            "estimated_vram_bytes": estimated_vram,
+                            "available_vram_bytes": observed_image_vram,
+                        })
+            except (OSError, RuntimeError, TypeError, ValueError, AttributeError):
+                continue
+
         try:
             from aidream.voice_orchestration import local_voice_readiness
             voice_readiness = local_voice_readiness(self._local_voice_instance())
@@ -1672,32 +1996,83 @@ class ReadOnlyAPI:
         except (AttributeError, OSError, RuntimeError, TypeError, ValueError):
             voice_readiness = {}
 
+        # These routes are ordinary local tools, not model-backed runtimes.
+        # A successful import/code path is not a model verification claim.
+        routes["document.parse"].append({
+            "id": "route_local_document_parse", "model_id": None,
+            "runtime_id": "local-document-parser", "preferred": True,
+        })
+        fts5_available = False
+        try:
+            import sqlite3
+            connection = sqlite3.connect(":memory:")
+            try:
+                connection.execute("CREATE VIRTUAL TABLE fts_probe USING fts5(content)")
+                fts5_available = True
+            finally:
+                connection.close()
+        except (OSError, RuntimeError, sqlite3.Error):
+            fts5_available = False
+        if fts5_available:
+            routes["retrieval.search"].append({
+                "id": "route_local_retrieval_search", "model_id": None,
+                "runtime_id": "local-knowledge-fts5", "preferred": True,
+            })
+
         declarations = []
         for capability_id, capability_routes in routes.items():
-            if not capability_routes and not capability_id.startswith(("audio.", "image.")):
+            if not capability_routes and not capability_id.startswith(
+                    ("audio.", "image.", "music.", "document.", "retrieval.", "embedding.", "rerank.")):
                 continue
             input_types, output_types = {
                 "audio.transcribe": ((ArtifactType(ArtifactKind.AUDIO),), (ArtifactType(ArtifactKind.TEXT),)),
                 "audio.synthesize": ((ArtifactType(ArtifactKind.TEXT),), (ArtifactType(ArtifactKind.AUDIO),)),
+                "audio.diarize": ((ArtifactType(ArtifactKind.AUDIO),), (ArtifactType(ArtifactKind.JSON),)),
+                "audio.understand": ((ArtifactType(ArtifactKind.AUDIO),), (ArtifactType(ArtifactKind.JSON),)),
+                "audio.prosody": ((ArtifactType(ArtifactKind.AUDIO),), (ArtifactType(ArtifactKind.JSON),)),
+                "music.understand": ((ArtifactType(ArtifactKind.AUDIO),), (ArtifactType(ArtifactKind.JSON),)),
+                "music.generate": ((ArtifactType(ArtifactKind.TEXT),), (ArtifactType(ArtifactKind.AUDIO),)),
+                "document.parse": ((ArtifactType(ArtifactKind.DOCUMENT),), (ArtifactType(ArtifactKind.TEXT),)),
+                "retrieval.search": ((ArtifactType(ArtifactKind.TEXT),), (ArtifactType(ArtifactKind.JSON),)),
+                "embedding.create": ((ArtifactType(ArtifactKind.TEXT),), (ArtifactType(ArtifactKind.EMBEDDING_BATCH),)),
+                "rerank.score": ((ArtifactType(ArtifactKind.RERANK_CANDIDATES),), (ArtifactType(ArtifactKind.RERANK_CANDIDATES),)),
                 "image.generate": ((ArtifactType(ArtifactKind.TEXT),), (ArtifactType(ArtifactKind.IMAGE),)),
                 "image.edit": ((ArtifactType(ArtifactKind.IMAGE), ArtifactType(ArtifactKind.TEXT)), (ArtifactType(ArtifactKind.IMAGE),)),
             }.get(capability_id, ((ArtifactType(ArtifactKind.TEXT),), (ArtifactType(ArtifactKind.TEXT),)))
             if capability_routes:
                 evidence_status = EvidenceStatus.SUPPORTED
                 details = (
+                    "Bounded local parser supports UTF-8 TXT/Markdown and text PDFs; scanned PDF OCR is an optional separate tool path."
+                    if capability_id == "document.parse" else
+                    "Local SQLite FTS5 search is available; retrieval is lexical and does not use embeddings or reranking."
+                    if capability_id == "retrieval.search" else
                     "Local whisper.cpp executable and an installed GGML model were detected; transcription has not been run."
                     if capability_id == "audio.transcribe" else
                     "A local espeak executable was detected; synthesis has not been run."
                     if capability_id == "audio.synthesize" else
+                    "An explicitly local, network-disabled backend reports a compatible generation model; no image was generated during discovery."
+                    if capability_id == "image.generate" else
+                    "An explicitly local, network-disabled backend reports a compatible editing model; no image was edited during discovery."
+                    if capability_id == "image.edit" else
                     "Runtime advertises chat completions and reports model load compatibility; no inference verification has been recorded."
                 )
             else:
                 evidence_status = EvidenceStatus.UNKNOWN
                 details = (
                     "; ".join(voice_readiness.get(capability_id, {}).get("reasons", ()))
-                    or ("No compatible local image generation runtime and model are configured."
+                    or ({"image.generate": "No compatible local image generation runtime and model are configured.",
+                         "image.edit": "No compatible local image editing runtime and model are configured."}.get(capability_id)
                         if capability_id.startswith("image.")
-                        else "No local voice route is currently available.")
+                        else {
+                            "audio.diarize": "No local speaker-diarization runtime or model is configured.",
+                            "audio.understand": "No local general audio-understanding runtime or model is configured.",
+                            "audio.prosody": "No local prosody-analysis runtime or model is configured.",
+                            "music.understand": "No local music-analysis runtime or model is configured.",
+                            "music.generate": "No local music-generation runtime or model is configured.",
+                            "retrieval.search": "SQLite FTS5 is not available; the local persistent knowledge search route cannot run.",
+                            "embedding.create": "No local embedding model or embedding runtime is configured; current document RAG uses lexical retrieval.",
+                            "rerank.score": "No local reranker model or runtime is configured; results use deterministic lexical ranking.",
+                        }.get(capability_id, "No local voice route is currently available."))
                 )
             declarations.append(CapabilityDeclaration(
                 id=capability_id,
@@ -1756,53 +2131,177 @@ class ReadOnlyAPI:
                     record["details"] = details
                 evidence.append(record)
             features = sorted({feature for declaration in items for feature in declaration.features})
+            serialized_routes = []
+            for route in capability_routes:
+                summary = {key: route[key] for key in ("id", "model_id", "runtime_id")}
+                for key in ("estimated_vram_bytes", "available_vram_bytes"):
+                    value = route.get(key)
+                    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                        summary[key] = value
+                serialized_routes.append(summary)
             result.append({
                 "id": capability_id,
                 "inputs": inputs,
                 "outputs": outputs,
                 "features": features,
                 "evidence": evidence,
-                "routes": [{key: route[key] for key in ("id", "model_id", "runtime_id")}
-                           for route in capability_routes],
+                "routes": serialized_routes,
                 "status": "supported" if capability_routes else "unavailable",
                 "preferred_route_id": capability_routes[0]["id"] if capability_routes else None,
             })
         return result
 
     def _model_manifest_store(self):
-        """Return the supplied manifest layers or a conservative observed view."""
-        if self.manifest_store is not None:
-            return self.manifest_store
+        """Return observed/bundled manifests merged with persisted user metadata."""
+        from aidream.capabilities import ModelManifestStore
+        if getattr(self, "manifest_store", None) is not None:
+            base = self.manifest_store
+        else:
+            base = None
         from aidream.capabilities import EvidenceSource, EvidenceStatus, ModelManifestStore
 
-        observed = []
+        if base is None:
+            observed = []
+            try:
+                models = self.catalog.list_models()
+            except (OSError, RuntimeError, ValueError, TypeError):
+                models = []
+            if not isinstance(models, list) or len(models) > MAX_MODELS:
+                models = []
+            for model in models:
+                model_id = getattr(model, "id", None)
+                if not isinstance(model_id, str) or not re.fullmatch(r"[a-f0-9]{24,64}", model_id):
+                    continue
+                metadata = getattr(model, "metadata", {})
+                metadata = metadata if isinstance(metadata, dict) else {}
+                raw_name = metadata.get("general.name") or metadata.get("general.basename")
+                display_name = raw_name.strip() if isinstance(raw_name, str) else ""
+                if not display_name or not display_name.isprintable():
+                    display_name = f"Local model {model_id[:8]}"
+                observed.append({
+                    "schema_version": 1,
+                    "id": f"local.{model_id}",
+                    "display_name": display_name[:200],
+                    "artifacts": [{"role": "model", "model_id": model_id}],
+                    "capabilities": [],
+                    "provenance": {"source": EvidenceSource.MODEL_METADATA.value,
+                                   "status": EvidenceStatus.UNKNOWN.value},
+                    "resource_hints": {},
+                })
+            base = ModelManifestStore.from_layers(observed=observed)
+        verification = getattr(self, "manifest_verification_store", None)
+        if verification is not None:
+            base = base.with_generated_overrides(verification.generated_overlays())
+        overlays = getattr(self, "manifest_overlay_store", None)
+        return base.with_user_overrides(overlays.list_overrides()) if overlays is not None else base
+
+    def verify_model_manifest(self, manifest_id: str):
+        """Run an injected bounded local probe and persist only typed verified results."""
+        from aidream.capabilities import ManifestVerificationResult
+
+        verifier = getattr(self, "manifest_verifier", None)
+        if verifier is None or not callable(getattr(verifier, "verify", None)):
+            raise APIUnavailable("No local runtime manifest verifier is configured")
+        lock = getattr(self, "_manifest_verification_lock", None)
+        if lock is None:
+            lock = self._manifest_verification_lock = threading.Lock()
+        if not lock.acquire(blocking=False):
+            raise APIConflict("A model manifest verification is already running")
+        created_profile_id = None
         try:
-            models = self.catalog.list_models()
-        except (OSError, RuntimeError, ValueError, TypeError):
-            models = []
-        if not isinstance(models, list) or len(models) > MAX_MODELS:
-            models = []
-        for model in models:
-            model_id = getattr(model, "id", None)
-            if not isinstance(model_id, str) or not re.fullmatch(r"[a-f0-9]{24,64}", model_id):
-                continue
-            metadata = getattr(model, "metadata", {})
-            metadata = metadata if isinstance(metadata, dict) else {}
-            raw_name = metadata.get("general.name") or metadata.get("general.basename")
-            display_name = raw_name.strip() if isinstance(raw_name, str) else ""
-            if not display_name or not display_name.isprintable():
-                display_name = f"Local model {model_id[:8]}"
-            observed.append({
-                "schema_version": 1,
-                "id": f"local.{model_id}",
-                "display_name": display_name[:200],
-                "artifacts": [{"role": "model", "model_id": model_id}],
-                "capabilities": [],
-                "provenance": {"source": EvidenceSource.MODEL_METADATA.value,
-                               "status": EvidenceStatus.UNKNOWN.value},
-                "resource_hints": {},
-            })
-        return ModelManifestStore.from_layers(observed=observed)
+            manifest_store = self._model_manifest_store()
+            manifest = manifest_store.get(manifest_id)
+            if manifest is None:
+                raise APINotFound("Model manifest not found")
+            raw_result = verifier.verify(manifest)
+            if not isinstance(raw_result, ManifestVerificationResult):
+                raise APIError("Runtime verifier returned an invalid result")
+            if raw_result.manifest_id != manifest_id:
+                raise APIError("Runtime verifier returned a result for a different manifest")
+
+            profile_store = getattr(self, "profile_store", None)
+            verification_store = getattr(self, "manifest_verification_store", None)
+            if profile_store is None or verification_store is None:
+                raise APIUnavailable("Manifest verification persistence is not available")
+            saved_profile = None
+            if raw_result.success:
+                model_artifacts = [item for item in manifest.artifacts if item.role == "model"]
+                if len(model_artifacts) != 1:
+                    raise APIError("Manifest verification requires exactly one primary model artifact")
+                profile = dict(raw_result.profile or {})
+                profile["model_id"] = model_artifacts[0].artifact_id
+                profile["runtime_id"] = raw_result.runtime_id
+                profile["profile_class"] = "verified"
+                profile["purpose"] = sorted(item.id for item in raw_result.capabilities)
+                profile["name"] = profile.get("name") or f"Verified {manifest.display_name}"[:100]
+                verification = dict(profile.get("verification") or {})
+                verification.update(status="verified", verified_at=raw_result.completed_at,
+                                    details=raw_result.details[:512])
+                if not isinstance(verification.get("runtime_version"), str) or not verification["runtime_version"].strip():
+                    raise APIError("Runtime verifier result must include the probed runtime version")
+                profile["verification"] = verification
+                # Validate generated claims against the effective layered view
+                # before writing either persistent record.
+                from aidream.capabilities import ModelManifestStore
+                preview = ModelManifestStore.from_layers(observed=[manifest]).with_generated_overrides(({
+                    "id": manifest_id,
+                    "provenance": {
+                        "source": "verified_run", "status": "verified", "confidence": "high",
+                        "verified_at": raw_result.completed_at,
+                        "details": f"Bounded runtime probe succeeded for {raw_result.runtime_id}: {raw_result.details}",
+                    },
+                    "capabilities": raw_result.to_dict()["capabilities"],
+                },))
+                if preview.get(manifest_id) is None:
+                    raise APIError("Verified manifest overlay failed validation")
+                from aidream.capabilities import ManifestVerificationResult
+                normalized_result = ManifestVerificationResult(
+                    manifest_id=raw_result.manifest_id, runtime_id=raw_result.runtime_id,
+                    success=True, completed_at=raw_result.completed_at, details=raw_result.details,
+                    capabilities=raw_result.capabilities, profile=profile,
+                )
+                saved_profile = profile_store.create(profile, allow_verified=True)
+                created_profile_id = saved_profile["id"]
+            else:
+                normalized_result = raw_result
+            record = verification_store.record(normalized_result)
+            return {"verification": record, "profile": saved_profile,
+                    "manifest": self._model_manifest_store().get(manifest_id).to_dict()}
+        except APIError:
+            raise
+        except (OSError, TypeError, ValueError, RuntimeError) as exc:
+            if created_profile_id is not None:
+                try:
+                    self.profile_store.delete(created_profile_id)
+                except (KeyError, OSError, ValueError):
+                    pass
+            raise APIError(f"Could not verify model manifest: {str(exc)[:240]}") from exc
+        finally:
+            lock.release()
+
+    def update_model_manifest_preferences(self, manifest_id: str, changes: Mapping[str, Any]):
+        """Persist descriptive user metadata without changing model evidence."""
+        overlays = getattr(self, "manifest_overlay_store", None)
+        if overlays is None:
+            from aidream.capabilities import UserManifestOverlayStore
+            overlays = self.manifest_overlay_store = UserManifestOverlayStore()
+        base = self._model_manifest_store()
+        current = base.get(manifest_id)
+        if current is None:
+            raise APINotFound("Model manifest not found")
+        candidate = overlays.preview(manifest_id, changes)
+        if candidate is not None:
+            # Re-validate the resulting full manifest before committing the
+            # overlay. Capability claims, artifacts and evidence are protected.
+            from aidream.capabilities import ModelManifestStore
+            ModelManifestStore.from_layers(observed=[current], user_overrides=[candidate])
+        overlays.patch(manifest_id, changes)
+        merged = self._model_manifest_store().get(manifest_id)
+        if merged is None:
+            raise APIError("Model manifest disappeared while applying user metadata")
+        return {"manifest": merged.to_dict(), "field_provenance": {
+            path: evidence.to_dict() for path, evidence in self._model_manifest_store().provenance_for(manifest_id).items()
+        }}
 
     def create_model_source(self, path):
         try:
@@ -2514,6 +3013,18 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
             if parsed.query or parsed.fragment or parsed.path != self.path:
                 self._send_json(400, {"error": "Query strings and encoded paths are not supported"})
                 return
+            manifest_verify = re.fullmatch(
+                r"/api/model-manifests/([a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+)/verify",
+                self.path)
+            if manifest_verify:
+                try:
+                    if self._read_json_body():
+                        raise APIError("manifest verification accepts an empty object")
+                    result = self.server.services.verify_model_manifest(manifest_verify.group(1))
+                    self._send_json(200, {"data": result})
+                except (APIError, ValueError) as exc:
+                    self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
+                return
             if self.path == "/api/chat":
                 self._post_chat()
                 return
@@ -2532,13 +3043,15 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
                 except (APIError, ValueError) as exc:
                     self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
                 return
-            skill_action = re.fullmatch(r"/api/skills/([a-z][a-z0-9]*(?:[.-][a-z0-9]+)*)/(plan|run)", self.path)
+            skill_action = re.fullmatch(r"/api/skills/([a-z][a-z0-9]*(?:[.-][a-z0-9]+)*)/(plan|run|draft)", self.path)
             if skill_action:
                 try:
                     body = self._read_json_body()
                     skill_id, action = skill_action.groups()
                     if action == "plan":
                         self._send_json(200, self.server.services.plan_skill(skill_id, body))
+                    elif action == "draft":
+                        self._send_json(200, self.server.services.draft_skill(skill_id, body))
                     else:
                         self._send_json(202, self.server.services.start_skill(skill_id, body))
                 except (APIError, ValueError) as exc:
@@ -2710,12 +3223,30 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
                 return
             if self.path == "/api/capability-preferences":
                 try:
-                    result = {"data": self.server.services.capability_preference_store.patch(self._read_json_body())}
+                    preferences = self.server.services.capability_preference_store.patch(self._read_json_body())
+                    scheduler = getattr(self.server.services, "_orchestration_scheduler", None)
+                    if scheduler is not None:
+                        scheduler.set_eviction_policy(preferences["selection_defaults"]["eviction_policy"])
+                    result = {"data": preferences}
                     self._send_json(200, result)
                 except (APIError, ValueError) as exc:
                     self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
                 except OSError:
                     self._send_json(503, {"error": "Could not persist local capability preferences"})
+                return
+            manifest_preferences = re.fullmatch(
+                r"/api/model-manifests/([a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+)/preferences",
+                self.path,
+            )
+            if manifest_preferences:
+                try:
+                    value = self.server.services.update_model_manifest_preferences(
+                        manifest_preferences.group(1), self._read_json_body())
+                    self._send_json(200, {"data": value})
+                except (APIError, ValueError) as exc:
+                    self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
+                except OSError:
+                    self._send_json(503, {"error": "Could not persist user model manifest metadata"})
                 return
             match = re.fullmatch(r"/api/runtime/installations/([a-f0-9]{32})", self.path)
             profile_match = re.fullmatch(r"/api/model-profiles/([a-f0-9]{32})", self.path)
@@ -3110,7 +3641,7 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
             if not self._write_origin_ok():
                 self._send_json(403, {"error": "A permitted Origin is required"})
                 return
-            if self.path not in {"/api/chat", "/api/agent", "/api/chats", "/api/downloads", "/api/diagnostics", "/api/knowledge/documents", "/api/model-sources", "/api/models/rescan", "/api/models/residency/actions", "/api/runtime/load", "/api/runtime/unload", "/api/runtime/chat", "/api/runtime/command", "/api/runtime/installations", "/api/model-profiles", "/api/settings", "/api/capability-preferences", "/api/runs", "/api/artifacts"} and not re.fullmatch(r"/api/runtime/installations/[a-f0-9]{32}(/probe)?", self.path) and not re.fullmatch(r"/api/model-profiles/[a-f0-9]{32}", self.path) and not re.fullmatch(r"/api/chats/[a-f0-9]{32}(/settings)?", self.path) and not re.fullmatch(r"/api/downloads/[a-f0-9]{32}/cancel", self.path) and not re.fullmatch(r"/api/runs/[a-f0-9]{32}/cancel", self.path) and not re.fullmatch(r"/api/skills/[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*/(plan|run)", self.path) and not re.fullmatch(r"/api/artifacts/art_[A-Za-z0-9_-]{1,75}", self.path):
+            if self.path not in {"/api/chat", "/api/agent", "/api/chats", "/api/downloads", "/api/diagnostics", "/api/knowledge/documents", "/api/model-sources", "/api/models/rescan", "/api/models/residency/actions", "/api/runtime/load", "/api/runtime/unload", "/api/runtime/chat", "/api/runtime/command", "/api/runtime/installations", "/api/model-profiles", "/api/settings", "/api/capability-preferences", "/api/runs", "/api/artifacts"} and not re.fullmatch(r"/api/runtime/installations/[a-f0-9]{32}(/probe)?", self.path) and not re.fullmatch(r"/api/model-profiles/[a-f0-9]{32}", self.path) and not re.fullmatch(r"/api/model-manifests/[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+/(preferences|verify)", self.path) and not re.fullmatch(r"/api/chats/[a-f0-9]{32}(/settings)?", self.path) and not re.fullmatch(r"/api/downloads/[a-f0-9]{32}/cancel", self.path) and not re.fullmatch(r"/api/runs/[a-f0-9]{32}/cancel", self.path) and not re.fullmatch(r"/api/skills/[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*/(plan|run|draft)", self.path) and not re.fullmatch(r"/api/artifacts/art_[A-Za-z0-9_-]{1,75}", self.path):
                 self._send_json(404, {"error": "Not found"})
                 return
             self.send_response(204)

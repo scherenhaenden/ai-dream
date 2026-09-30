@@ -15,6 +15,11 @@ from .contracts import (
 )
 from .registry import CapabilityRegistry, Direction, artifact_types_compatible
 from .manifest_store import FieldProvenance, ModelManifestStore
+from .manifest_overlay import UserManifestOverlayStore, default_manifest_overlay_path
+from .manifest_verification import (
+    ManifestVerificationResult, ManifestVerificationStore, ManifestVerifier,
+    default_manifest_verification_path,
+)
 from .preferences import CapabilityPreferenceStore, default_capability_preferences_path
 from .resolver import Resolution, ResolutionRequest, RouteCandidate, resolve_route
 
@@ -33,12 +38,18 @@ __all__ = [
     "FieldProvenance",
     "Modality",
     "ModelManifestStore",
+    "ManifestVerificationResult",
+    "ManifestVerificationStore",
+    "ManifestVerifier",
+    "UserManifestOverlayStore",
     "Resolution",
     "ResolutionRequest",
     "RouteCandidate",
     "StringEnum",
     "artifact_types_compatible",
     "default_capability_preferences_path",
+    "default_manifest_overlay_path",
+    "default_manifest_verification_path",
     "resolve_route",
     "validate_capability_id",
 ]

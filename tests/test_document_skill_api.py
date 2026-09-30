@@ -57,6 +57,8 @@ class DocumentSkillAPITests(unittest.TestCase):
     def test_voice_conversation_combines_fake_chat_route_with_audio_artifact(self):
         from aidream.voice import VoiceCapabilities, VoiceConfiguration
 
+        stages = []
+
         class Model:
             id = "b" * 32
             path = "/fixture/model.gguf"
@@ -68,7 +70,9 @@ class DocumentSkillAPITests(unittest.TestCase):
             def capabilities(self): return SimpleNamespace(available=True, chat_completions=True, details="fake runtime")
             def can_load(self, _model): return True
             def load(self, _model, _placement=None, _options=None): pass
-            def generate(self, _prompt, _options=None): return "I heard the archive location."
+            def generate(self, _prompt, _options=None):
+                stages.append("text.chat")
+                return "I heard the archive location."
             def unload(self): pass
 
         with tempfile.TemporaryDirectory() as temp:
@@ -78,7 +82,13 @@ class DocumentSkillAPITests(unittest.TestCase):
             class Voice:
                 capabilities = VoiceCapabilities("espeak-fixture", None, "whisper-fixture")
                 def configuration(self): return VoiceConfiguration(self.capabilities, (model_path,))
-                def transcribe(self, _audio, _model): return "Where is the archive stored?"
+                def transcribe(self, _audio, _model):
+                    stages.append("audio.transcribe")
+                    return "Where is the archive stored?"
+
+            def render_speech(_exe, _text):
+                stages.append("audio.synthesize")
+                return wav
 
             wav = b"RIFF\x00\x00\x00\x00WAVEfixture speech"
             service = ReadOnlyAPI(
@@ -86,7 +96,7 @@ class DocumentSkillAPITests(unittest.TestCase):
                     ram=SimpleNamespace(total_bytes=None, available_bytes=None), gpus=[])),
                 catalog=SimpleNamespace(list_models=lambda: [Model()]),
                 runtimes=SimpleNamespace(list_backends=lambda: [Backend()]),
-                local_voice=Voice(), voice_render_speech=lambda _exe, _text: wav)
+                local_voice=Voice(), voice_render_speech=render_speech)
             try:
                 audio = service.get_artifact_api().create(
                     b"RIFF\x00\x00\x00\x00WAVEfixture input", kind="audio", media_type="audio/wav",
@@ -99,6 +109,7 @@ class DocumentSkillAPITests(unittest.TestCase):
                         break
                     time.sleep(0.01)
                 self.assertEqual("succeeded", run["state"], run.get("error"))
+                self.assertEqual(["audio.transcribe", "text.chat", "audio.synthesize"], stages)
                 self.assertEqual("I heard the archive location.", run["outputs"][0]["text"])
                 spoken = run["outputs"][1]
                 self.assertEqual("audio", spoken["kind"])
@@ -106,6 +117,64 @@ class DocumentSkillAPITests(unittest.TestCase):
                 self.assertEqual({"type": "run", "id": run["id"]}, spoken["artifact"]["owner"])
             finally:
                 service.close()
+
+    def test_voice_respond_uses_only_explicit_reviewed_transcript_then_synthesizes(self):
+        from aidream.voice import VoiceCapabilities, VoiceConfiguration
+
+        stages = []
+        reviewed_transcript = "I checked the transcription and corrected the archive name."
+        wav = b"RIFF\x00\x00\x00\x00WAVEfixture reply"
+
+        class Model:
+            id = "c" * 32
+            path = "/fixture/model.gguf"
+            metadata = {"general.name": "Fixture chat model"}
+
+        class Backend:
+            name = "fixture-runtime"
+            runtime_id = "fixture-runtime"
+            def capabilities(self): return SimpleNamespace(available=True, chat_completions=True, details="fake runtime")
+            def can_load(self, _model): return True
+            def load(self, _model, _placement=None, _options=None): pass
+            def generate(self, prompt, _options=None):
+                stages.append("text.chat")
+                self.prompt = prompt
+                return "The archive is in the sealed vault."
+            def unload(self): pass
+
+        class Voice:
+            capabilities = VoiceCapabilities("espeak-fixture", None, None)
+            def configuration(self): return VoiceConfiguration(self.capabilities, ())
+
+        def render_speech(_exe, text):
+            stages.append("audio.synthesize")
+            self.assertEqual(text, "The archive is in the sealed vault.")
+            return wav
+
+        backend = Backend()
+        service = ReadOnlyAPI(
+            hardware=SimpleNamespace(detect=lambda: SimpleNamespace(
+                ram=SimpleNamespace(total_bytes=None, available_bytes=None), gpus=[])),
+            catalog=SimpleNamespace(list_models=lambda: [Model()]),
+            runtimes=SimpleNamespace(list_backends=lambda: [backend]),
+            local_voice=Voice(), voice_render_speech=render_speech)
+        try:
+            run = service.start_skill("voice.respond", {"inputs": {
+                "transcript": {"kind": "text", "text": reviewed_transcript},
+            }})["data"]["run"]
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline:
+                run = service.run_manager.get(run["id"])
+                if run["state"] in {"succeeded", "failed", "cancelled"}:
+                    break
+                time.sleep(0.01)
+            self.assertEqual("succeeded", run["state"], run.get("error"))
+            self.assertEqual(["text.chat", "audio.synthesize"], stages)
+            self.assertIn(reviewed_transcript, backend.prompt)
+            self.assertEqual("The archive is in the sealed vault.", run["outputs"][0]["text"])
+            self.assertEqual("audio", run["outputs"][1]["kind"])
+        finally:
+            service.close()
 
     def test_rag_skill_runs_with_fake_chat_route_and_returns_exact_citations(self):
         class Model:
@@ -171,6 +240,12 @@ class DocumentSkillAPITests(unittest.TestCase):
                     "title": "Quarterly report", "summary": "Stable.",
                     "sections": [{"heading": "Results", "body": "All good."}],
                 }}}, "text/html", b"Quarterly report"),
+                ("document.create-report-pdf", {"report": {"kind": "json", "value": {
+                    "title": "Quarterly report", "summary": "Stable.",
+                    "sections": [{"heading": "Results", "kind": "text", "body": "All good."},
+                                 {"heading": "Checks", "kind": "table", "columns": ["Name", "Status"],
+                                  "rows": [["Tests", "Passed"]]}],
+                }}}, "application/pdf", b"%PDF-1.4"),
             )
             for skill_id, inputs, media_type, expected in cases:
                 with self.subTest(skill=skill_id):
