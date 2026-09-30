@@ -18,7 +18,7 @@ The root `AI Dream.desktop` launcher opens a dedicated Chrome application window
 ./open-ai-dream-web
 ```
 
-The root `AI Dream Web.desktop` launcher starts the browser app. Each desktop launch first restarts a previously managed AI Dream server on the selected port, so a second click recovers the common occupied-port case. It will not signal an unrelated process. Stop the server with `python3 -m aidream web --stop`, restart it with `python3 -m aidream web --restart`, or choose another port with `./open-ai-dream-web --port 8780`. The Tk window remains responsive while it stops the runtime during close.
+The root `AI Dream Web.desktop` launcher opens AI Dream in a normal browser window with the browser toolbar and tabs. It uses `open-ai-dream-web`; the separate `AI Dream.desktop` launcher opens the dedicated Chrome application window. Each web launch first restarts a previously managed AI Dream server on the selected port, so a second click recovers the common occupied-port case. It will not signal an unrelated process. Stop the server with `python3 -m aidream web --stop`, restart it with `python3 -m aidream web --restart`, or choose another port with `./open-ai-dream-web --port 8780`. The Tk window remains responsive while it stops the runtime during close.
 
 Or use the CLI:
 

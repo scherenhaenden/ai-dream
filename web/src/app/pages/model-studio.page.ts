@@ -12,6 +12,7 @@ type NumberLoadKey = 'context_size' | 'threads' | 'batch_size' | 'physical_batch
 type BoolLoadKey = 'continuous_batching' | 'flash_attention' | 'unified_kv_cache' | 'offload_kv_cache' | 'mmap' | 'keep_model_in_memory' | 'fit';
 type StringLoadKey = 'numa' | 'kv_cache_type_k' | 'kv_cache_type_v';
 type ModelSortKey = 'name' | 'size' | 'architecture' | 'quantization' | 'context';
+type ModelCapabilitySummary = { role: string; inputs: string[]; outputs: string[]; source: string };
 
 @Component({
   standalone: true,
@@ -56,12 +57,16 @@ type ModelSortKey = 'name' | 'size' | 'architecture' | 'quantization' | 'context
               <span class="model-main">
                 <span class="model-title">{{ modelName(model) }}</span>
                 <span class="model-path" [title]="'Local model path: ' + model.path">{{ model.path }}</span>
+                @let capabilities = modelCapabilities(model);
                 <span class="tags">
                   <span [title]="'Format reported by the local catalog: ' + (model.format || 'GGUF')">{{ (model.format || 'GGUF').toUpperCase() }}</span>
                   <span [title]="'File size reported by the local catalog: ' + size(model.size)">{{ size(model.size) }}</span>
                   @if (model.metadata['general.architecture']; as architecture) { <span [title]="'Architecture read from GGUF metadata: ' + architecture">{{ architecture }}</span> }
                   @if (modelQuantization(model); as quantization) { <span [title]="'Quantization read from GGUF metadata or inferred from filename: ' + quantization">{{ quantization }}</span> }
                   @if (modelContextLength(model); as contextLength) { <span [title]="'Context length read from available GGUF metadata: ' + contextLength">{{ contextLength }} ctx</span> }
+                  <span class="capability-role" [title]="'Model role · ' + capabilities.source">ROLE {{ capabilities.role }}</span>
+                  @for (input of capabilities.inputs; track input) { <span class="capability-tag input" [title]="'Accepted input type · ' + capabilities.source">IN {{ input }}</span> }
+                  @for (output of capabilities.outputs; track output) { <span class="capability-tag output" [title]="'Produced output type · ' + capabilities.source">OUT {{ output }}</span> }
                   @if (isLoaded(model)) { <span class="loaded-tag" title="Loaded state inferred from the active runtime model path">● LOADED</span> }
                 </span>
               </span>
@@ -187,7 +192,7 @@ type ModelSortKey = 'name' | 'size' | 'architecture' | 'quantization' | 'context
   styles: [`
     :host{display:block}.page-head{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;margin-bottom:18px}.page-head h1{margin:4px 0;font-size:30px}.page-head p{margin:4px 0;color:var(--muted,#98a0ad);max-width:760px}.eyebrow{font-size:10px;letter-spacing:.14em;font-weight:800;color:var(--muted,#98a0ad)}
     .surface,.model-card{background:var(--surface,#171a20);border:1px solid var(--border,#2b3039);border-radius:12px}.source-bar{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 16px;margin-bottom:14px}.source-bar>div{display:grid;gap:3px}.source-bar small,.preset-heading small{color:var(--muted,#98a0ad)}.source-bar form{display:flex;gap:8px;min-width:min(560px,60%)}input,select{box-sizing:border-box;width:100%;background:var(--bg,#101216);border:1px solid var(--border,#363c47);border-radius:7px;padding:9px 10px;color:inherit;font:inherit}.primary,.secondary,.danger,.text-button{border:1px solid var(--border,#363c47);border-radius:7px;padding:9px 12px;color:inherit;background:var(--surface,#171a20);font:inherit;font-weight:650;cursor:pointer}.primary{background:var(--accent,#806cff);border-color:transparent;color:white}.danger{color:#ff9ca5}.text-button{border:0;background:transparent;color:var(--accent,#9b8cff);padding:4px 0}.primary:disabled,.secondary:disabled,.danger:disabled{opacity:.5;cursor:wait}.notice{padding:10px 13px;border-radius:8px;margin-bottom:12px}.notice.error,.inline-error{background:#3b2025;color:#ffb7bd}.notice.success{background:#1d382c;color:#9be0b5}
-    .model-library{display:grid;gap:8px}.model-toolbar{display:flex;align-items:center;justify-content:flex-end;gap:8px;color:var(--muted,#98a0ad);font-size:11px}.model-toolbar>span{margin-right:auto}.model-toolbar label{display:flex;align-items:center;gap:7px}.model-toolbar select{width:auto;min-width:145px}.model-grid{display:grid;gap:10px}.model-card{overflow:hidden}.model-card.loaded{border-color:color-mix(in srgb,#68d391 50%,var(--border,#2b3039))}.model-summary{display:flex;align-items:center;gap:12px;width:100%;padding:15px 16px;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer}.model-card.open .model-summary{background:color-mix(in srgb,var(--accent,#806cff) 7%,transparent)}.model-icon{font-size:22px;color:var(--accent,#9b8cff)}.model-main{display:grid;gap:4px;min-width:0;flex:1}.model-title{font-size:15px;font-weight:750}.model-path{font-size:11px;color:var(--muted,#98a0ad);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tags{display:flex;flex-wrap:wrap;gap:6px}.tags span{font-size:10px;padding:3px 7px;border-radius:999px;background:var(--bg,#101216);color:#bbc2ce}.tags .loaded-tag{color:#9be0b5}.chevron{font-size:18px;color:var(--muted,#98a0ad)}
+    .model-library{display:grid;gap:8px}.model-toolbar{display:flex;align-items:center;justify-content:flex-end;gap:8px;color:var(--muted,#98a0ad);font-size:11px}.model-toolbar>span{margin-right:auto}.model-toolbar label{display:flex;align-items:center;gap:7px}.model-toolbar select{width:auto;min-width:145px}.model-grid{display:grid;gap:10px}.model-card{overflow:hidden}.model-card.loaded{border-color:color-mix(in srgb,#68d391 50%,var(--border,#2b3039))}.model-summary{display:flex;align-items:center;gap:12px;width:100%;padding:15px 16px;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer}.model-card.open .model-summary{background:color-mix(in srgb,var(--accent,#806cff) 7%,transparent)}.model-icon{font-size:22px;color:var(--accent,#9b8cff)}.model-main{display:grid;gap:4px;min-width:0;flex:1}.model-title{font-size:15px;font-weight:750}.model-path{font-size:11px;color:var(--muted,#98a0ad);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tags{display:flex;flex-wrap:wrap;gap:6px}.tags span{font-size:10px;padding:3px 7px;border-radius:999px;background:var(--bg,#101216);color:#bbc2ce}.tags .loaded-tag{color:#9be0b5}.tags .capability-role{color:#d6c7ff;background:#211d31}.tags .capability-tag.input{color:#b9d5ff;background:#18283a}.tags .capability-tag.output{color:#99e5bd;background:#173126}.chevron{font-size:18px;color:var(--muted,#98a0ad)}
     .model-config{border-top:1px solid var(--border,#2b3039);padding:18px;display:grid;gap:16px}.config-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.config-head h2{margin:4px 0;font-size:19px}.runtime-state{font-size:11px;padding:6px 9px;border-radius:999px;background:var(--bg,#101216);color:var(--muted,#98a0ad)}.runtime-state.active{color:#9be0b5;background:#173126}.quick-actions,.preset-actions{display:flex;flex-wrap:wrap;gap:8px}.preset-box{padding:13px;border-radius:9px;border:1px solid var(--border,#303744);background:color-mix(in srgb,var(--bg,#101216) 65%,transparent)}.preset-heading{display:flex;justify-content:space-between;align-items:start;gap:10px;margin-bottom:12px}.preset-heading>div{display:grid;gap:3px}.form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}.form-grid.compact{align-items:end}.form-grid label{display:grid;gap:6px;font-size:11px;color:#c2c8d2}.settings-grid{min-height:72px}.check{display:flex!important;align-items:center;gap:8px;min-height:38px}.check input{width:auto}.capability-note{margin:0;color:var(--muted,#98a0ad);font-size:11px}.tabs{display:flex;gap:4px;border-bottom:1px solid var(--border,#303744)}.tabs button{border:0;border-bottom:2px solid transparent;background:transparent;color:var(--muted,#98a0ad);padding:9px 11px;font:inherit;cursor:pointer}.tabs button.active{color:inherit;border-color:var(--accent,#806cff)}.status,.metadata{font-size:11px}.status pre{white-space:pre-wrap;overflow-wrap:anywhere;padding:10px;background:var(--bg,#101216);border-radius:7px}.metadata dl{display:grid;grid-template-columns:minmax(150px,.6fr) minmax(0,1fr);gap:5px 12px}.metadata dt{color:var(--muted,#98a0ad);overflow-wrap:anywhere}.metadata dd{margin:0;overflow-wrap:anywhere}.empty{padding:36px;text-align:center;display:grid;gap:7px;color:var(--muted,#98a0ad)}.empty.inline{grid-column:1/-1;padding:18px}.inline-error{padding:9px 11px;border-radius:7px;font-size:12px}
     @media(max-width:760px){.page-head,.source-bar,.preset-heading,.config-head{flex-direction:column}.source-bar form{min-width:0;width:100%}.quick-actions>*{flex:1}.form-grid{grid-template-columns:1fr}.model-toolbar{flex-wrap:wrap}.model-toolbar>span{width:100%}.model-toolbar label{flex:1}.model-toolbar select{min-width:0;width:100%}}
   `],
@@ -465,6 +470,7 @@ export class ModelStudioPage implements OnInit {
   }
 
   modelName(model: ModelRecord): string { return String(model.metadata?.['general.name'] || model.path.split(/[\\/]/).pop() || model.id); }
+  modelCapabilities(model: ModelRecord): ModelCapabilitySummary { return describeModelCapabilities(model); }
   modelContextLength(model: ModelRecord): number | null {
     const architecture = model.metadata?.['general.architecture'];
     const value = (typeof architecture === 'string' ? model.metadata?.[`${architecture}.context_length`] : null) ?? model.metadata?.['llama.context_length'];
@@ -495,6 +501,56 @@ export class ModelStudioPage implements OnInit {
     return `${(bytes / 1_000_000_000).toFixed(2)} GB`;
   }
 }
+
+function describeModelCapabilities(model: ModelRecord): ModelCapabilitySummary {
+  const metadata = model.metadata || {};
+  const explicitInputs = modalityList(metadata['ai_dream.input_modalities'] ?? metadata['input_modalities'] ?? metadata['general.input_modalities']);
+  const explicitOutputs = modalityList(metadata['ai_dream.output_modalities'] ?? metadata['output_modalities'] ?? metadata['general.output_modalities']);
+  const explicitRole = textValue(metadata['ai_dream.model_type'] ?? metadata['model_type']);
+  if (explicitInputs.length || explicitOutputs.length || explicitRole) {
+    return { role: explicitRole || 'Model', inputs: explicitInputs.length ? explicitInputs : ['Text'], outputs: explicitOutputs.length ? explicitOutputs : ['Text'], source: 'declared model metadata' };
+  }
+
+  const architecture = textValue(metadata['general.architecture']).toLowerCase();
+  const tags = Array.isArray(metadata['general.tags']) ? metadata['general.tags'].filter(value => typeof value === 'string').join(' ') : '';
+  const evidence = [metadata['general.name'], metadata['general.basename'], metadata['general.description'], tags, model.path.split(/[\\/]/).pop()]
+    .filter(value => typeof value === 'string').join(' ').toLowerCase();
+
+  if (typeof metadata['mmproj_path'] === 'string' && metadata['mmproj_path']) {
+    return { role: 'Vision-language', inputs: ['Text', 'Image'], outputs: ['Text'], source: 'GGUF model with paired vision projector' };
+  }
+  if (/(?:rerank|reranker|cross[-_ ]?encoder)/.test(evidence)) {
+    return { role: 'Reranker', inputs: ['Text pair'], outputs: ['Score'], source: 'inferred from local model name/path' };
+  }
+  if (/(?:diariz|speaker[-_ ]?diar)/.test(evidence)) {
+    return { role: 'Diarization', inputs: ['Audio'], outputs: ['Segments'], source: 'inferred from local model name/path' };
+  }
+  if (/(?:whisper|\basr\b|speech[-_ ]?to[-_ ]?text|transcrib)/.test(evidence)) {
+    return { role: 'Speech recognition', inputs: ['Audio'], outputs: ['Text'], source: 'inferred from local model name/path' };
+  }
+  if (/(?:\btts\b|text[-_ ]?to[-_ ]?speech|speech[-_ ]?synth)/.test(evidence)) {
+    return { role: 'Text-to-speech', inputs: ['Text'], outputs: ['Audio'], source: 'inferred from local model name/path' };
+  }
+  if (/(?:embedding|embed(?:der|ding)?|nomic[-_ ]?embed|\be5(?:[-_. ]|$)|gte[-_. ]|bge[-_ ]?m3)/.test(evidence) || (architecture.includes('bert') && /embed/.test(evidence))) {
+    return { role: 'Embedding', inputs: ['Text'], outputs: ['Embedding'], source: 'inferred from local model name/path and GGUF architecture' };
+  }
+  if (/(?:image[-_ ]?generation|text[-_ ]?to[-_ ]?image|stable[-_ ]?diffusion|\bsdxl\b|\bflux(?:[-_. ]|$)|qwen[-_ ]?image)/.test(evidence)) {
+    return { role: 'Image generation', inputs: ['Text'], outputs: ['Image'], source: 'inferred from local model name/path' };
+  }
+  if (/(?:coder|coding|code[-_ ]?model)/.test(evidence)) {
+    return { role: 'Code', inputs: ['Text'], outputs: ['Text'], source: 'inferred from local model name/path' };
+  }
+  if (/(?:reasoning|thinking|\br1(?:[-_. ]|$))/i.test(evidence)) {
+    return { role: 'Reasoning', inputs: ['Text'], outputs: ['Text'], source: 'inferred from local model name/path' };
+  }
+  return { role: 'Chat / text', inputs: ['Text'], outputs: ['Text'], source: architecture ? `GGUF ${architecture} architecture; task not explicitly declared` : 'task not explicitly declared in local GGUF metadata' };
+}
+
+function modalityList(value: unknown): string[] {
+  const values = Array.isArray(value) ? value : typeof value === 'string' ? value.split(/[,;+]/) : [];
+  return [...new Set(values.filter(item => typeof item === 'string').map(item => item.trim()).filter(Boolean).map(item => item[0].toUpperCase() + item.slice(1).toLowerCase()))];
+}
+function textValue(value: unknown): string { return typeof value === 'string' ? value.trim() : ''; }
 
 function normalize(path: string): string { return path.replace(/\\/g, '/').replace(/\/$/, ''); }
 function message(error: unknown): string { return error instanceof Error ? error.message : 'The local model request failed.'; }
