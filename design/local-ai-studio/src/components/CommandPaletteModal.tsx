@@ -92,8 +92,6 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
     };
   }, [isOpen]);
 
-  if (!isOpen) return null;
-
   const commands: CommandItem[] = [
     {
       id: 'cmd-chat',
@@ -243,6 +241,19 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
     );
   });
   filteredRef.current = filtered;
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const onPaletteKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'ArrowDown' && filtered.length) { event.preventDefault(); setSelectedIndex((i) => (i + 1) % filtered.length); }
+      if (event.key === 'ArrowUp' && filtered.length) { event.preventDefault(); setSelectedIndex((i) => (i - 1 + filtered.length) % filtered.length); }
+      if (event.key === 'Enter' && filtered.length) { event.preventDefault(); filtered[Math.min(selectedIndex, filtered.length - 1)]?.action(); }
+    };
+    window.addEventListener('keydown', onPaletteKeyDown);
+    return () => window.removeEventListener('keydown', onPaletteKeyDown);
+  }, [isOpen, filtered, selectedIndex]);
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-[60] flex items-start justify-center pt-[10vh] px-3 sm:px-4 bg-scrim/75 backdrop-blur-sm animate-in fade-in duration-150" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>

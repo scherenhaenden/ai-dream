@@ -27,6 +27,7 @@ colors:
   secondary-container: '#3131c0'
   on-secondary-container: '#b0b2ff'
   tertiary: '#4edea3'
+  warning: '#f59e0b'
   on-tertiary: '#003824'
   tertiary-container: '#00a572'
   on-tertiary-container: '#00311f'
@@ -51,6 +52,7 @@ colors:
   background: '#0e131d'
   on-background: '#dee2f1'
   surface-variant: '#303540'
+  scrim: '#000000'
 typography:
   headline-lg:
     fontFamily: Inter
@@ -205,8 +207,8 @@ The React stylesheet contains one alpha-colored text utility, for the disabled T
 The typographic hierarchy distinguishes operational interface controls from telemetry and code artifacts.
 
 - **Interface Shell (`Inter`):** Delivers clean geometry and high readability in tight, dense arrangements such as property grids, tree views, context menus, and global app bars.
-- **Data & Telemetry Engine (`JetBrains Mono`):** Applied to prompt inputs, token matrices, memory addresses, latency figures (tokens/sec, TTFT), and keybinding annotations. Tabular figures (`tnum`) must remain permanently active across all monospaced outputs to prevent layout shift during high-frequency gauge updating.
-- **Scale Compactness:** Unlike consumer interfaces, line heights are bound between `1.15` and `1.4` to preserve terminal and buffer viewport capacity without sacrificing vertical scanning accuracy.
+- **Data & Telemetry Engine (`JetBrains Mono`):** Applied to prompt inputs, token matrices, memory addresses, latency figures (tokens/sec, TTFT), and keybinding annotations. Tabular figures (`tnum`) should be enabled for changing numeric readouts to prevent layout shift.
+- **Scale Compactness:** Use the YAML `typography` scale as the source of truth. Avoid local font-size or line-height values that conflict with those roles.
 
 ## Layout & Spacing
 
@@ -234,12 +236,12 @@ This design system avoids heavy drop shadows and faux real-world lighting in fav
 
 ## Shapes
 
-The shape system employs an industrial, sharp-to-soft profile (`roundedness: 1`) to preserve structure and fit high-density desktop layouts.
+The shape system uses the YAML `rounded` scale as its only radius contract, preserving structure for high-density desktop layouts.
 
-- **Dock Panels & Viewport Splitters:** Strictly `0px` radius. Panel edges fuse seamlessly with adjacent docking panes and window borders.
-- **Interactive Controls (Buttons, Inputs, Selectors):** `0.25rem` (4px). Offers gentle tactile separation while keeping the perimeter tight.
-- **Status Pills & Telemetry Chips:** `0.25rem` (4px) with subtle 1px border. Curved pill forms (`9999px`) are prohibited to avoid wasting horizontal space.
-- **Floating Overlays & Modals:** `0.375rem` (6px) maximum. Retains an engineered, machine-tooled finish.
+- **Dock panels & splitters:** `rounded.sm`.
+- **Interactive controls:** `rounded.DEFAULT` or `rounded.md`.
+- **Status chips:** `rounded.DEFAULT`; use `rounded.full` only where a pill shape is intentional.
+- **Floating overlays & modals:** `rounded.lg` maximum.
 
 ## Components
 
