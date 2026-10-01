@@ -28,6 +28,8 @@ from typing import Any, Mapping
 from urllib.parse import parse_qs, quote, unquote_to_bytes, urlsplit
 import uuid
 
+from aidream.run_manager import RunCancelled
+
 LOOPBACK_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 MAX_RESPONSE_BYTES = 4 * 1024 * 1024
@@ -998,9 +1000,14 @@ class ReadOnlyAPI:
             verification_store = getattr(self, "manifest_verification_store", None)
             record = verification_store.get(manifest_match.group(1)) if verification_store is not None else None
             verifier = getattr(self, "manifest_verifier", None)
+            verifier_runtime_id = getattr(verifier, "runtime_id", None)
             return 200, {"data": {
                 "manifest": manifest.to_dict(), "field_provenance": provenance,
-                "verification_available": callable(getattr(verifier, "verify", None)),
+                "verification_available": (
+                    callable(getattr(verifier, "verify", None))
+                    and isinstance(verifier_runtime_id, str)
+                    and self._is_registered_local_runtime(verifier_runtime_id)
+                ),
                 "verification": ({"success": record["success"], "completed_at": record["completed_at"]}
                                  if record is not None else None),
             }}
@@ -1511,6 +1518,7 @@ class ReadOnlyAPI:
             self._local_voice_instance(), read_artifact=self._read_voice_artifact,
             render_speech=getattr(self, "voice_render_speech", None))
         executor = SkillExecutor(tools={
+            "knowledge.search-local-index": self._search_local_knowledge_skill,
             "document.extract-text": self._extract_document_text,
             "document.summarize-prompt": self._prepare_document_summary_prompt,
             "document.render-html": self._render_html_document,
@@ -1592,6 +1600,21 @@ class ReadOnlyAPI:
                 raise APIError(exc.message) from exc
             raise APIUnavailable("Document artifact is temporarily unavailable") from exc
         return artifact.get("name", "document"), content
+
+    def _search_local_knowledge_skill(self, _node, node_inputs):
+        """Search only the configured app-managed knowledge index for a skill run."""
+        from aidream.knowledge import MAX_KNOWLEDGE_RESULTS, KnowledgeError
+        artifact = node_inputs.get("query")
+        query = artifact.get("text", artifact.get("value")) if isinstance(artifact, Mapping) else None
+        if not isinstance(query, str) or not query.strip():
+            raise APIError("Knowledge search requires a non-empty text query")
+        try:
+            results = self.knowledge_index.search(query, min(10, MAX_KNOWLEDGE_RESULTS))
+        except KnowledgeError as exc:
+            raise APIError(str(exc)) from exc
+        return {"results": {"kind": "json", "value": {
+            "query": query, "mode": "full_text", "results": results,
+        }}}
 
     def _read_voice_artifact(self, artifact):
         from aidream.artifacts.contracts import validate_artifact_envelope
@@ -1761,6 +1784,8 @@ class ReadOnlyAPI:
         # The legacy chat API and the scheduler wrap the same backend objects.
         # Serialize access and clear stale direct-chat residency around a run.
         with self._chat_lock:
+            if cancel_event.is_set():
+                raise RunCancelled("run cancelled while waiting for the shared chat runtime")
             self._unload_active()
             try:
                 outputs = service.execute(
@@ -2057,7 +2082,8 @@ class ReadOnlyAPI:
                 connection.close()
         except (OSError, RuntimeError, sqlite3.Error):
             fts5_available = False
-        if fts5_available:
+        knowledge_search = getattr(getattr(self, "knowledge_index", None), "search", None)
+        if fts5_available and callable(knowledge_search):
             routes["retrieval.search"].append({
                 "id": "route_local_retrieval_search", "model_id": None,
                 "runtime_id": "local-knowledge-fts5", "preferred": True,
@@ -2113,7 +2139,11 @@ class ReadOnlyAPI:
                             "audio.prosody": "No local prosody-analysis runtime or model is configured.",
                             "music.understand": "No local music-analysis runtime or model is configured.",
                             "music.generate": "No local music-generation runtime or model is configured.",
-                            "retrieval.search": "SQLite FTS5 is not available; the local persistent knowledge search route cannot run.",
+                            "retrieval.search": (
+                                "SQLite FTS5 is not available; the local persistent knowledge search route cannot run."
+                                if not fts5_available else
+                                "No executable local knowledge-index search handler is configured; the persistent search route cannot run."
+                            ),
                             "embedding.create": "No local embedding model or embedding runtime is configured; current document RAG uses lexical retrieval.",
                             "rerank.score": "No local reranker model or runtime is configured; results use deterministic lexical ranking.",
                         }.get(capability_id, "No local voice route is currently available."))
@@ -2246,6 +2276,12 @@ class ReadOnlyAPI:
         verifier = getattr(self, "manifest_verifier", None)
         if verifier is None or not callable(getattr(verifier, "verify", None)):
             raise APIUnavailable("No local runtime manifest verifier is configured")
+        target_runtime_id = getattr(verifier, "runtime_id", None)
+        if (not isinstance(target_runtime_id, str) or not target_runtime_id.strip()
+                or not self._is_registered_local_runtime(target_runtime_id)):
+            raise APIUnavailable(
+                "Manifest verification requires a verifier bound to an enabled, available local runtime"
+            )
         lock = getattr(self, "_manifest_verification_lock", None)
         if lock is None:
             lock = self._manifest_verification_lock = threading.Lock()
@@ -2262,6 +2298,8 @@ class ReadOnlyAPI:
                 raise APIError("Runtime verifier returned an invalid result")
             if raw_result.manifest_id != manifest_id:
                 raise APIError("Runtime verifier returned a result for a different manifest")
+            if raw_result.runtime_id != target_runtime_id:
+                raise APIError("Runtime verifier returned a result for a different runtime")
 
             profile_store = getattr(self, "profile_store", None)
             verification_store = getattr(self, "manifest_verification_store", None)
@@ -2322,6 +2360,40 @@ class ReadOnlyAPI:
             raise APIError(f"Could not verify model manifest: {str(exc)[:240]}") from exc
         finally:
             lock.release()
+
+    def _is_registered_local_runtime(self, runtime_id: str) -> bool:
+        """Require typed verification results to name a currently usable local runtime.
+
+        Installation records are populated by the explicit executable probe;
+        already registered inference backends cover other local engines such
+        as vLLM. This check only reads cached registry state and never starts a
+        runtime or loads a model.
+        """
+        installations = getattr(self, "runtime_installations", None)
+        list_installations = getattr(installations, "list_installations", None)
+        if callable(list_installations):
+            try:
+                if any(item.get("id") == runtime_id and item.get("enabled") is True
+                       and item.get("available") is True
+                       for item in list_installations() if isinstance(item, Mapping)):
+                    return True
+            except (OSError, RuntimeError, ValueError, TypeError):
+                pass
+
+        runtimes = getattr(self, "runtimes", None)
+        list_backends = getattr(runtimes, "list_backends", None)
+        if callable(list_backends):
+            try:
+                for backend in list_backends():
+                    identity = getattr(backend, "runtime_id", None) or getattr(backend, "name", None)
+                    if identity != runtime_id:
+                        continue
+                    capabilities = backend.capabilities()
+                    if getattr(capabilities, "available", False) is True:
+                        return True
+            except (OSError, RuntimeError, ValueError, TypeError, AttributeError):
+                pass
+        return False
 
     def update_model_manifest_preferences(self, manifest_id: str, changes: Mapping[str, Any]):
         """Persist descriptive user metadata without changing model evidence."""

@@ -45,7 +45,9 @@ class RAGCapabilityAPITests(unittest.TestCase):
         self.assertNotIn("verified_at", evidence)
 
     def test_retrieval_search_reports_fts5_tool_evidence_and_route_if_available(self):
-        capabilities = {item["id"]: item for item in _api().get("/api/capabilities")[1]["data"]["capabilities"]}
+        api = _api()
+        api.knowledge_index = SimpleNamespace(search=lambda _query, _limit: [])
+        capabilities = {item["id"]: item for item in api.get("/api/capabilities")[1]["data"]["capabilities"]}
         item = capabilities["retrieval.search"]
         self.assertEqual(item["inputs"], [{"kind": "text"}])
         self.assertEqual(item["outputs"], [{"kind": "json"}])
@@ -59,6 +61,14 @@ class RAGCapabilityAPITests(unittest.TestCase):
             self.assertEqual(item["status"], "unavailable")
             self.assertEqual(item["routes"], [])
             self.assertIn("FTS5", item["evidence"][0]["details"])
+
+    def test_retrieval_search_is_not_advertised_without_an_executable_index_handler(self):
+        capabilities = {item["id"]: item for item in _api().get("/api/capabilities")[1]["data"]["capabilities"]}
+        item = capabilities["retrieval.search"]
+        self.assertEqual("unavailable", item["status"])
+        self.assertEqual([], item["routes"])
+        if _fts5_available():
+            self.assertIn("search handler is configured", item["evidence"][0]["details"])
 
     def test_embedding_and_reranking_remain_typed_unavailable_and_explain_why(self):
         capabilities = {item["id"]: item for item in _api().get("/api/capabilities")[1]["data"]["capabilities"]}

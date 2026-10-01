@@ -47,6 +47,7 @@ def _claim():
 class _Verifier:
     def __init__(self, result):
         self.result = result
+        self.runtime_id = "runtime.fake"
         self.seen = []
 
     def verify(self, manifest):
@@ -81,6 +82,9 @@ def _api(root, result=None):
     api.manifest_overlay_store = UserManifestOverlayStore(Path(root) / "user-overrides.json")
     api.manifest_verification_store = ManifestVerificationStore(Path(root) / "verifications.json")
     api.manifest_verifier = _Verifier(result) if result is not None else None
+    api.runtime_installations = type("Installations", (), {
+        "list_installations": lambda self: [{"id": "runtime.fake", "enabled": True, "available": True}]
+    })()
     api.profile_store = ModelProfileStore(Path(root) / "profiles.json")
     api._manifest_verification_lock = threading.Lock()
     return api
@@ -109,10 +113,42 @@ class ManifestVerificationAPITests(unittest.TestCase):
     def test_absent_verifier_fails_closed_without_persisting_claims(self):
         with tempfile.TemporaryDirectory() as root:
             api = _api(root)
+            self.assertFalse(api.get(f"/api/model-manifests/{MANIFEST_ID}")[1]["data"]["verification_available"])
             with self.assertRaises(APIUnavailable):
                 api.verify_model_manifest(MANIFEST_ID)
             self.assertEqual(api.manifest_verification_store.list_records(), ())
             self.assertEqual(api.profile_store.list_profiles(), [])
+
+    def test_ui_read_model_reports_only_a_bound_available_local_verifier(self):
+        with tempfile.TemporaryDirectory() as root:
+            api = _api(root, _result())
+            self.assertTrue(api.get(f"/api/model-manifests/{MANIFEST_ID}")[1]["data"]["verification_available"])
+            api.runtime_installations.list_installations = lambda: []
+            self.assertFalse(api.get(f"/api/model-manifests/{MANIFEST_ID}")[1]["data"]["verification_available"])
+
+    def test_unregistered_or_unavailable_runtime_is_rejected_before_probe(self):
+        with tempfile.TemporaryDirectory() as root:
+            api = _api(root, _result())
+            api.runtime_installations.list_installations = lambda: [
+                {"id": "runtime.fake", "enabled": False, "available": True}
+            ]
+            with self.assertRaisesRegex(APIUnavailable, "enabled, available local runtime"):
+                api.verify_model_manifest(MANIFEST_ID)
+            self.assertEqual(api.manifest_verifier.seen, [])
+            self.assertEqual(api.manifest_verification_store.list_records(), ())
+            self.assertEqual(api.profile_store.list_profiles(), [])
+
+    def test_verifier_cannot_report_a_different_runtime_than_its_bound_installation(self):
+        with tempfile.TemporaryDirectory() as root:
+            api = _api(root, _result())
+            api.manifest_verifier.result = _result()
+            api.manifest_verifier.result = ManifestVerificationResult(
+                manifest_id=MANIFEST_ID, runtime_id="runtime.other", success=False,
+                completed_at=VERIFIED_AT, details="probe failed",
+            )
+            with self.assertRaisesRegex(APIError, "different runtime"):
+                api.verify_model_manifest(MANIFEST_ID)
+            self.assertEqual(api.manifest_verification_store.list_records(), ())
 
     def test_verifier_cannot_promote_another_manifest_or_unverified_claims(self):
         with tempfile.TemporaryDirectory() as root:

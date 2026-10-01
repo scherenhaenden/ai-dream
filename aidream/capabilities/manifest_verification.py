@@ -253,8 +253,13 @@ def _reject_constant(value: str) -> None:
 
 
 class ManifestVerifier(Protocol):
-    """Injected component that performs the bounded runtime startup and probe."""
+    """Bounded local probe for one runtime selected in AI Dream.
 
+    ``runtime_id`` must match an enabled, available local installation or a
+    registered local inference backend before ``verify`` is called.
+    """
+
+    runtime_id: str
     def verify(self, manifest: ModelManifest) -> ManifestVerificationResult: ...
 
 

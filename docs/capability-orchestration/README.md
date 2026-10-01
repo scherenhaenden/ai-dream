@@ -94,6 +94,7 @@ Examples:
 - `chat.general`
 - `document.summarize`
 - `document.answer-with-rag`
+- `knowledge.search`
 - `image.describe`
 - `image.edit-from-instruction`
 - `voice.conversation`

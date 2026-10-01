@@ -368,3 +368,14 @@ A good UX for new models:
 ```
 
 This is the foundation for a system that becomes more accurate about its own local stack over time without uncontrolled self-modification.
+
+The manifest verifier is bound to one `runtime_id`. Before the probe callback is
+invoked, that ID must match an enabled and available local runtime installation
+or an available backend already registered with AI Dream; the typed result
+must report the same ID. This lookup uses cached local registry state and does
+not start a runtime. An installation's executable/help probe establishes that
+the runtime interface is available, but it does not verify a model capability.
+The verifier callback must still perform its bounded model startup and
+capability probe before returning successful claims. No default model verifier
+is configured on hosts without that implementation, so the UI disables the
+verification action there.

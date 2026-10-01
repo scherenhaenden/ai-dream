@@ -439,6 +439,14 @@ Build temporary document Q&A before persistent knowledge-base management.
 
 Reason: temporary RAG exercises the orchestration path with fewer lifecycle/migration concerns.
 
+The current implementation keeps that temporary path in
+`document.answer-with-rag` and also exposes the existing app-managed SQLite
+FTS5 index through the model-free `knowledge.search` workflow. The persistent
+index is installation-scoped; it is not a per-chat or multi-user store. The
+`retrieval.search` capability contract should describe an executable local
+search route only when the same bounded index handler is available. Neither
+path implies embeddings or reranking.
+
 ## Phase 14 — document generation
 
 Add deterministic document renderers as tools.

@@ -234,6 +234,49 @@ class SkillAPITests(unittest.TestCase):
         ])
         self.assertNotIn("private prompt", repr(emitted).casefold())
 
+    def test_cancelled_run_waiting_for_chat_lock_does_not_unload_active_backend(self):
+        from aidream.run_manager import RunCancelled
+
+        lock = threading.Lock()
+        lock.acquire()
+        unloaded = []
+        executed = []
+        api_service = ReadOnlyAPI.__new__(ReadOnlyAPI)
+        api_service._chat_lock = lock
+        api_service._unload_active = lambda: unloaded.append(True)
+        api_service._active_backend = object()
+        api_service._active_binding = ("active-chat",)
+        cancellation = threading.Event()
+        started = threading.Event()
+        errors = []
+
+        class Service:
+            def execute(self, *args, **kwargs):
+                executed.append(True)
+                return {}
+
+        def run():
+            started.set()
+            try:
+                api_service._execute_orchestration_run(
+                    plan={}, cancel_event=cancellation, emit=lambda *args: None,
+                    context=(Service(), SimpleNamespace(plan_id="plan"), {}), run_id="run",
+                )
+            except Exception as exc:
+                errors.append(exc)
+
+        worker = threading.Thread(target=run)
+        worker.start()
+        self.assertTrue(started.wait(1))
+        cancellation.set()
+        lock.release()
+        worker.join(1)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], RunCancelled)
+        self.assertEqual(unloaded, [])
+        self.assertEqual(executed, [])
+
     def test_default_planner_builds_supported_route_without_loading_runtime(self):
         calls = []
 

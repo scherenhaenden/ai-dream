@@ -460,3 +460,16 @@ the paginated text flow. Limits are 32 sections, 100 list items or rows per
 section, 12 table columns, 8,000 characters per table cell and 256,000 total
 report characters. HTML layout and PDF pagination remain deterministic and
 model-independent.
+
+## 20. Search the app-managed knowledge index
+
+`knowledge.search` is a model-free built-in workflow backed by the same local
+SQLite FTS5 index as `/api/knowledge/search`. It accepts one text query and
+returns JSON containing at most ten bounded snippets and document metadata.
+The handler reads only the configured app-managed index; the query cannot name
+paths, retrieve source files, or select another owner. This index is local to
+the AI Dream installation and is not a per-chat or multi-user collection.
+The skill declares scoped filesystem read, no filesystem write and no network
+access. It is a tool-backed workflow; the regular capability planner does not
+load a model for it. Temporary single-document Q&A remains `document.answer-with-rag`
+and keeps its separate source-offset citation contract.

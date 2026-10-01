@@ -309,6 +309,9 @@ code patch -> diff view
 
 A run can produce several artifacts. Chat text can summarize them while artifact cards remain first-class.
 
+The retained Runs list can be searched by skill or run ID and filtered by state;
+when a filter has no matches, offer a one-action reset.
+
 ## 13. Canvas integration
 
 The existing canvas concept should become an artifact/view surface rather than "the last code block".

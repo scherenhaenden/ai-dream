@@ -31,7 +31,8 @@
     "test:hardware-settings-ui": "node scripts/smoke-hardware-settings-ui.mjs",
     "test:models-config": "node scripts/check-models-config.mjs",
     "test:artifact-run-ux": "node scripts/check-artifact-session-ux.mjs && node scripts/check-run-citation-document-ui.mjs",
-    "test:resource-dashboard": "node scripts/check-resource-dashboard.mjs"
+    "test:resource-dashboard": "node scripts/check-resource-dashboard.mjs",
+    "test:runs-ui": "node scripts/smoke-runs-ui.mjs"
   },
   "dependencies": {
     "@angular/common": "^20.3.0",

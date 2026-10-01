@@ -7,11 +7,11 @@ class BuiltinSkillTests(unittest.TestCase):
     def test_all_builtins_validate_and_are_discoverable(self):
         manifests = builtin_skill_manifests()
         self.assertEqual(
-            {"chat.general", "image.describe", "image.generate", "image.edit-from-instruction", "document.summarize", "document.answer-with-rag", "document.extract-text", "voice.transcribe", "voice.conversation", "voice.respond", "document.create-html", "document.create-pdf", "document.create-report", "document.create-report-pdf"},
+            {"chat.general", "image.describe", "image.generate", "image.edit-from-instruction", "knowledge.search", "document.summarize", "document.answer-with-rag", "document.extract-text", "voice.transcribe", "voice.conversation", "voice.respond", "document.create-html", "document.create-pdf", "document.create-report", "document.create-report-pdf"},
             {manifest["id"] for manifest in manifests},
         )
         registry = SkillRegistry(manifests)
-        self.assertEqual(14, len(registry.snapshot()))
+        self.assertEqual(15, len(registry.snapshot()))
         self.assertEqual((), registry.invalid_skills())
         self.assertEqual("Audio", registry.get("voice.conversation")["ui"]["category"])
         self.assertEqual(["text.chat", "audio.synthesize"],
@@ -23,6 +23,8 @@ class BuiltinSkillTests(unittest.TestCase):
         self.assertEqual(["image.edit"], by_id["image.edit-from-instruction"]["requirements"]["capabilities"])
         self.assertEqual(["text.chat"],
                          by_id["document.summarize"]["requirements"]["capabilities"])
+        self.assertEqual([], by_id["knowledge.search"]["requirements"]["capabilities"])
+        self.assertEqual("scoped-paths", by_id["knowledge.search"]["permissions"]["filesystem_read"])
 
     def test_builtins_are_detached_and_do_not_claim_live_route_support(self):
         manifests = builtin_skill_manifests()
@@ -56,6 +58,7 @@ class BuiltinSkillTests(unittest.TestCase):
             for capability in manifest["requirements"]["capabilities"]
         }
         tools = {
+            "knowledge.search-local-index": fake_for("knowledge.search-local-index"),
             "document.summarize-prompt": fake_for("document.summarize-prompt"),
             "document.extract-text": fake_for("document.extract-text"),
             "document.render-html": fake_for("document.render-html"),
@@ -68,6 +71,7 @@ class BuiltinSkillTests(unittest.TestCase):
         }
         executor = SkillExecutor(capabilities=capabilities, tools=tools)
         cases = {
+            "knowledge.search": {"query": {"kind": "text", "value": "local archive"}},
             "chat.general": {"prompt": {"kind": "text", "value": "hello"}},
             "image.describe": {"image": {"kind": "image", "value": "opaque-image-ref"}},
             "image.generate": {"prompt": {"kind": "text", "value": "a small landscape"}},
@@ -94,7 +98,7 @@ class BuiltinSkillTests(unittest.TestCase):
                 output = executor.execute(registry.get(skill_id), inputs)
                 self.assertTrue(output)
                 self.assertTrue(all(value["kind"] in {"text", "image", "audio", "document", "json"} for value in output.values()))
-        self.assertEqual(19, len(called))
+        self.assertEqual(20, len(called))
 
 
 if __name__ == "__main__":
