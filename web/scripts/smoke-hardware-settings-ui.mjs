@@ -43,6 +43,20 @@ const runtimeResponse = { data: {
 const installationsResponse = { data: { installations: [
   { id: 'llama-cpp-1', name: 'llama.cpp v1.0', kind: 'executable', backend: 'vulkan', enabled: true, available: true }
 ] } };
+let residentItems = [{ model_id: 'fixture/model.gguf', runtime_id: 'llama-cpp-1', profile_id: 'default',
+  state: 'idle', lease_count: 0, pinned: false, estimated_vram_bytes: 2147483648,
+  estimated_vram_status: 'observed', loaded_for_seconds: 120, idle_for_seconds: 30,
+  route_ids: ['route_fixture_model'] }];
+let evictionPolicy = 'lru';
+const residencyPayload = () => ({ data: { residency: {
+  items: residentItems, count: residentItems.length, active_lease_count: 0, status: 'observed', source: 'fixture'
+} } });
+const resourceResponse = { data: { resources: {
+  ram: { total_bytes: 67364000000, available_bytes: 42000000000 },
+  gpus: [{ id: 'gpu-0', index: 0, name: 'Radeon RX 7900 XTX', vendor: 'AMD', total_vram_bytes: 25752000000, free_vram_bytes: 23000000000 }],
+  loaded_models: [], pending_reservations: [],
+}, status: 'observed' } };
+let selectionMode = 'auto';
 
 async function reservePort() {
   const server = createServer();
@@ -120,15 +134,48 @@ async function runSmokeTests() {
     // RuntimeService.snapshot() calls /api/runtime (not /api/runtime/snapshot).
     await page.route('**/api/runtime', route => route.fulfill({ json: runtimeResponse }));
     await page.route('**/api/runtime/installations', route => route.fulfill({ json: installationsResponse }));
+    await page.route('**/api/models/residency', route => route.fulfill({ json: residencyPayload() }));
+    await page.route('**/api/resources', route => route.fulfill({ json: resourceResponse }));
+    await page.route('**/api/models/residency/actions', async route => {
+      const action = route.request().postDataJSON()?.action;
+      if (action === 'pin' || action === 'unpin') {
+        residentItems = residentItems.map(model => ({ ...model, pinned: action === 'pin' }));
+      } else if (action === 'unload') {
+        residentItems = [];
+      }
+      await route.fulfill({ json: residencyPayload() });
+    });
+    await page.route('**/api/capability-preferences', async route => {
+      if (route.request().method() === 'PATCH') {
+        const defaults = route.request().postDataJSON()?.selection_defaults || {};
+        selectionMode = defaults.mode || selectionMode;
+        evictionPolicy = defaults.eviction_policy || evictionPolicy;
+      }
+      await route.fulfill({ json: { data: { selection_defaults: { mode: selectionMode, eviction_policy: evictionPolicy } } } });
+    });
 
     console.log('Testing Hardware page...');
     await page.goto(`${server.url}/hardware`);
     await expect(page.getByRole('heading', { name: 'Hardware', level: 1 })).toBeVisible();
-    await expect(page.getByText('AMD Ryzen 9 7950X 16-Core Processor')).toBeVisible();
-    await expect(page.getByText('System RAM')).toBeVisible();
-    await expect(page.getByText('Radeon RX 7900 XTX')).toBeVisible();
-    await expect(page.getByText('21.42 GB')).toBeVisible();
-    const json = page.locator('pre.data-payload');
+    const topbar = page.locator('.topbar');
+    await expect.poll(() => topbar.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    const resourceChip = page.locator('.resource-chip');
+    await expect(resourceChip).toContainText('GPU0');
+    await expect(resourceChip).toContainText('RAM 39.1 GiB free');
+    await expect(resourceChip).toContainText('1 loaded');
+    const modePicker = page.getByRole('combobox', { name: 'Global orchestration mode' });
+    await expect(modePicker).toHaveValue('auto');
+    await modePicker.selectOption('guided');
+    await expect(modePicker).toHaveValue('guided');
+    await modePicker.selectOption('manual');
+    await expect(modePicker).toHaveValue('manual');
+    await modePicker.selectOption('auto');
+    await expect(modePicker).toHaveValue('auto');
+    await expect(page.getByRole('heading', { name: 'AMD Ryzen 9 7950X 16-Core Processor' })).toBeVisible();
+    await expect(page.getByText('System memory')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Radeon RX 7900 XTX' })).toBeVisible();
+    await expect(page.getByText('21.4 GB')).toBeVisible();
+    const json = page.getByRole('region', { name: 'Raw hardware response' }).locator('pre');
     await expect(json).toHaveCount(0);
     await page.getByRole('button', { name: 'Show JSON' }).click();
     await expect(json).toContainText('Radeon RX 7900 XTX');
@@ -146,15 +193,44 @@ async function runSmokeTests() {
     const runtime = page.locator('label').filter({ hasText: 'Default runtime' }).locator('select');
     await expect(backend.locator('option', { hasText: 'vulkan' })).toBeAttached();
     await expect(backend.locator('option', { hasText: 'cpu' })).toHaveAttribute('disabled', '');
-    await expect(backend).toHaveValue('vulkan');
     await backend.selectOption('vulkan');
     await expect(backend).toHaveValue('vulkan');
     await expect(runtime.locator('option', { hasText: 'llama.cpp v1.0' })).toBeEnabled();
-    await expect(runtime).toHaveValue('llama-cpp-1');
     await runtime.selectOption('llama-cpp-1');
     await expect(runtime).toHaveValue('llama-cpp-1');
-    await expect(page.getByText(/Context size, GPU layers, device placement, tensor split/)).toBeVisible();
+    await expect(page.getByText(/Context size, GPU placement, split mode, tensor split/)).toBeVisible();
     await page.screenshot({ path: path.join(SCREENSHOT_DIR, 'settings-page-runtime.png'), fullPage: true });
+
+    console.log('Testing Resources residency controls...');
+    await page.goto(`${server.url}/resources`);
+    await expect(page.getByRole('heading', { name: 'Resources', level: 1 })).toBeVisible();
+    const eviction = page.getByRole('combobox', { name: 'Default model eviction policy' });
+    await expect(eviction).toHaveValue('lru');
+    await eviction.selectOption('never');
+    await expect.poll(() => evictionPolicy).toBe('never');
+    await page.getByRole('button', { name: /fixture\/model\.gguf/ }).click();
+    await expect(page.getByRole('heading', { name: 'fixture/model.gguf' })).toBeVisible();
+    await page.getByRole('button', { name: 'Pin model' }).click();
+    const selectedModel = page.getByRole('complementary', { name: 'Selected model residency' });
+    await expect(selectedModel.getByText('Pinned', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Unpin model' }).click();
+    await expect(selectedModel.getByText('Not pinned', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Unload idle model' })).toBeEnabled();
+    await page.getByRole('button', { name: 'Unload idle model' }).click();
+    await expect(page.getByText('No loaded model residency records were reported.')).toBeVisible();
+    await expect(page.getByRole('combobox', { name: 'Default model eviction policy' })).toHaveValue('never');
+    await page.screenshot({ path: path.join(SCREENSHOT_DIR, 'resources-residency.png'), fullPage: true });
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`${server.url}/hardware`);
+    await expect(page.getByRole('heading', { name: 'Hardware Topology', level: 1 })).toBeVisible();
+    let width = await page.evaluate(() => ({ viewport: document.documentElement.clientWidth, page: document.documentElement.scrollWidth }));
+    if (width.page > width.viewport + 1) throw new Error(`Hardware page overflows mobile viewport: ${width.page}px > ${width.viewport}px.`);
+    await page.screenshot({ path: path.join(SCREENSHOT_DIR, 'hardware-page-mobile.png'), fullPage: true });
+    await page.goto(`${server.url}/settings`);
+    await expect(page.getByRole('heading', { name: 'Settings', level: 1 })).toBeVisible();
+    width = await page.evaluate(() => ({ viewport: document.documentElement.clientWidth, page: document.documentElement.scrollWidth }));
+    if (width.page > width.viewport + 1) throw new Error(`Settings page overflows mobile viewport: ${width.page}px > ${width.viewport}px.`);
 
     if (hasErrors) throw new Error('Browser console or page errors were reported.');
     console.log(`Hardware and Settings UI smoke passed. Screenshots: ${SCREENSHOT_DIR}`);

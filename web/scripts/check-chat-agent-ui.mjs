@@ -14,6 +14,11 @@ const SCREENSHOT_DIR = path.resolve(__dirname, '../../artifacts/ui-smoke/chat-ag
   let healthChecks = 0;
   let knowledgeEnabled = false;
   let chatPayload = null;
+  let selectionMode = 'auto';
+  let guidedPlanPayload = null;
+  let guidedRunPayload = null;
+  let guidedRunCount = 0;
+  let forceManualMismatch = false;
   let chatMessages = [
     { role: 'user', content: 'Hello' },
     { role: 'assistant', content: 'Hi there!' }
@@ -102,6 +107,27 @@ const SCREENSHOT_DIR = path.resolve(__dirname, '../../artifacts/ui-smoke/chat-ag
       });
     });
 
+    await page.route('**/api/capability-preferences', route => {
+      if (route.request().method() === 'PATCH') {
+        const payload = route.request().postDataJSON();
+        if (['auto', 'guided', 'manual'].includes(payload?.selection_defaults?.mode)) {
+          selectionMode = payload.selection_defaults.mode;
+        }
+      }
+      return route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify({ data: { selection_defaults: { mode: selectionMode, eviction_policy: 'lru' } } })
+      });
+    });
+    await page.route('**/api/resources', route => route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ data: { resources: { ram: {}, gpus: [], loaded_models: [] }, status: 'observed' } })
+    }));
+    await page.route('**/api/models/residency', route => route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ data: { residency: { items: [], count: 0, status: 'observed' } } })
+    }));
+
     // Mock API for /api/models
     await page.route('**/api/models', route => {
       route.fulfill({
@@ -117,6 +143,40 @@ const SCREENSHOT_DIR = path.resolve(__dirname, '../../artifacts/ui-smoke/chat-ag
         })
       });
     });
+    await page.route(/\/api\/model-profiles(?:\?.*)?$/, route => route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ data: { profiles: [] } })
+    }));
+    await page.route('**/api/skills', route => route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ data: { skills: [] } })
+    }));
+    await page.route('**/api/skills/chat.general/plan', async route => {
+      guidedPlanPayload = route.request().postDataJSON();
+      const pin = guidedPlanPayload?.selection?.capability_pins?.['text.chat'];
+      const requestedModel = pin?.model_id || guidedPlanPayload?.selection?.pinned_model_id || 'mock-model-1';
+      const modelId = forceManualMismatch && guidedPlanPayload?.selection?.mode === 'manual'
+        ? 'mock-model-1' : requestedModel;
+      const planId = modelId === 'mock-model-2' ? 'b'.repeat(24) : 'a'.repeat(24);
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: { plan: {
+        plan_id: planId, mode: guidedPlanPayload?.selection?.mode || 'auto',
+        resource_budget: { max_parallel_routes: 1 },
+        nodes: [{ node_id: 'reply', capability_id: 'text.chat',
+          selected: { id: `route-${modelId}`, model_id: modelId, runtime_id: 'llama.cpp' },
+          alternatives: [{ id: 'route-mock-model-2', capability_id: 'text.chat', model_id: 'mock-model-2', runtime_id: 'vllm' }],
+          why: [{ route_id: `route-${modelId}`, eligible: true, selected: true, reasons: ['compatible'] }] }]
+      } } }) });
+    });
+    await page.route('**/api/skills/chat.general/run', async route => {
+      guidedRunCount += 1;
+      guidedRunPayload = route.request().postDataJSON();
+      await route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ data: { run: {
+        id: 'c'.repeat(32), state: 'succeeded'
+      } } }) });
+    });
+    await page.route(`**/api/runs/${'c'.repeat(32)}`, route => route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ data: { run: {
+        id: 'c'.repeat(32), state: 'succeeded', current_nodes: [], outputs: [], last_sequence: 4
+      } } })
+    }));
 
     // Mock API for /api/chats
     await page.route(/\/api\/chats(?:\/[^/?#]+)?(?:[?#].*)?$/, async route => {
@@ -166,11 +226,11 @@ const SCREENSHOT_DIR = path.resolve(__dirname, '../../artifacts/ui-smoke/chat-ag
     await page.route('**/api/chat', async route => {
       chatPayload = route.request().postDataJSON();
       chatMessages = [...chatMessages, { role: 'user', content: chatPayload.prompt },
-        { role: 'assistant', content: 'Mock answer\n\n```html\n<html><body><h1 id="preview-title">Hello</h1></body></html>\n```\n\n```js\nconsole.log("second block");\n```' }];
+        { role: 'assistant', content: 'Mock answer\n\n```html\n<html><body>Hello</body></html>\n```' }];
       await route.fulfill({
         status: 200,
         contentType: 'text/event-stream',
-        body: ['event: delta', `data: ${JSON.stringify({ text: chatMessages.at(-1).content })}`, '', 'event: complete', `data: ${JSON.stringify({ assistant: chatMessages.at(-1).content })}`, '', ''].join('\n')
+        body: 'event: delta\ndata: {"text":"Mock answer\\n\\n```html\\n<html><body>Hello</body></html>\\n```"}\n\nevent: complete\ndata: {"assistant":"Mock answer\\n\\n```html\\n<html><body>Hello</body></html>\\n```"}\n\n'
       });
     });
 
@@ -196,30 +256,66 @@ const SCREENSHOT_DIR = path.resolve(__dirname, '../../artifacts/ui-smoke/chat-ag
     await expect(page.getByText('Local full-text retrieval · no embeddings')).toBeVisible();
     await expect(page.locator('#chat-model')).toHaveValue('mock-model-2');
     await page.locator('#chat-model').selectOption('mock-model-1');
+    await page.getByRole('button', { name: 'Direct chat' }).click();
     await page.getByRole('textbox', { name: 'Message' }).fill('Test request contract');
     await page.getByRole('button', { name: 'Send message' }).click();
     await expect.poll(() => chatPayload?.model_id).toBe('mock-model-1');
     await expect.poll(() => Object.keys(chatPayload || {}).sort()).toEqual(['chat_id', 'model_id', 'prompt']);
     await expect(page.getByText('Mock answer')).toBeVisible();
     await expect(page.locator('.code-canvas')).toHaveCount(0);
-    await expect(page.locator('.message-code-artifact')).toHaveCount(2);
-    await page.getByRole('button', { name: 'Open html · block 1 in Canvas' }).click();
-    await expect(page.locator('.code-canvas')).toBeVisible();
-    await expect(page.getByRole('textbox', { name: 'Editable code canvas' })).toHaveValue(/preview-title.*Hello/);
-    await page.getByRole('button', { name: '▣ Preview' }).click();
-    await expect(page.locator('.canvas-preview').contentFrame().locator('#preview-title')).toHaveText('Hello');
-    await page.getByRole('button', { name: '</> Code' }).click();
-    await page.getByRole('textbox', { name: 'Editable code canvas' }).fill('<!doctype html><html><body><h1 id="preview-title">Edited</h1></body></html>');
-    await page.getByRole('button', { name: '▣ Preview' }).click();
-    await expect(page.locator('.canvas-preview').contentFrame().locator('#preview-title')).toHaveText('Edited');
-    await page.getByRole('button', { name: 'Open js · block 2 in Canvas' }).click();
-    await expect(page.getByRole('textbox', { name: 'Editable code canvas' })).toHaveValue('console.log("second block");');
-    await page.getByRole('button', { name: 'Hide Canvas' }).click();
-    await expect(page.locator('.code-canvas')).toHaveCount(0);
-    await page.getByRole('button', { name: 'Canvas · Code' }).click();
-    await expect(page.getByRole('textbox', { name: 'Editable code canvas' })).toHaveValue('console.log("second block");');
+    await expect(page.locator('.message-content').filter({ hasText: '[html block is available to open in Canvas]' })).toBeVisible();
+    await page.getByRole('button', { name: 'Open html in Canvas' }).click();
+    await expect(page).toHaveURL(/\/canvas$/);
+    await expect(page.getByRole('heading', { name: 'Canvas', level: 1 })).toBeVisible();
+    const htmlPreview = page.locator('iframe.html-preview');
+    await expect(htmlPreview).toBeVisible();
+    await expect(page.frameLocator('iframe.html-preview').locator('body')).toContainText('Hello');
 
     await page.screenshot({ path: path.join(SCREENSHOT_DIR, 'chat.png') });
+
+    // Guided plans must remain read-only until the exact reviewed plan is confirmed.
+    await page.goto('http://localhost:4200/chat');
+    await page.waitForSelector('.chat-workspace', { state: 'visible', timeout: 30000 });
+    await page.getByRole('combobox', { name: 'Global orchestration mode' }).selectOption('guided');
+    await expect.poll(() => selectionMode).toBe('guided');
+    await page.getByRole('textbox', { name: 'Message' }).fill('Review this route before running');
+    await page.getByRole('button', { name: 'Preview plan' }).click();
+    await expect(page.getByRole('button', { name: 'Confirm plan and run' })).toBeEnabled();
+    await expect.poll(() => guidedRunCount).toBe(0);
+    await expect.poll(() => guidedPlanPayload?.selection?.mode).toBe('guided');
+    await page.getByRole('button', { name: /Use mock-model-2/ }).click();
+    await page.getByRole('button', { name: 'Preview plan' }).click();
+    await expect.poll(() => guidedPlanPayload?.selection?.capability_pins?.['text.chat']?.model_id).toBe('mock-model-2');
+    await expect.poll(() => guidedRunCount).toBe(0);
+    await page.getByRole('button', { name: 'Confirm plan and run' }).click();
+    await expect.poll(() => guidedRunCount).toBe(1);
+    await expect.poll(() => guidedRunPayload?.expected_plan_id).toBe('b'.repeat(24));
+    await expect.poll(() => guidedRunPayload?.selection?.capability_pins?.['text.chat']?.model_id).toBe('mock-model-2');
+
+    // Auto executes the selected compatible plan directly; Manual keeps the
+    // selected model as a hard pin and preserves the prompt if it cannot route.
+    const modePicker = page.getByRole('combobox', { name: 'Global orchestration mode' });
+    await modePicker.selectOption('auto');
+    await expect.poll(() => selectionMode).toBe('auto');
+    await page.getByRole('textbox', { name: 'Message' }).fill('Run with automatic route selection');
+    await page.getByRole('button', { name: 'Send message' }).click();
+    await expect.poll(() => guidedRunCount).toBe(2);
+    await expect.poll(() => guidedRunPayload?.selection?.mode).toBe('auto');
+    await expect(guidedRunPayload?.selection?.pinned_model_id).toBeUndefined();
+
+    await modePicker.selectOption('manual');
+    await expect.poll(() => selectionMode).toBe('manual');
+    await page.getByRole('textbox', { name: 'Message' }).fill('Keep this prompt if the pinned route is unavailable');
+    forceManualMismatch = true;
+    await page.getByRole('button', { name: 'Send message' }).click();
+    await expect(page.locator('.orchestration-error')).toContainText('Manual mode will not substitute another route');
+    await expect(page.getByRole('textbox', { name: 'Message' })).toHaveValue('Keep this prompt if the pinned route is unavailable');
+    await expect.poll(() => guidedRunCount).toBe(2);
+    forceManualMismatch = false;
+    await page.getByRole('button', { name: 'Send message' }).click();
+    await expect.poll(() => guidedRunCount).toBe(3);
+    await expect.poll(() => guidedRunPayload?.selection?.mode).toBe('manual');
+    await expect.poll(() => guidedRunPayload?.selection?.pinned_model_id).toBe('mock-model-2');
 
     // 2. Check Agent Page
     console.log("Checking Agent Page...");

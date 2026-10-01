@@ -55,6 +55,18 @@ PATCH  /api/model-manifests/<id>/preferences
 
 Local user-created manifests may later support create/update endpoints, but the first implementation can generate manifests from catalog metadata plus bundled/user overlays.
 
+`POST /api/model-manifests/<id>/verify` accepts only `{}`. It delegates a
+bounded semantic probe to an injected local `ManifestVerifier`; the request
+cannot submit evidence or capabilities. A semantic probe may start/load the
+selected model, so runtime `--help`, health, and availability checks alone
+cannot implement it. The default API has no semantic verifier configured and
+returns `503` without changing records. `GET /api/model-manifests/<id>` reports
+`verification_available` and, when false,
+`verification_unavailable_reason` with the concrete host/runtime blocker.
+Successful typed results are checked against the manifest, validated as a
+verified model profile, persisted, and merged below user-authored metadata.
+Failed probes are recorded without promoting a profile or capability claim.
+
 The existing `GET /api/models` continues to return file catalog records. The UI can join records with manifest summaries or the API can add an optional expanded representation later.
 
 ## 4. Skill endpoints
@@ -98,6 +110,14 @@ Planning response:
 ```
 
 A plan request does not perform expensive model inference. Runtime metadata probes may be reused if already available.
+
+The current deterministic planner returns a stable `plan_id` (24 lowercase
+hexadecimal characters) with the resolved routes. When the user explicitly
+confirms a Guided plan, `POST /api/skills/<skill-id>/run` may include that
+`expected_plan_id` and route-scoped `selection.capability_pins`. The server
+re-resolves the request and refuses to start the run with HTTP 409 if the plan
+identity changed after review. `expected_plan_id` is accepted only on run
+requests, never on plan requests.
 
 ## 5. Run endpoints
 
@@ -151,7 +171,24 @@ The client should be able to reconnect and request events after a sequence numbe
 GET /api/runs/<id>/events?after=42
 ```
 
-A small bounded event journal is persisted for active/recent runs.
+A small bounded event journal is persisted for active/recent runs in the
+current OS user's private state directory. The journal is atomically replaced,
+fsynced and limited to 64 records, 512 events per run and 4 MiB total. It stores
+run-owned metadata/event tails only: prompts, input bodies, generated text,
+tool arguments, artifact bytes and storage tokens are redacted or omitted.
+`GET /api/runs/<id>` reports `durable` and `durability_error`; a disk failure
+does not disable in-memory execution, but the run is explicitly marked as not
+recoverable. Runs associated with a conversation retain its validated `chat_id`
+in the local-user journal. This is a single-user local API, not a multi-tenant
+authorization boundary.
+
+On process restart, terminal recent runs and their event sequences are
+recoverable. Queued/running records become terminal `failed` runs with
+`error.kind = "process_restarted"`; execution is never resumed without its
+original runtime handles and leases. Temporary artifact bytes remain
+process-local, so recovered snapshots do not claim that those outputs can be
+read after restart. Journal schema v1 migrates to v2 by adding a null
+conversation association; unknown future schema versions fail closed.
 
 ## 7. Artifact endpoints
 
@@ -173,13 +210,10 @@ For a locally selected file through a native desktop picker, the backend may hol
 ```text
 GET  /api/resources
 GET  /api/models/residency
-POST /api/models/<id>/load
-POST /api/models/<id>/unload
-POST /api/models/<id>/pin
-POST /api/models/<id>/unpin
+POST /api/models/residency/actions
 ```
 
-Existing runtime load/unload APIs can back these operations initially. The new endpoints are semantic orchestration wrappers.
+The residency action accepts exactly a server-discovered `route_id` and one of `pin`, `unpin`, or `unload`. It can only affect an already loaded orchestration-owned resident, requires an idle unpinned model for unload, and never starts a load. Arbitrary model IDs cannot select a runtime target.
 
 Resource snapshot:
 
@@ -213,10 +247,16 @@ Semantic preferences should have their own store:
     "mode": "auto",
     "prefer_verified": true,
     "prefer_loaded": true,
-    "resource_headroom_percent": 10
+    "resource_headroom_percent": 10,
+    "eviction_policy": "lru",
+    "assisted_planner_enabled": false
   }
 }
 ```
+
+`eviction_policy` is `lru` (unload the oldest idle, unpinned resident under memory pressure) or `never` (preserve residents and fail a load that needs implicit eviction). Busy leases and user pins are protected under either policy. A version 1 preferences file without this key reads as `lru` and gains the key on its next write.
+
+`assisted_planner_enabled` is a global explicit opt-in and defaults to `false`. The `/api/skills/{id}/draft` action requires an already loaded local model and generates only after a user request. Its JSON is bounded and validated against the installed skill contract; execution still requires review of the returned draft and resolved plan.
 
 This is separate from low-level runtime defaults.
 

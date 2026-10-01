@@ -3,9 +3,11 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import patch, Mock
 
-from aidream.voice import LocalVoice, RecordingWorker, SpeechWorker, VoiceCapabilities, discover_whisper_models
+from aidream.voice import (MAX_TRANSCRIPT_BYTES, LocalVoice, RecordingWorker,
+                           SpeechWorker, VoiceCapabilities, discover_whisper_models)
 
 
 class VoiceTests(unittest.TestCase):
@@ -32,6 +34,23 @@ class VoiceTests(unittest.TestCase):
                 config = voice.configuration([tmp])
             self.assertEqual(config.capabilities.recorder_executable, "/bin/arecord")
             self.assertEqual(config.whisper_models, (model,))
+
+    def test_ffmpeg_flite_probe_discovers_voices_without_synthesizing(self):
+        paths = {"espeak-ng": None, "espeak": None, "ffmpeg": "/usr/bin/ffmpeg",
+                 "arecord": "/usr/bin/arecord", "whisper-cli": None, "whisper-cpp": None,
+                 "spd-say": "/usr/bin/spd-say"}
+        probe = Mock(return_value=SimpleNamespace(
+            returncode=0,
+            stderr="[Parsed_flite_0 @ 0x1234] kal\n[Parsed_flite_0 @ 0x1234] slt\n",
+        ))
+        with patch("aidream.voice.shutil.which", side_effect=lambda name: paths.get(name)):
+            with patch("aidream.voice.subprocess.run", probe):
+                voice = LocalVoice()
+        self.assertEqual(voice.capabilities.flite_voices, ("kal", "slt"))
+        self.assertEqual(voice.capabilities.details()["text_to_speech"]["provider"], "ffmpeg-flite")
+        command = probe.call_args.args[0]
+        self.assertIn("flite=list_voices=true", command)
+        self.assertFalse(any("textfile=" in item for item in command))
 
     def test_speak_async_validates_text_and_missing_tts(self):
         voice = LocalVoice()
@@ -120,6 +139,57 @@ class VoiceTests(unittest.TestCase):
             worker = SpeechWorker(str(script), "hello")
             with self.assertRaisesRegex(RuntimeError, "status 3"):
                 worker.wait(timeout=2)
+
+    def test_transcribe_rejects_non_ggml_model_before_running_tool(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            audio, model = root / "audio.wav", root / "model.bin"
+            audio.write_bytes(b"audio")
+            model.write_bytes(b"not a whisper model")
+            voice = LocalVoice()
+            voice.capabilities = VoiceCapabilities(None, None, "/usr/bin/whisper-cli")
+            with patch("aidream.voice.subprocess.run") as run:
+                with self.assertRaisesRegex(ValueError, "ggml-\\*\\.bin"):
+                    voice.transcribe(audio, model)
+            run.assert_not_called()
+
+    def test_transcribe_enforces_audio_limit_before_running_tool(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            audio, model = root / "audio.wav", root / "ggml-base.bin"
+            audio.write_bytes(b"x" * 8)
+            model.write_bytes(b"fixture")
+            voice = LocalVoice()
+            voice.capabilities = VoiceCapabilities(None, None, "/usr/bin/whisper-cli")
+            with patch("aidream.voice.MAX_VOICE_INPUT_BYTES", 4), \
+                    patch("aidream.voice.subprocess.run") as run:
+                with self.assertRaisesRegex(ValueError, "must be from 1 to 4 bytes"):
+                    voice.transcribe(audio, model)
+            run.assert_not_called()
+
+    def test_transcribe_bounds_child_output_and_returns_small_transcript(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            audio, model = root / "audio.wav", root / "ggml-base.bin"
+            audio.write_bytes(b"audio")
+            model.write_bytes(b"fixture")
+            voice = LocalVoice()
+            voice.capabilities = VoiceCapabilities(None, None, "/usr/bin/whisper-cli")
+
+            def write_success(_command, **kwargs):
+                kwargs["stdout"].write(b"  recognized words  ")
+                return Mock(returncode=0)
+
+            with patch("aidream.voice.subprocess.run", side_effect=write_success):
+                self.assertEqual(voice.transcribe(audio, model), "recognized words")
+
+            def write_too_much(_command, **kwargs):
+                kwargs["stdout"].write(b"x" * (MAX_TRANSCRIPT_BYTES + 1))
+                return Mock(returncode=0)
+
+            with patch("aidream.voice.subprocess.run", side_effect=write_too_much):
+                with self.assertRaisesRegex(RuntimeError, "output limit"):
+                    voice.transcribe(audio, model)
 
 
 if __name__ == "__main__":

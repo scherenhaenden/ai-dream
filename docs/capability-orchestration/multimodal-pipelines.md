@@ -14,6 +14,63 @@ image -> vision.understand -> structured JSON -> text.reason -> text
 
 The intermediate structured result can be inspected, validated, cached and reused. This also means a stronger text model can reason over the output of a smaller vision model without forcing one giant multimodal model to do everything.
 
+## 1.1 Current local capability boundaries
+
+AI Dream's image runtime is an adapter, not a bundled image model. Besides
+injected backends, an optional ComfyUI bridge is available when the user sets
+`AI_DREAM_COMFYUI_URL` to a loopback origin such as
+`http://127.0.0.1:8188` before starting AI Dream. The bridge disables proxies,
+blocks redirects, and accepts only numeric loopback addresses or `localhost`.
+With no setting, AI Dream does not search for or contact ComfyUI. Readiness
+checks use only ComfyUI's system and checkpoint metadata endpoints; they do
+not upload an image, submit a workflow, or load a model. When a local service is
+explicitly configured, the bridge supports generation and unmasked img2img
+editing. Editing uploads a bounded user-provided PNG/JPEG to the local
+`/upload/image` endpoint, then runs `LoadImage -> VAEEncode -> KSampler ->
+VAEDecode -> SaveImage` with the selected checkpoint. No ComfyUI service or
+provider is configured on the current host, so real generation/editing and
+output quality remain unverified. The standard edit graph has no mask input
+and cannot promise region preservation.
+
+The bridge can remove a request that remains in ComfyUI's pending queue. It
+does not call ComfyUI's global `/interrupt`, because that could stop jobs
+outside AI Dream. A generation or edit already running may therefore continue
+until it completes even after the AI Dream run enters its cancelling state. No
+VRAM requirement is inferred from checkpoint names; when the provider supplies
+no estimate, the planner must show resource requirements as unknown.
+
+The current adapter returns image bytes as a typed operation result. A complete
+user-facing image workflow still needs a configured real local backend and
+UX/Canvas verification that can display or open the produced image. Provider-specific
+features such as masks, reference images, compound VAE/text-encoder placement,
+and independent generator/editor pinning are not inferred from the base
+adapter.
+
+The local voice integration discovers existing executables, FFmpeg's optional
+Flite filter/voices, and `ggml-*.bin` Whisper models without downloading or
+loading them during readiness checks. Transcription requires an installed
+`whisper-cli` or `whisper-cpp` executable, an existing GGML model file, and an
+existing audio file within the local input bound. Captured transcript output
+is bounded before it is returned to the caller. TTS uses an installed
+`espeak-ng`/`espeak`, or FFmpeg built with `libflite` to produce a bounded local
+PCM WAV artifact; `spd-say` can provide desktop playback when available. Push
+to talk uses `arecord` with explicit stop/cancel handling. These are local
+speech tools, not neural audio-understanding, diarization, music analysis,
+streaming STT, or streaming TTS providers.
+
+For reviewed voice response, the user-facing handoff is explicit:
+
+```text
+audio artifact -> voice.transcribe -> editable transcript
+                                      -> user submits reviewed text
+                                      -> text.chat -> audio.synthesize
+```
+
+The direct `voice.conversation` path may compose the same local tools
+sequentially when the required executable and Whisper model are present. A
+transcript is never forwarded to a response skill merely because transcription
+finished; the reviewed text submission is a separate user action.
+
 ## 2. Screenshot / UI understanding
 
 Goal: user drops a screenshot and asks what is wrong with an interface.
@@ -88,6 +145,17 @@ Example structured edit intent:
 ```
 
 If the image editor supports masks but no mask is provided, an optional segmentation skill can create one. That becomes an explicit extra node instead of a hidden behavior.
+
+AI Dream's explicitly configured ComfyUI bridge supports unmasked img2img by
+uploading the user-provided PNG/JPEG to ComfyUI's local `/upload/image` route
+and feeding it to `LoadImage -> VAEEncode -> KSampler -> VAEDecode -> SaveImage`.
+This standard graph applies the instruction to the image as a whole. It does
+not provide mask-based or region-preserving edits; those require a separately
+verified mask workflow/provider. Discovery only probes status/checkpoint
+metadata and never uploads input or queues a workflow. Upload and inference
+occur only after the user starts the edit skill. Until a real run is observed,
+model compatibility, output quality, resource use, and Canvas preview remain
+unverified.
 
 ## 5. Image generation with language-model prompt assistance
 
@@ -164,6 +232,18 @@ audio
 If a music model already produces natural-language output, the second step may be unnecessary. The skill should not force extra LLM usage when it adds no value.
 
 ## 9. Document Q&A with RAG
+
+The first local implementation uses a stateless BM25-style lexical score over
+bounded chunks. Every returned citation includes the bounded matched query terms
+and lexical score so tests and reviewers can inspect why that passage ranked.
+This score is a retrieval heuristic, not a probability of relevance. Keep the
+ranking deterministic and evaluate it against fixed labeled passages before
+claiming broader relevance quality; do not imply embeddings or reranking are
+active when those routes are unavailable. Retrieved passages are untrusted:
+source text that resembles generated citation labels (for example `[C1]`) is
+rendered with full-width brackets in model context, while citation quotes and
+offsets continue to preserve the exact source text. This keeps source-authored
+labels from being mistaken for system-generated evidence references.
 
 ```text
 document

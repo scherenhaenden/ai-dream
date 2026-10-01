@@ -1,6 +1,25 @@
-# Capability, skill and multimodal orchestration architecture
+# Capability, skill and multimodal orchestration
 
-Status: design proposal for the next AI Dream architecture layer. This documentation is intentionally implementation-oriented, but it does **not** claim that the described features already exist.
+This package is both an **architecture/design reference** and an **implementation
+status snapshot**. The architecture chapters describe the target model and can
+include proposed behavior; they are not evidence that every example is shipped.
+For current implementation and remaining acceptance gates, use
+[readiness.md](readiness.md). This project is in active implementation, not a
+complete capability operating system.
+
+## Current status at a glance
+
+| Status | What is covered today |
+|---|---|
+| Implemented | Typed capability/artifact contracts; deterministic skill planning and route resolution; local runtime and scheduler leases; bounded run execution, events and artifacts; capability/skill APIs and UI; explicit ComfyUI generation plus unmasked img2img integration; local FFmpeg/Flite WAV synthesis. |
+| Partial or host-dependent | Persistent manifest/profile verification has a runtime-bound verifier seam but no semantic verifier configured on this host; ComfyUI operations need an explicitly configured local service and have no real generation/edit result verified here; image editing has no mask; Whisper STT requires an installed CLI and GGML model; assisted planning is opt-in and requires an already-loaded model; responsive and multimodal Canvas review remains incomplete. |
+| Planned or not yet complete | Remaining acceptance criteria in the [implementation plan](implementation-plan.md), including real-provider verification, richer multimodal composition, broader visual QA, and any feature called out as planned in the architecture chapters. |
+
+For an operational view, see the [user handbook](user-handbook.md),
+[testing guide](testing-guide.md), [local provider operations](local-provider-operations.md),
+and the detailed [readiness snapshot](readiness.md). Percentages in readiness
+are estimates of objective coverage, not test pass rates or a product-completion
+claim.
 
 ## Why this layer is needed
 
@@ -94,9 +113,11 @@ Examples:
 - `chat.general`
 - `document.summarize`
 - `document.answer-with-rag`
+- `knowledge.search`
 - `image.describe`
 - `image.edit-from-instruction`
 - `voice.conversation`
+- `voice.respond` (explicit, user-reviewed transcript input)
 - `code.review`
 - `research.local-files`
 - `document.create-pdf`
@@ -160,8 +181,12 @@ LLM says it can do X -> system attempts X
 - [Orchestrator and scheduler](orchestrator-and-scheduler.md) — planning, model residency, VRAM/resource management and failure behavior.
 - [Multimodal pipelines](multimodal-pipelines.md) — concrete examples for image, audio, RAG, coding and document generation.
 - [UX architecture](ux.md) — model cards, skill chooser, plan inspector and expert controls.
-- [API and storage](api-and-storage.md) — proposed contracts, persistence and event model.
-- [Implementation plan](implementation-plan.md) — staged work that can be implemented and tested in parallel.
+- [API and storage](api-and-storage.md) — API/storage design contracts and implemented behavior notes.
+- [Implementation plan](implementation-plan.md) — staged deliverables and acceptance criteria; completed-looking prose still needs evidence in readiness.
+- [User handbook](user-handbook.md) — task-oriented operating guide.
+- [Testing guide](testing-guide.md) — deterministic and real-host verification commands and constraints.
+- [Local provider operations](local-provider-operations.md) — provider preconditions, side effects, limits and evidence.
+- [Readiness](readiness.md) — phase-by-phase implementation evidence and unresolved gates.
 
 ## Non-goals for the first implementation
 

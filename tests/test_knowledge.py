@@ -3,7 +3,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
+from types import SimpleNamespace
 import threading
+import time
 import unittest
 
 from aidream.http_api import ReadOnlyAPI, create_server
@@ -76,6 +78,40 @@ class KnowledgeTests(unittest.TestCase):
                     api.get("/api/knowledge/search", query)
             with self.assertRaises(Exception):
                 api.add_knowledge_document({"name": "../escape.txt", "content": "text"})
+
+    def test_knowledge_search_skill_executes_local_index_without_a_model(self):
+        with TemporaryDirectory() as temp:
+            index = SQLiteKnowledgeIndex(Path(temp) / "knowledge" / "index.sqlite3")
+            document = index.add_document("manual.md", b"The cobalt calibration key is stored in the blue cabinet.")
+            service = ReadOnlyAPI(
+                hardware=SimpleNamespace(detect=lambda: SimpleNamespace(
+                    ram=SimpleNamespace(total_bytes=None, available_bytes=None), gpus=[])),
+                catalog=SimpleNamespace(list_models=lambda: []),
+                runtimes=SimpleNamespace(list_backends=lambda: []), knowledge_index=index)
+            try:
+                summary = next(item for item in service._skill_summaries() if item["id"] == "knowledge.search")
+                self.assertEqual("ready", summary["status"])
+                started = service.start_skill("knowledge.search", {"inputs": {
+                    "query": {"kind": "text", "text": "cobalt calibration"},
+                }})["data"]["run"]
+                deadline = time.monotonic() + 3
+                run = started
+                while time.monotonic() < deadline:
+                    run = service.run_manager.get(started["id"])
+                    if run["state"] in {"succeeded", "failed", "cancelled"}:
+                        break
+                    time.sleep(0.01)
+                self.assertEqual("succeeded", run["state"], run.get("error"))
+                results = run["outputs"][0]["value"]
+                self.assertEqual("full_text", results["mode"])
+                self.assertEqual(document["id"], results["results"][0]["id"])
+                snippet = results["results"][0]["snippet"].casefold()
+                self.assertIn("[cobalt]", snippet)
+                self.assertIn("[calibration]", snippet)
+                self.assertNotIn("text", results["results"][0])
+                self.assertNotIn("path", results["results"][0])
+            finally:
+                service.close()
 
 
 if __name__ == "__main__":

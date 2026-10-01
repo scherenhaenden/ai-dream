@@ -163,9 +163,18 @@ The scheduler returns a `ModelLease` referencing a ready runtime handle. Multipl
 
 A node releases the lease when its work ends. The scheduler decides whether to keep the model resident.
 
+The orchestration boundary marks adapter calls active for their full synchronous
+invocation. Releasing a lease, releasing all leases for a run, or unloading a
+resident is rejected while an adapter call is active. Cancellation only signals
+the adapter: a successful cancel callback does not prove that the invocation
+has stopped. The run keeps its leases until every invocation returns and the
+normal execution cleanup releases them.
+
 ## 7. Residency policy
 
 Loading large local models is expensive. A minimal initial policy can be LRU-like but capability-aware:
+
+The persisted global policy currently supports `lru` and `never`. `lru` unloads the least-recently-used idle, unpinned resident when memory headroom is insufficient. `never` prevents implicit pressure eviction and also refuses an implicit model switch for runtimes that support only one resident. Explicit user unload remains available; neither policy can unload a busy lease or pinned resident.
 
 ```text
 never evict busy models
@@ -359,6 +368,20 @@ RunManager marks run cancelling
 ```
 
 A process that refuses graceful cancellation may be terminated by its runtime adapter according to bounded policy.
+
+`RunManager.close(wait=False)` requests cancellation and returns without
+releasing a running execution's leases or marking it terminal. The execution
+owns cleanup until its runtime callback returns; queued futures cancelled by
+pool shutdown are finalized immediately because they never acquired runtime
+resources. This prevents shutdown from reporting a stopped run while its
+runtime is still using the lease.
+
+Run cleanup that races a cancellation callback uses deferred owner release.
+The scheduler keeps the leases valid while either invoke or cancel adapter
+callbacks are active, blocks new calls for that owner once deferred release is
+pending, and releases the leases as the last callback returns. Synchronous
+`release_owner` remains fail-fast with `BUSY` so callers that need immediate
+confirmation cannot mistake a deferred cleanup for a completed one.
 
 ## 17. Concurrency
 

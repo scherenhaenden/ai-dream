@@ -24,6 +24,7 @@ document.answer-with-rag
 image.describe
 image.edit-from-instruction
 voice.conversation
+voice.respond
 media.transcribe-and-summarize
 document.create-pdf
 screen.explain
@@ -96,12 +97,42 @@ skill           call another skill as a bounded sub-run
 tool            invoke a registered deterministic tool
 transform       deterministic local conversion/map/filter/template
 router          select one branch from typed conditions
-parallel        run independent child branches concurrently
+parallel        declare a typed fan-in barrier over independent graph branches
 join            combine branch results
 loop            bounded iteration with explicit max iterations
 input           expose skill input artifact
 output          publish a skill output artifact
 ```
+
+The initial static `parallel` contract uses `in` to map at least two branch
+names to outputs of distinct nodes, `accepts` to declare each artifact kind,
+and `out` to republish the same names and kinds after the barrier. Branch nodes
+that are ready together execute concurrently only when
+`policy.max_parallel_nodes` is at least two; the limit is bounded to eight.
+The executor emits lifecycle events in stable graph order even when branch
+completion timing differs. Every ready route layer is reserved in one atomic
+scheduler batch before any branch invokes a model; the batch accepts at most
+eight routes, matching the parallel width limit.
+
+A `loop` names one registered transform, one typed input and output of the
+same artifact kind, and an integer `max_iterations` from one to eight. Every
+iteration receives the prior iteration's output. The worst-case iteration
+count contributes to `policy.max_steps`, and registered handlers are checked
+for the complete graph before the first handler runs.
+
+An initial `fallback` node may name two to four ordered, distinct registered
+transform candidates. Each candidate receives the same typed inputs and must
+produce the node's declared output types. The executor tries candidates in
+declaration order and stops at the first valid result; manifest data can name
+registered transforms but cannot import or construct executable code. A
+fallback node requires a typed trace callback. Its `FallbackTrace` contains the
+base plan revision, attempted and selected candidate IDs, sanitized failure
+class names, and a deterministic revision ID when a later candidate succeeds.
+Exhaustion emits a trace event without creating a new plan revision. Callers
+should pass the concrete resolved plan ID as `plan_revision`; otherwise the
+executor uses a manifest and graph fingerprint as the base revision.
+Run cancellation propagates immediately and is never treated as an ordinary
+candidate failure, so it cannot silently advance to a fallback branch.
 
 Do not add arbitrary shell/script nodes to the default schema.
 
@@ -141,6 +172,13 @@ graph:
 ```
 
 The resolver selects compatible implementations for the three capability nodes. The skill itself stays portable.
+
+For transcript review, run `voice.transcribe` first, inspect and edit the text
+output, then pass the reviewed transcript as the required `transcript` input to
+`voice.respond`. That workflow contains only text chat followed by local TTS;
+it does not accept audio or automatically reuse an unreviewed transcription.
+Its plan is rejected when the local TTS route is unavailable, while the catalog
+offers ordinary text chat as the text-only alternative.
 
 ## 5. Graph example: image editing with interpretation
 
@@ -321,6 +359,24 @@ research.local-folder
 
 Sub-skills inherit run permissions and resource limits. The run trace should show the hierarchy rather than flattening everything into one opaque list.
 
+The executor supports bounded typed subskill calls. It validates exact child input/output ports,
+rejects cycles and nesting deeper than four, charges the child's worst-case
+steps to the parent budget, prevents a child from widening the parent's
+permissions, and emits hierarchical node events. The planner descends through
+installed subskills and names each route with a stable path such as
+`summarize/extract/chat`; that same path ties the selected route and lease to
+the executing child node, including when a skill is called more than once.
+`ExecutionPlan.resource_budget.max_parallel_routes` exposes the root skill's
+bounded route-concurrency budget. A shared, cancellation-aware semaphore applies
+that cap across all nested branches, while each child's `max_parallel_nodes`
+continues to cap its local DAG batches. Each route layer reserves its leases as
+one scheduler batch before invoking any branch; failed reservations roll back
+acquired leases and release route slots, and layer cleanup attempts every lease
+even if one release fails. Unknown RAM/VRAM estimates remain unenforced by the
+scheduler. The assisted-planner draft gate can only select an already installed
+skill and must match its declared capability/model nodes; it cannot synthesize
+a sub-skill graph.
+
 ## 15. State and memory
 
 Skill execution state is distinct from conversational memory.
@@ -376,3 +432,44 @@ The workflow policy decides whether an optional branch can be skipped. Required 
 Without skills, users must understand model families, runtime flags and how to manually transfer output between models. With skills, they can ask for "Edit this image", "Review this repository" or "Create a PDF from these notes" while still being able to open the plan and see exactly which components are used.
 
 This makes a large local model collection coherent instead of turning AI Dream into a launcher with dozens of unrelated buttons.
+
+## 19. Deterministic report sections
+
+`document.create-report` accepts structured JSON and renders a safe HTML
+document. `document.create-report-pdf` accepts the same input and renders a
+paginated PDF. Each section has a required heading and an explicit renderer
+kind; the existing `{heading, body}` text shape remains valid for compatibility:
+
+```json
+{
+  "title": "Release status",
+  "summary": "Prepared from verified run outputs.",
+  "sections": [
+    {"heading": "Overview", "kind": "text", "body": "The release is ready."},
+    {"heading": "Actions", "kind": "bullets", "items": ["Publish", "Notify support"]},
+    {"heading": "Checks", "kind": "table", "columns": ["Check", "State"],
+     "rows": [["Tests", "Passed"], ["Review", "Complete"]]}
+  ]
+}
+```
+
+Both renderers accept only `text`, `bullets`, and `table` sections, escape HTML
+cells, and do not accept HTML or arbitrary template code. PDF tables use
+labeled pipe-separated rows to keep each value associated with its column in
+the paginated text flow. Limits are 32 sections, 100 list items or rows per
+section, 12 table columns, 8,000 characters per table cell and 256,000 total
+report characters. HTML layout and PDF pagination remain deterministic and
+model-independent.
+
+## 20. Search the app-managed knowledge index
+
+`knowledge.search` is a model-free built-in workflow backed by the same local
+SQLite FTS5 index as `/api/knowledge/search`. It accepts one text query and
+returns JSON containing at most ten bounded snippets and document metadata.
+The handler reads only the configured app-managed index; the query cannot name
+paths, retrieve source files, or select another owner. This index is local to
+the AI Dream installation and is not a per-chat or multi-user collection.
+The skill declares scoped filesystem read, no filesystem write and no network
+access. It is a tool-backed workflow; the regular capability planner does not
+load a model for it. Temporary single-document Q&A remains `document.answer-with-rag`
+and keeps its separate source-offset citation contract.

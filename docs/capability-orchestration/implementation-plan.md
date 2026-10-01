@@ -137,6 +137,8 @@ Acceptance criteria:
 - a profile clearly says which runtime it uses;
 - model detail shows runnable/not-runnable reason;
 - old profiles continue loading.
+- only a typed successful local runtime probe may promote verified claims/profile data;
+- user-authored metadata cannot overwrite generated capability evidence.
 
 ## Phase 3 — runtime adapter boundary
 
@@ -229,6 +231,7 @@ image.describe
 document.summarize
 voice.transcribe
 voice.conversation
+voice.respond
 ```
 
 These cover text, image, document and audio while using existing AI Dream functionality.
@@ -366,6 +369,8 @@ chapter summarization map/reduce
 Acceptance criteria:
 
 - deadlock-free resource reservation for bounded parallel branches;
+- nested capability/model routes resolve by stable skill-node path;
+- nested route invocation shares an inherited, cancellation-aware concurrency budget;
 - join node type-checking;
 - fallback creates traceable plan revision/event;
 - loops require explicit maximum iterations.
@@ -413,6 +418,12 @@ Existing local voice integration can become a tool/runtime route rather than bei
 
 The scheduler must support sequential unload/reload on machines that cannot keep STT + LLM + TTS resident together.
 
+Transcript review is an explicit branch: users may run `voice.transcribe`, inspect
+and edit its text output, then provide that text as the required input to
+`voice.respond`. Audio must never be auto-submitted from transcription to a
+response step without that user handoff. `voice.conversation` remains the direct,
+no-review sequential option when all three routes are available.
+
 ## Phase 13 — knowledge/RAG as skills
 
 Integrate current/future knowledge service into capability contracts:
@@ -427,6 +438,14 @@ rerank.score
 Build temporary document Q&A before persistent knowledge-base management.
 
 Reason: temporary RAG exercises the orchestration path with fewer lifecycle/migration concerns.
+
+The current implementation keeps that temporary path in
+`document.answer-with-rag` and also exposes the existing app-managed SQLite
+FTS5 index through the model-free `knowledge.search` workflow. The persistent
+index is installation-scoped; it is not a per-chat or multi-user store. The
+`retrieval.search` capability contract should describe an executable local
+search route only when the same bounded index handler is available. Neither
+path implies embeddings or reranking.
 
 ## Phase 14 — document generation
 
@@ -469,6 +488,8 @@ Acceptance criteria:
 - permissions cannot be elevated;
 - planner can be disabled globally;
 - generated plan is visible before side-effecting steps.
+
+Current local UI/API contract: the global `assisted_planner_enabled` preference defaults to false. An explicit `Generate assisted draft` action requires an already-loaded model and returns strict JSON only after the installed-skill validator accepts it. The UI requires an explicit review check before enabling Run. The action does not load a model or execute workflow nodes.
 
 ## Parallel team/workstream split
 
@@ -520,7 +541,9 @@ canvas artifact integration
 chat.general
 image.describe
 document.summarize
+voice.transcribe
 voice.conversation
+voice.respond
 later RAG/image generation/editing
 ```
 

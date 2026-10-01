@@ -1,15 +1,23 @@
-import { ChangeDetectionStrategy, Component, ElementRef, OnInit, effect, signal, viewChild, ViewEncapsulation } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, OnInit, effect, inject, signal, untracked, viewChild, ViewEncapsulation } from '@angular/core';
+import { ActivatedRoute, Router } from '@angular/router';
 import { ApiService } from '../core/api.service';
-import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
+import { firstValueFrom } from 'rxjs';
+import { ArtifactService, MAX_ARTIFACT_UPLOAD_BYTES } from '../core/artifact.service';
+import type { ArtifactEnvelope, UploadArtifactKind } from '../core/artifact.types';
+import { SkillService } from '../core/skill.service';
+import type { SkillCatalogItem } from '../core/skill.types';
+import { CanvasWorkspaceService } from '../core/canvas-workspace.service';
+import { SelectionModeService } from '../core/selection-mode.service';
 
 type Model = { id: string; path?: string; format?: string };
 type ChatSummary = { id: string; title?: string; created_at?: string; updated_at?: string };
-type TranscriptMessage = { role: string; content: string; created_at?: string; key: string };
+type TranscriptMessage = { role: string; content: string; created_at?: string; run_id?: string; key: string };
+type ChatProfile = { id: string; name: string; model_id: string };
+type ChatAttachment = { artifact: ArtifactEnvelope; suggestedSkillIds: string[] };
 type ChatEvent = { text?: string; chat_id?: string; incident_id?: string; assistant?: string | { role?: string; content?: string }; response?: string | { content?: string }; message?: string; error?: string };
 type RuntimeStatus = { loaded?: boolean; backend?: string; runtime_id?: string; model?: string; placement?: unknown[] };
-type CodeArtifact = { id: string; language: string; content: string; messageKey: string; blockIndex: number };
-type MessagePart = { key: string; kind: 'text'; content: string } | { key: string; kind: 'code'; artifact: CodeArtifact };
-type CanvasMode = 'code' | 'preview';
+type CodeArtifact = { language: string; content: string; messageKey: string };
+type MessageCanvasArtifact = { id: string; label: string; kind: 'code' | 'html' | 'json' | 'markdown'; content: string };
 type ChatGeneration = { temperature: number; top_p: number | null; top_k: number | null; min_p: number | null; repeat_penalty: number | null; max_tokens: number | null };
 
 @Component({
@@ -24,6 +32,7 @@ type ChatGeneration = { temperature: number; top_p: number | null; top_k: number
           <label class="model-picker"><span>{{ activeLoadedModel() ? 'LOADED MODEL' : 'MODEL' }}</span><select id="chat-model" [value]="selectedModelId()" (change)="selectModel($any($event.target).value)" [disabled]="modelsLoading() || models().length === 0 || busy()">
             <option value="" [selected]="!selectedModelId()">{{ modelsLoading() ? 'Loading models…' : models().length ? 'Select a model' : 'No local models' }}</option>@for (model of models(); track model.id) {<option [value]="model.id" [selected]="model.id === selectedModelId()">{{ modelLabel(model) }}{{ activeLoadedModel()?.id === model.id ? ' · LOADED' : '' }}</option>}
           </select></label>
+          @if (selectedModelId()) {<label class="model-picker profile-picker"><span>PROFILE</span><select [value]="selectedProfileId()" (change)="selectedProfileId.set($any($event.target).value)" [disabled]="busy() || profilesLoading()"><option value="">Automatic profile</option>@for (profile of profiles(); track profile.id) {<option [value]="profile.id">{{ profile.name }}</option>}</select></label>}
           <button class="chat-new-button" (click)="createChat()" [disabled]="busy() || !api.connected()" title="Start a new conversation">＋ <span>New thread</span></button>
         </div>
       </header>
@@ -48,7 +57,7 @@ type ChatGeneration = { temperature: number; top_p: number | null; top_k: number
           <div class="rail-footer"><span class="online-dot" [class.offline]="!api.connected()"></span><span>{{ api.connected() ? 'LOCAL API ONLINE' : 'API OFFLINE' }}</span></div>
         </aside>
         <section class="chat-center">
-          <div class="active-thread-bar"><div><span class="eyebrow">CURRENT THREAD</span><b>{{ activeChatTitle() }}</b></div><div class="thread-actions"><button class="chat-action-button canvas-toggle" (click)="toggleCanvas()" [attr.aria-expanded]="canvasOpen()" title="Show or hide the code canvas">{{ canvasOpen() ? 'Hide Canvas' : 'Canvas' }}@if (latestCodeArtifact()) { · Code}</button>@if (selectedChatId()) {<button class="chat-action-button" (click)="renameChat()" [disabled]="busy()" title="Rename conversation">Rename</button><button class="chat-action-button chat-delete-button" (click)="deleteChat()" [disabled]="busy()" title="Delete conversation">Delete</button>}<button class="chat-action-button" (click)="exportTranscript()" [disabled]="messages().length === 0 || streaming()" title="Export Markdown">Export</button></div></div>
+          <div class="active-thread-bar"><div><span class="eyebrow">CURRENT THREAD</span><b>{{ activeChatTitle() }}</b></div><div class="thread-actions"><button class="chat-action-button canvas-toggle" (click)="toggleCanvas()" [attr.aria-expanded]="canvasOpen()" title="Show or hide the inline code preview">{{ canvasOpen() ? 'Hide code preview' : 'Code preview' }}@if (latestCodeArtifact()) { · Available}</button>@if (selectedChatId()) {<button class="chat-action-button" (click)="renameChat()" [disabled]="busy()" title="Rename conversation">Rename</button><button class="chat-action-button chat-delete-button" (click)="deleteChat()" [disabled]="busy()" title="Delete conversation">Delete</button>}<button class="chat-action-button" (click)="exportTranscript()" [disabled]="messages().length === 0 || streaming()" title="Export Markdown">Export</button></div></div>
           <section class="transcript" #transcript aria-label="Conversation messages" [attr.aria-busy]="transcriptLoading() || streaming()">
         @if (transcriptLoading()) { <div class="transcript-loading" role="status">Loading conversation…</div> }
         @if (messages().length === 0 && !streaming() && !turnError()) {
@@ -57,25 +66,9 @@ type ChatGeneration = { temperature: number; top_p: number | null; top_k: number
         @for (message of messages(); track message.key) {
           <article class="message-row" [class.user-message]="message.role === 'user'" [class.assistant-message]="message.role !== 'user'">
             <div class="message-avatar" [class.user-avatar]="message.role === 'user'">{{ message.role === 'user' ? 'ED' : 'A' }}</div>
-            <div class="message-body"><div class="message-author">{{ message.role === 'user' ? 'You' : 'AI Dream' }} @if (message.created_at) {<time>{{ formatTime(message.created_at) }}</time>} @if (message.role !== 'user') {<button class="message-copy" (click)="copyMessage(message)" [attr.aria-label]="copiedKey() === message.key ? 'Copied response' : 'Copy response'">{{ copiedKey() === message.key ? 'Copied' : 'Copy' }}</button>}</div><div class="message-content">
-              @if (message.role === 'user') {
-                <span class="message-text-part">{{ message.content }}</span>
-              } @else {
-                @for (part of messageParts(message); track part.key) {
-                  @if (part.kind === 'text') {
-                    <span class="message-text-part">{{ part.content }}</span>
-                  } @else {
-                    <button type="button" class="message-code-artifact" [class.selected]="selectedArtifactId() === part.artifact.id" (click)="openArtifact(part.artifact)" [attr.aria-label]="'Open ' + artifactLabel(part.artifact) + ' in Canvas'">
-                      <span class="message-code-icon">&lt;/&gt;</span>
-                      <span class="message-code-copy"><b>{{ artifactLabel(part.artifact) }}</b><small>{{ part.artifact.content.split('\n').length }} lines · open in Canvas</small></span>
-                      <span class="message-code-open">↗</span>
-                    </button>
-                  }
-                } @empty {
-                  <span class="message-text-part">{{ message.content }}</span>
-                }
-              }
-            </div></div>
+            <div class="message-body"><div class="message-author">{{ message.role === 'user' ? 'You' : 'AI Dream' }} @if (message.created_at) {<time>{{ formatTime(message.created_at) }}</time>} @if (message.role !== 'user' && message.run_id) {<span class="message-run-link" title="Associated orchestration run">Run · {{ message.run_id.slice(0, 8) }}</span>} @if (message.role !== 'user') {<button class="message-copy" (click)="copyMessage(message)" [attr.aria-label]="copiedKey() === message.key ? 'Copied response' : 'Copy response'">{{ copiedKey() === message.key ? 'Copied' : 'Copy' }}</button>}</div><div class="message-content">{{ messageDisplayContent(message) }}</div>
+              @if (message.role !== 'user') { <div class="message-canvas-actions"><button type="button" (click)="openMessageInCanvas(message)">Open response in Canvas</button>@for (artifact of messageCanvasArtifacts(message); track artifact.id) {<button type="button" (click)="openCodeInCanvas(artifact)">Open {{ artifact.label }} in Canvas</button>}</div> }
+            </div>
           </article>
         }
         @if (streaming()) {
@@ -91,6 +84,52 @@ type ChatGeneration = { temperature: number; top_p: number | null; top_k: number
           <div class="model-warning" role="status">No local models are available. Add a model in the Models screen before sending.</div>
         }
         <div class="composer surface">
+          <div class="orchestration-strip" aria-label="Chat execution plan">
+            <div class="orchestration-strip-heading"><span class="eyebrow">EXECUTION</span><div class="execution-mode"><button [class.active]="chatExecutionMode() === 'orchestrated'" (click)="setChatExecutionMode('orchestrated')" [disabled]="busy()">Plan + run</button><button [class.active]="chatExecutionMode() === 'legacy'" (click)="setChatExecutionMode('legacy')" [disabled]="busy()">Direct chat</button></div></div>
+            @if (chatExecutionMode() === 'orchestrated') {
+              <div class="plan-notice selection-mode-note" role="status">Global mode: <b>{{ selectionModeService.mode() }}</b>@if (selectionModeService.mode() === 'guided') { · Send resolves a plan for review; it runs only after confirmation. }@else if (selectionModeService.mode() === 'manual') { · Selected model and profile are hard pins; incompatible routes fail without substitution. }@else { · AI Dream resolves and runs the local route automatically. }</div>
+              <div class="orchestration-route">@if (orchestrationPlan()) {<span class="route-ready">PLAN READY</span><span>{{ orchestrationRouteLabel() }}</span>} @else if (planningChat()) {<span>Resolving a local route…</span>} @else {<span>Preview route for {{ selectedModel()?.id || 'the selected model' }}</span>}</div>
+              @if (orchestrationError()) {<div class="orchestration-error" role="status">{{ orchestrationError() }}</div>}
+              @if (planNotice()) {<div class="plan-notice" role="status">{{ planNotice() }}</div>}
+              @if (orchestrationPlan()) {<button class="plan-preview-button inspector-toggle" (click)="togglePlanInspector()" [attr.aria-expanded]="planInspectorOpen()">{{ planInspectorOpen() ? 'Close plan' : 'Inspect plan' }}</button>}
+              @if (chatRunId()) {<div class="orchestration-route"><span class="run-state">{{ chatRunState() }}</span><span>Run {{ chatRunId().slice(0, 8) }}</span></div>}
+              <button class="plan-preview-button" (click)="previewChatPlan()" [disabled]="!prompt().trim() || !selectedModelId() || planningChat() || busy()">{{ planningChat() ? 'Resolving…' : 'Preview plan' }}</button>
+              @if (selectionModeService.mode() === 'guided' && orchestrationPlan()) {<button class="plan-preview-button guided-confirm" (click)="confirmGuidedPlan()" [disabled]="!guidedPlanCurrent() || busy()">Confirm plan and run</button>}
+              @if (planInspectorOpen() && orchestrationPlan(); as plan) {
+                <section class="chat-plan-inspector" aria-label="Resolved chat plan">
+                  <header><div><b>Plan inspector</b><small>Resolved locally · no inference started</small></div><span>{{ plan.mode || 'automatic' }} · Up to {{ plan.resource_budget?.max_parallel_routes ?? 'unknown' }} parallel routes</span></header>
+                  @for (node of orchestrationNodes(); track node.node_id) {
+                    <article class="plan-node">
+                      <div class="plan-node-heading"><b>{{ node.node_id }}</b><span>RESOLVED</span></div>
+                      <dl><div><dt>Capability</dt><dd>{{ node.capability_id }}</dd></div><div><dt>Model</dt><dd>{{ node.selected?.model_id || 'Not reported' }}</dd></div><div><dt>Profile</dt><dd>{{ profileNameFor(node.selected?.profile_id) }}</dd></div><div><dt>Runtime</dt><dd>{{ node.selected?.runtime_id || 'Not reported' }}</dd></div><div><dt>Types</dt><dd>{{ node.capability_id === 'text.chat' ? 'Prompt · Text → Response · Text' : 'Not reported by plan' }}</dd></div><div><dt>Timing</dt><dd>Not started</dd></div><div><dt>Resources</dt><dd>Not estimated by this plan</dd></div></dl>
+                      @if (selectedRouteWhy(node); as why) {<p class="route-why"><b>Selection reason:</b> {{ why.reasons?.join(', ') || 'No reason details reported' }}@if (why.ranking?.length) { · ranking: {{ why.ranking.join(' → ') }}}</p>}
+                      @if (node.alternatives?.length) {<div class="plan-alternatives"><span>ALTERNATIVES · SELECT TO PIN FOR THIS TURN</span>@for (route of node.alternatives; track route.id) {<div><button type="button" (click)="replacePlanRoute(route)" [disabled]="busy()">Use {{ route.model_id }} · {{ route.runtime_id }}{{ route.profile_id ? ' · ' + profileNameFor(route.profile_id) : '' }}</button><small>{{ alternativeReason(node, route.id) }}</small></div>}</div>}
+                      @else {<small class="no-alternatives">No compatible alternatives reported.</small>}
+                    </article>
+                  }
+                </section>
+              }
+            }
+          </div>
+          <div class="chat-attachments">
+            <label class="attachment-picker" for="chat-attachments">＋ Attach files</label>
+            <input id="chat-attachments" class="sr-only" type="file" multiple [accept]="attachmentAccept" (change)="selectChatAttachments($event)" [disabled]="busy() || uploadingAttachments()" aria-label="Select image, audio, or document attachments">
+            <span class="attachment-help">Images, audio, PDF, TXT, Markdown or CSV · up to 32 MiB each</span>
+            @if (uploadingAttachments()) {<span class="attachment-uploading" role="status">Uploading selected files…</span>}
+            @for (item of chatAttachments(); track item.artifact.id) {
+              <div class="chat-attachment-card">
+                <div class="attachment-file"><span class="attachment-kind">{{ item.artifact.kind }}</span><b>{{ item.artifact.name }}</b><small>{{ formatBytes(item.artifact.size_bytes) }}</small></div>
+                <div class="attachment-suggestions"><span class="eyebrow">SUGGESTED SKILLS</span>
+                  @for (skill of suggestedSkills(item); track skill.id) {<div class="skill-suggestion"><span><b>{{ skill.name }}</b><small [class.suggestion-ready]="skill.status === 'ready'" [class.suggestion-unknown]="skill.status === 'unknown'">{{ skill.status === 'ready' ? 'READY' : skill.status === 'unknown' ? 'READINESS UNKNOWN' : 'NOT READY' }}</small></span><p>{{ skill.status === 'ready' ? skill.description : (skill.not_ready_reasons?.[0] || skill.alternatives?.[0] || 'This skill needs a compatible local capability route.') }}</p>@if (supportsAttachmentSkill(item, skill)) {<button type="button" class="attachment-route-button" (click)="openAttachmentSkill(item, skill)">Use this {{ item.artifact.kind }} in skill</button>} @else {<small class="attachment-route-limit">No declared {{ item.artifact.kind }} input; attachment is not converted.</small>}</div>}
+                  @if (!suggestedSkills(item).length) {<span class="attachment-help">No matching skill is registered. Browse <a href="/skills">Skills</a>.</span>}
+                  @else {<a class="browse-skills" href="/skills">Open Skills catalog</a><small class="attachment-reupload-note">Choose “Use this {{ item.artifact.kind }} in skill” to pass this session upload directly.</small>}
+                </div>
+                <button type="button" class="remove-attachment" (click)="removeChatAttachment(item)" [disabled]="busy() || uploadingAttachments()" [attr.aria-label]="'Remove ' + item.artifact.name">Remove</button>
+              </div>
+            }
+            @if (attachmentError()) {<span class="attachment-error" role="alert">{{ attachmentError() }}</span>}
+            @if (chatAttachments().length) {<span class="attachment-help">Attachments are staged for the suggested skills; sending a chat message remains text-only.</span>}
+          </div>
           <label class="sr-only" for="chat-prompt">Message</label>
           <textarea id="chat-prompt" rows="2" placeholder="Message your local model…" [value]="prompt()" (input)="prompt.set($any($event.target).value)" (keydown)="onComposerKey($event)" [disabled]="!canCompose()" [attr.aria-describedby]="'composer-hint'"></textarea>
           <div class="composer-bottom"><div class="composer-options"><span id="composer-hint">Local inference · generation settings are saved per thread</span></div>
@@ -98,38 +137,18 @@ type ChatGeneration = { temperature: number; top_p: number | null; top_k: number
           @else { <button class="send-button" (click)="send()" [disabled]="!canSend()" [attr.aria-label]="sending() ? 'Sending message' : 'Send message'">{{ sending() ? 'Sending…' : 'Send' }} <span>↗</span></button> }
           </div>
         </div>
-        <p class="composer-footnote">Responses can be incorrect. Attachments are not available in this web chat yet.</p>
+        <p class="composer-footnote">Responses can be incorrect. Selected files are offered to matching skills; chat turns remain text-only.</p>
           </footer>
         </section>
-        @if (canvasOpen()) {<aside class="code-canvas" aria-label="Canvas and code view">
-          <div class="canvas-tabs">
-            <button type="button" class="canvas-tab" [class.active]="canvasMode() === 'code'" (click)="canvasMode.set('code')">&lt;/&gt; Code</button>
-            @if (selectedCodeArtifact(); as selectedArtifact) {
-              @if (isHtmlArtifact(selectedArtifact)) { <button type="button" class="canvas-tab" [class.active]="canvasMode() === 'preview'" (click)="canvasMode.set('preview')">▣ Preview</button> }
-            }
-            <span class="canvas-indicator" [class.present]="selectedCodeArtifact()"></span>
-          </div>
-          @if (selectedCodeArtifact(); as artifact) {
-            <div class="canvas-filebar">
-              <div><span class="file-symbol">▤</span><b>{{ artifactLabel(artifact) }}</b><span class="artifact-source">assistant code block</span></div>
-              <div class="canvas-file-actions">
-                @if (allCodeArtifacts().length > 1) {
-                  <select aria-label="Select code block" [value]="artifact.id" (change)="selectArtifactById($any($event.target).value)">
-                    @for (item of allCodeArtifacts(); track item.id) { <option [value]="item.id">{{ artifactLabel(item) }}</option> }
-                  </select>
-                }
-                <button type="button" class="canvas-mini-button" (click)="resetCanvasDraft()" [disabled]="canvasDraft() === artifact.content">Reset</button>
-              </div>
-            </div>
-            @if (canvasMode() === 'preview' && isHtmlArtifact(artifact)) {
-              <div class="canvas-preview-wrap"><iframe class="canvas-preview" title="Sandboxed HTML preview" [srcdoc]="htmlPreviewDocument()" sandbox referrerpolicy="no-referrer"></iframe></div>
-            } @else {
-              <textarea class="canvas-editor" aria-label="Editable code canvas" [value]="canvasDraft()" (input)="setCanvasDraft($any($event.target).value)" spellcheck="false"></textarea>
-            }
-            <footer class="canvas-footer"><span>{{ canvasDraft() === artifact.content ? 'SOURCE' : 'EDITED DRAFT' }}</span><span>{{ isHtmlArtifact(artifact) ? 'Sandboxed preview · network blocked' : 'Canvas edits do not change the saved chat' }}</span></footer>
+        @if (canvasOpen()) {<aside class="code-canvas" aria-label="Inline code preview">
+          <div class="canvas-tabs"><span class="canvas-tab active">&lt;/&gt; Inline code preview</span><span class="canvas-indicator" [class.present]="latestCodeArtifact()"></span></div>
+          @if (latestCodeArtifact(); as artifact) {
+            <div class="canvas-filebar"><div><span class="file-symbol">▤</span><b>{{ artifact.language || 'Code artifact' }}</b><span class="artifact-source">from assistant response</span></div><span>{{ artifact.content.split('\n').length }} lines</span></div>
+            <div class="code-scroll"><div class="code-source"><ol aria-hidden="true">@for (line of artifact.content.split('\n'); track $index) { <li>{{ $index + 1 }}</li> }</ol><pre><code>{{ artifact.content }}</code></pre></div></div>
+            <footer class="canvas-footer"><span>READ ONLY</span><span>Extracted from {{ activeChatTitle() }}</span></footer>
           } @else {
-            <div class="canvas-empty"><span class="canvas-empty-icon">&lt;/&gt;</span><b>No code artifact in this thread</b><p>Code blocks stay attached to the response that produced them. Click one in chat to open it here.</p></div>
-            <footer class="canvas-footer"><span>CANVAS</span><span>Waiting for a code block</span></footer>
+            <div class="canvas-empty"><span class="canvas-empty-icon">&lt;/&gt;</span><b>No code artifact in this thread</b><p>Assistant code blocks can be opened as stable Canvas tabs from the response.</p></div>
+            <footer class="canvas-footer"><span>PREVIEW</span><span>Waiting for a code block</span></footer>
           }
         </aside>}
         <aside class="chat-inspector" aria-label="Runtime inspector">
@@ -165,6 +184,56 @@ type ChatGeneration = { temperature: number; top_p: number | null; top_k: number
   `,
   styles: [`
     :host { display: block; height: 100%; }
+    .chat-attachments { display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:5px 8px;border-bottom:1px solid #303744; }
+    .attachment-picker { display:inline-flex;align-items:center;border:1px solid #3b485c;border-radius:4px;background:#171f2b;color:#c1d2ee;padding:5px 8px;font:9px ui-monospace,monospace;cursor:pointer; }
+    .attachment-help { color:#8794a8;font-size:9px; }
+    .attachment-uploading { color:#d6bf7d;font-size:9px; }
+    .chat-attachment-card { display:grid;grid-template-columns:minmax(125px,.7fr) minmax(200px,1.5fr) auto;align-items:center;gap:10px;width:100%;padding:8px;border:1px solid #354153;border-radius:4px;background:#101722; }
+    .attachment-file { display:grid;grid-template-columns:auto 1fr;align-items:center;gap:2px 6px;min-width:0; }
+    .attachment-file b { overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#d0d8e5;font-size:9px; }
+    .attachment-kind { grid-row:span 2;color:#a6bee9;font:8px ui-monospace,monospace;text-transform:uppercase; }
+    .attachment-file small { color:#8490a1;font-size:8px; }
+    .attachment-suggestions { display:grid;gap:4px; }
+    .skill-suggestion { display:grid;grid-template-columns:minmax(105px,.55fr) 1fr;gap:7px;padding-top:4px;border-top:1px solid #2b3441; }
+    .skill-suggestion>span { display:grid;gap:2px;color:#cbd6e8;font-size:9px; }
+    .skill-suggestion small { color:#ffb4ab;font:7px ui-monospace,monospace; }
+    .skill-suggestion small.suggestion-ready { color:#87d5a7; }
+    .skill-suggestion small.suggestion-unknown { color:#e4c699; }
+    .skill-suggestion p { margin:0;color:#96a2b3;font-size:8px;line-height:1.35; }
+    .browse-skills { color:#9db7e8;font-size:8px;text-decoration:none; }
+    .attachment-reupload-note { color:#8490a2;font-size:8px; }
+    .attachment-route-button { justify-self:start;border:1px solid #365341;border-radius:3px;background:#17251e;color:#a8e0bb;padding:4px 6px;font:8px ui-monospace,monospace;cursor:pointer; }
+    .attachment-route-limit { color:#d3b47e;font-size:8px; }
+    .browse-skills:hover { text-decoration:underline; }
+    .remove-attachment { border:1px solid #614342;border-radius:3px;background:#2a2022;color:#e2b3ac;padding:4px 6px;font-size:8px;cursor:pointer; }
+    .remove-attachment:disabled { opacity:.5;cursor:not-allowed; }
+    .attachment-error { width:100%;color:#ffaaa2;font-size:9px; }
+    .profile-picker select { min-width:150px;max-width:220px; }
+    .orchestration-strip { display:grid;grid-template-columns:minmax(130px,auto) 1fr auto;align-items:center;gap:9px;padding:8px 10px;margin:0 0 8px;border-bottom:1px solid #303744;background:#111823;color:#9aa8bc;font-size:10px; }
+    .orchestration-strip-heading { display:flex;align-items:center;gap:10px; }
+    .execution-mode { display:flex;gap:3px;padding:2px;border:1px solid #343e4f;border-radius:5px;background:#10151e; }
+    .execution-mode button,.plan-preview-button { border:1px solid transparent;border-radius:4px;background:transparent;color:#92a0b5;padding:4px 7px;font:9px ui-monospace,monospace;cursor:pointer; }
+    .execution-mode button.active { border-color:#455b7d;background:#202d40;color:#d3e2ff; }
+    .execution-mode button:disabled,.plan-preview-button:disabled { opacity:.5;cursor:not-allowed; }
+    .orchestration-route { display:flex;align-items:center;gap:8px;min-width:0;overflow-wrap:anywhere;font:9px ui-monospace,monospace;color:#c0cada; }
+    .route-ready { flex:none;color:#83d8b0; }
+    .run-state { color:#a9c5ff;text-transform:uppercase; }
+    .orchestration-error { grid-column:2 / 4;color:#ffaaa2;font-size:10px; }
+    .plan-notice { grid-column:1 / -1;color:#d4bf91;font-size:9px; }
+    .plan-preview-button { justify-self:end;border-color:#3d4e68;background:#1c293b;color:#cbdcff; }
+    .chat-plan-inspector { grid-column:1 / -1;display:grid;gap:7px;max-height:260px;overflow:auto;padding:8px;border:1px solid #35445a;border-radius:4px;background:#0d131d; }
+    .chat-plan-inspector>header { display:flex;justify-content:space-between;align-items:center;gap:9px;padding-bottom:6px;border-bottom:1px solid #2a3443; }
+    .chat-plan-inspector>header div { display:grid;gap:3px; }.chat-plan-inspector>header b { color:#d5dfee;font-size:10px; }.chat-plan-inspector>header small,.chat-plan-inspector>header span { color:#8e9bb0;font:8px ui-monospace,monospace; }
+    .plan-node { display:grid;gap:6px;padding:7px;border:1px solid #2e3949;border-radius:3px;background:#111924; }
+    .plan-node-heading { display:flex;justify-content:space-between;color:#cbd6e8;font:9px ui-monospace,monospace; }.plan-node-heading span { color:#88d6aa;font-size:7px; }
+    .plan-node dl { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px 12px;margin:0; }
+    .plan-node dl>div { display:grid;grid-template-columns:62px minmax(0,1fr);gap:5px;min-width:0; }.plan-node dt { color:#8290a4;font:8px ui-monospace,monospace;text-transform:uppercase; }.plan-node dd { margin:0;color:#bdc9dc;font:8px ui-monospace,monospace;overflow-wrap:anywhere; }
+    .route-why { margin:0;color:#b5c4dc;font-size:8px;line-height:1.45; }.route-why b { color:#e1d0ad; }
+    .plan-alternatives { display:grid;gap:4px;padding-top:5px;border-top:1px solid #2a3443; }.plan-alternatives>span,.no-alternatives { color:#8492a7;font:7px ui-monospace,monospace; }
+    .plan-alternatives>div { display:flex;align-items:center;gap:7px;flex-wrap:wrap; }.plan-alternatives button { border:1px solid #394a63;border-radius:3px;background:#192435;color:#bed0ef;padding:4px 6px;font:8px ui-monospace,monospace;cursor:pointer; }.plan-alternatives button:disabled { opacity:.5;cursor:not-allowed; }.plan-alternatives small { color:#8f9cb0;font-size:8px; }
+    .message-run-link { border:1px solid #34435a;border-radius:3px;padding:2px 5px;color:#9db7e8;font:8px ui-monospace,monospace; }
+    .message-canvas-actions{display:flex;gap:5px;flex-wrap:wrap;margin-top:5px}.message-canvas-actions button{padding:4px 7px;border:1px solid #394a63;border-radius:3px;background:#182334;color:#bdd1f1;font:8px ui-monospace,monospace;cursor:pointer}.message-canvas-actions button:hover{border-color:#8caddd;color:#e0ebfc}
+    @media(max-width:700px) { .orchestration-strip { grid-template-columns:1fr auto; }.orchestration-route { grid-column:1 / 3;grid-row:2; }.orchestration-error,.plan-notice { grid-column:1 / 3; }.chat-attachment-card { grid-template-columns:1fr auto; }.attachment-suggestions { grid-column:1 / 3;grid-row:2; }.remove-attachment { grid-column:2;grid-row:1; }.plan-node dl { grid-template-columns:1fr; } }
     .generation-control>span button{padding:0;border:0;background:none;color:#a0caff;font:inherit;text-decoration:underline;cursor:pointer}
     .generation-control>span button:disabled{opacity:.5;cursor:wait}
     .knowledge-control label{display:flex;align-items:center;gap:7px;margin-top:9px;color:#c2c6d6;font-size:11px;cursor:pointer}
@@ -174,8 +243,34 @@ type ChatGeneration = { temperature: number; top_p: number | null; top_k: number
   `]
 })
 export class ChatPage implements OnInit {
+  readonly selectionModeService = inject(SelectionModeService);
+  private readonly artifactService = inject(ArtifactService);
+  private readonly canvasWorkspace = inject(CanvasWorkspaceService);
+  private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
+  private readonly skillService = inject(SkillService);
   readonly chats = signal<ChatSummary[]>([]);
   readonly models = signal<Model[]>([]);
+  readonly profiles = signal<ChatProfile[]>([]);
+  readonly selectedProfileId = signal('');
+  readonly profilesLoading = signal(false);
+  readonly chatExecutionMode = signal<'orchestrated'|'legacy'>('orchestrated');
+  readonly orchestrationPlan = signal<any>(null);
+  readonly approvedGuidedPlanKey = signal('');
+  readonly selectedPlanOverride = signal<{ capabilityId: string; modelId: string; profileId?: string } | null>(null);
+  readonly selectedPlanOverrideKey = signal('');
+  readonly planInspectorOpen = signal(false);
+  readonly orchestrationError = signal('');
+  readonly planNotice = signal('');
+  readonly planningChat = signal(false);
+  readonly chatRunId = signal('');
+  readonly chatRunState = signal('');
+  readonly chatAttachments = signal<ChatAttachment[]>([]);
+  readonly skills = signal<SkillCatalogItem[]>([]);
+  readonly uploadingAttachments = signal(false);
+  readonly attachmentError = signal('');
+  readonly attachmentAccept = '.png,.jpg,.jpeg,.webp,.wav,.mp3,.ogg,.oga,.webm,.flac,.m4a,.pdf,.txt,.md,.markdown,.csv';
+  readonly maxAttachmentBytes = MAX_ARTIFACT_UPLOAD_BYTES;
   readonly runtimeStatus = signal<RuntimeStatus | null>(null);
   readonly generationSettings = signal<ChatGeneration>({ temperature: 0.7, top_p: null, top_k: null, min_p: null, repeat_penalty: null, max_tokens: null });
   readonly generationLoading = signal(false);
@@ -202,9 +297,6 @@ export class ChatPage implements OnInit {
   readonly apiError = signal('');
   readonly copiedKey = signal('');
   readonly canvasOpen = signal(false);
-  readonly canvasMode = signal<CanvasMode>('code');
-  readonly selectedArtifactId = signal('');
-  readonly canvasDraft = signal('');
   readonly threadFilter = signal('');
   visibleChats = () => this.chats().filter(chat => (chat.title || 'New chat').toLowerCase().includes(this.threadFilter().toLowerCase()));
   activeChatTitle = () => this.chats().find(chat => chat.id === this.selectedChatId())?.title || (this.selectedChatId() ? 'New chat' : 'No conversation selected');
@@ -212,11 +304,24 @@ export class ChatPage implements OnInit {
   selectedModel = () => this.models().find(model => model.id === this.selectedModelId()) ?? null;
   canEditGeneration = () => this.api.connected() && !!this.selectedChatId() && !this.busy() && !this.savingGeneration() && !this.generationLoading();
   canEditKnowledge = () => this.api.connected() && !!this.selectedChatId() && !this.busy() && !this.savingKnowledge() && !this.generationLoading();
-  allCodeArtifacts = (): CodeArtifact[] => this.messages().flatMap(message => message.role === 'assistant' ? extractCodeArtifacts(message.content, message.key) : []);
-  latestCodeArtifact = (): CodeArtifact | null => this.allCodeArtifacts().at(-1) ?? null;
-  selectedCodeArtifact = (): CodeArtifact | null => {
-    const artifacts = this.allCodeArtifacts();
-    return artifacts.find(artifact => artifact.id === this.selectedArtifactId()) ?? artifacts.at(-1) ?? null;
+  latestCodeArtifact = (): CodeArtifact | null => {
+    if (this.streamText()) {
+      const matches = [...this.streamText().matchAll(/(^|\n)(`{3,}|~{3,})([^\n]*)\n([\s\S]*?)(?:\n\2(?=\n|$)|$)/g)];
+      if (matches.length) {
+        const match = matches[matches.length - 1];
+        return { language: (match[3] || '').trim(), content: match[4].replace(/\n$/, ''), messageKey: 'streaming' };
+      }
+    }
+    for (let index = this.messages().length - 1; index >= 0; index--) {
+      const message = this.messages()[index];
+      if (message.role !== 'assistant') continue;
+      const matches = [...message.content.matchAll(/(^|\n)(`{3,}|~{3,})([^\n]*)\n([\s\S]*?)\n\2(?=\n|$)/g)];
+      if (matches.length) {
+        const match = matches[matches.length - 1];
+        return { language: (match[3] || '').trim(), content: match[4].replace(/\n$/, ''), messageKey: message.key };
+      }
+    }
+    return null;
   };
   private selectionVersion = 0;
   private modelSelectionTouched = false;
@@ -224,69 +329,65 @@ export class ChatPage implements OnInit {
   private aborter: AbortController | null = null;
   private streamCompleted = false;
   private serverDiagnosticReceived = false;
-  private canvasSourceId = '';
-  private readonly canvasDrafts = new Map<string, string>();
   private readonly scrollAnchor = viewChild<ElementRef<HTMLElement>>('scrollAnchor');
 
-  constructor(readonly api: ApiService, private readonly sanitizer: DomSanitizer) {
+  constructor(readonly api: ApiService) {
+    effect(() => { this.streaming(); this.messages(); this.scrollAnchor()?.nativeElement.scrollIntoView({ block: 'end' }); });
     effect(() => {
-      const artifacts = this.allCodeArtifacts();
-      const selected = artifacts.find(artifact => artifact.id === this.selectedArtifactId()) ?? artifacts.at(-1) ?? null;
-      if (selected && this.selectedArtifactId() !== selected.id) this.selectedArtifactId.set(selected.id);
-      if (selected && this.canvasSourceId !== selected.id) {
-        this.canvasSourceId = selected.id;
-        this.canvasDraft.set(this.canvasDrafts.get(selected.id) ?? selected.content);
-        if (!this.isHtmlArtifact(selected) && this.canvasMode() === 'preview') this.canvasMode.set('code');
-      } else if (!selected && this.canvasSourceId) {
-        this.canvasSourceId = '';
-        this.selectedArtifactId.set('');
-        this.canvasDraft.set('');
-        this.canvasMode.set('code');
-      }
-      this.streaming();
-      this.scrollAnchor()?.nativeElement.scrollIntoView({ block: 'end' });
+      const messages = this.messages();
+      const chatId = this.selectedChatId() || 'draft';
+      untracked(() => {
+        for (const message of messages) {
+          if (message.role !== 'assistant') continue;
+          const markdownId = `chat:${message.key}:markdown`;
+          this.canvasWorkspace.registerText(markdownId, 'Assistant response.md', 'markdown', message.content, 'chat', chatId);
+          for (const artifact of this.messageCanvasArtifacts(message)) {
+            this.canvasWorkspace.registerText(artifact.id, artifact.label, artifact.kind,
+              artifact.content, 'chat', chatId);
+          }
+        }
+      });
     });
   }
 
-  toggleCanvas(): void {
-    if (!this.canvasOpen()) {
-      const artifact = this.selectedCodeArtifact();
-      if (artifact) this.selectArtifact(artifact);
+  messageCanvasArtifacts(message: TranscriptMessage): MessageCanvasArtifact[] {
+    if (message.role === 'user') return [];
+    const pattern = /(^|\n)(`{3,}|~{3,})([^\n]*)\n([\s\S]*?)\n\2(?=\n|$)/g;
+    const artifacts: MessageCanvasArtifact[] = [];
+    let match: RegExpExecArray | null;
+    let index = 0;
+    while ((match = pattern.exec(message.content)) !== null) {
+      const language = (match[3] || '').trim().toLowerCase();
+      const kind: MessageCanvasArtifact['kind'] = ['html', 'htm'].includes(language) ? 'html'
+        : ['json', 'jsonc'].includes(language) ? 'json'
+        : ['md', 'markdown'].includes(language) ? 'markdown' : 'code';
+      artifacts.push({ id: `chat:${message.key}:code:${index}`, label: language || 'Code', kind,
+        content: match[4].replace(/\n$/, '') });
+      index++;
     }
-    this.canvasOpen.update(open => !open);
+    return artifacts;
   }
 
-  messageParts(message: TranscriptMessage): MessagePart[] { return splitMessageParts(message); }
-  artifactLabel(artifact: CodeArtifact): string { return `${artifact.language || 'code'} · block ${artifact.blockIndex + 1}`; }
-  openArtifact(artifact: CodeArtifact): void { this.selectArtifact(artifact); this.canvasOpen.set(true); }
-  selectArtifactById(id: string): void {
-    const artifact = this.allCodeArtifacts().find(item => item.id === id);
-    if (artifact) this.selectArtifact(artifact);
+  openMessageInCanvas(message: TranscriptMessage): void {
+    const chatId = this.selectedChatId() || 'draft';
+    this.canvasWorkspace.openText(`chat:${message.key}:markdown`, 'Assistant response.md', 'markdown',
+      message.content, 'chat', chatId);
+    void this.router.navigate(['/canvas']);
   }
-  setCanvasDraft(value: string): void {
-    this.canvasDraft.set(value);
-    const id = this.selectedArtifactId();
-    if (id) this.canvasDrafts.set(id, value);
+
+  openCodeInCanvas(artifact: MessageCanvasArtifact): void {
+    const chatId = this.selectedChatId() || 'draft';
+    this.canvasWorkspace.openText(artifact.id, artifact.label, artifact.kind, artifact.content, 'chat', chatId);
+    void this.router.navigate(['/canvas']);
   }
-  resetCanvasDraft(): void {
-    const artifact = this.selectedCodeArtifact();
-    if (!artifact) return;
-    this.canvasDrafts.delete(artifact.id);
-    this.canvasDraft.set(artifact.content);
-  }
-  isHtmlArtifact(artifact: CodeArtifact): boolean {
-    const language = artifact.language.trim().toLowerCase();
-    return language === 'html' || language === 'htm' || language === 'xhtml' || /^\s*<!doctype html/i.test(artifact.content) || /<html(?:\s|>)/i.test(artifact.content);
-  }
-  htmlPreviewDocument(): SafeHtml {
-    const artifact = this.selectedCodeArtifact();
-    return this.sanitizer.bypassSecurityTrustHtml(artifact && this.isHtmlArtifact(artifact) ? sandboxHtml(this.canvasDraft()) : '');
-  }
-  private selectArtifact(artifact: CodeArtifact): void {
-    this.selectedArtifactId.set(artifact.id);
-    this.canvasSourceId = artifact.id;
-    this.canvasDraft.set(this.canvasDrafts.get(artifact.id) ?? artifact.content);
-    this.canvasMode.set('code');
+
+  toggleCanvas(): void { this.canvasOpen.update(open => !open); }
+
+  messageDisplayContent(message: TranscriptMessage): string {
+    const artifact = this.latestCodeArtifact();
+    if (!artifact || artifact.messageKey !== message.key) return message.content;
+    const codeFence = /(^|\n)(`{3,}|~{3,})([^\n]*)\n([\s\S]*?)\n\2(?=\n|$)/g;
+    return message.content.replace(codeFence, (_block, prefix: string, _fence: string, language: string) => `${prefix}[${(language || 'Code').trim() || 'Code'} block is available to open in Canvas]`);
   }
 
   ngOnInit(): void { void this.initialize(); }
@@ -296,8 +397,69 @@ export class ChatPage implements OnInit {
     await this.api.check();
     if (!this.api.connected()) { this.apiError.set(this.api.error() || 'The local API did not respond.'); return; }
     this.loadModels();
-    this.loadChats();
+    this.loadChats(this.route.snapshot.queryParamMap.get('chat_id') || undefined);
     this.loadRuntimeStatus();
+    void this.loadSkills();
+  }
+
+  private async loadSkills(): Promise<void> {
+    try { this.skills.set(await this.skillService.list()); }
+    catch { this.skills.set([]); }
+  }
+
+  async selectChatAttachments(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const files = Array.from(input.files ?? []);
+    input.value = '';
+    if (!files.length) return;
+    if (files.length + this.chatAttachments().length > 4) {
+      this.attachmentError.set('A chat draft can stage up to four attachments. Remove one before adding more.');
+      return;
+    }
+    this.attachmentError.set('');
+    this.uploadingAttachments.set(true);
+    try {
+      for (const file of files) {
+        const kind = attachmentKind(file);
+        if (!kind) throw new Error(`Unsupported attachment format: ${file.name}`);
+        if (file.size > this.maxAttachmentBytes) throw new Error(`${file.name} exceeds the 32 MiB upload limit.`);
+        const artifact = await this.artifactService.upload(file, kind);
+        this.chatAttachments.update(items => [...items, { artifact, suggestedSkillIds: suggestedSkillIds(kind) }]);
+      }
+    } catch (error) {
+      this.attachmentError.set(error instanceof Error ? error.message : 'Could not upload the selected attachment.');
+    } finally { this.uploadingAttachments.set(false); }
+  }
+
+  suggestedSkills(item: ChatAttachment): SkillCatalogItem[] {
+    const byId = new Map(this.skills().map(skill => [skill.id, skill]));
+    return item.suggestedSkillIds.map(id => byId.get(id)).filter((skill): skill is SkillCatalogItem => !!skill);
+  }
+
+  supportsAttachmentSkill(item: ChatAttachment, skill: SkillCatalogItem): boolean {
+    return skill.inputs.some(input => input.artifact === item.artifact.kind);
+  }
+
+  openAttachmentSkill(item: ChatAttachment, skill: SkillCatalogItem): void {
+    if (!this.supportsAttachmentSkill(item, skill)) return;
+    void this.router.navigate(['/skills'], { queryParams: { skill: skill.id, artifact: item.artifact.id } });
+  }
+
+  async removeChatAttachment(item: ChatAttachment): Promise<void> {
+    this.attachmentError.set('');
+    try {
+      await this.artifactService.delete(item.artifact.id);
+      this.chatAttachments.update(items => items.filter(candidate => candidate.artifact.id !== item.artifact.id));
+    } catch (error) {
+      this.attachmentError.set(error instanceof Error ? error.message : 'Could not remove the staged attachment.');
+    }
+  }
+
+  formatBytes(value: number): string {
+    if (!Number.isFinite(value) || value < 0) return 'size unknown';
+    if (value < 1024) return `${value} B`;
+    if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`;
+    return `${(value / (1024 * 1024)).toFixed(1)} MiB`;
   }
 
   retry(): void { void this.initialize(); }
@@ -324,6 +486,7 @@ export class ChatPage implements OnInit {
         this.models.set(models.filter((model: any) => typeof model?.id === 'string' && model.id.length > 0));
         this.selectLoadedModelWhenUntouched();
         if (!this.selectedModelId() && this.models().length) this.selectedModelId.set(this.models()[0].id);
+        if (this.selectedModelId()) this.loadProfiles(this.selectedModelId());
         this.modelsLoading.set(false);
       },
       error: (error) => { this.modelsLoading.set(false); this.apiError.set(error?.error?.error || error?.message || 'Could not load local models.'); }
@@ -332,7 +495,95 @@ export class ChatPage implements OnInit {
 
   selectModel(modelId: string): void {
     this.modelSelectionTouched = true;
+    this.selectedPlanOverride.set(null);
+    this.selectedPlanOverrideKey.set('');
     this.selectedModelId.set(modelId);
+    this.selectedProfileId.set('');
+    this.orchestrationPlan.set(null);
+    this.approvedGuidedPlanKey.set('');
+    this.planInspectorOpen.set(false);
+    this.planNotice.set('');
+    this.loadProfiles(modelId);
+  }
+
+  replacePlanRoute(route: any): void {
+    if (!route || typeof route.model_id !== 'string' || !route.model_id || this.busy()) return;
+    this.modelSelectionTouched = true;
+    this.selectedModelId.set(route.model_id);
+    this.profiles.set([]);
+    this.selectedProfileId.set(typeof route.profile_id === 'string' ? route.profile_id : '');
+    this.selectedPlanOverride.set(typeof route.capability_id === 'string'
+      ? { capabilityId: route.capability_id, modelId: route.model_id,
+          ...(typeof route.profile_id === 'string' ? { profileId: route.profile_id } : {}) }
+      : null);
+    this.loadProfiles(route.model_id);
+    this.selectedPlanOverrideKey.set(this.guidedPlanKey());
+    this.orchestrationPlan.set(null);
+    this.approvedGuidedPlanKey.set('');
+    this.planInspectorOpen.set(false);
+    this.orchestrationError.set('');
+    this.planNotice.set('Alternative selected for this turn. The next plan will pin this model and profile.');
+  }
+
+  setChatExecutionMode(mode: 'orchestrated'|'legacy'): void {
+    this.chatExecutionMode.set(mode);
+    this.selectedPlanOverride.set(null);
+    this.selectedPlanOverrideKey.set('');
+    this.orchestrationError.set('');
+    this.planNotice.set('');
+    this.orchestrationPlan.set(null);
+    this.approvedGuidedPlanKey.set('');
+    this.planInspectorOpen.set(false);
+  }
+
+  private guidedPlanKey(text = this.prompt().trim()): string {
+    return JSON.stringify([this.selectionModeService.mode(), text, this.selectedModelId(), this.selectedProfileId(), this.selectedChatId()]);
+  }
+
+  guidedPlanCurrent(): boolean {
+    return /^[a-f0-9]{24}$/.test(this.orchestrationPlan()?.plan_id || '') && !!this.approvedGuidedPlanKey()
+      && this.approvedGuidedPlanKey() === this.guidedPlanKey();
+  }
+
+  private loadProfiles(modelId: string): void {
+    this.profilesLoading.set(true);
+    this.api.get<unknown>(`/api/model-profiles?model_id=${encodeURIComponent(modelId)}`).subscribe({
+      next: value => { const data = unwrap(value) as any; this.profiles.set(Array.isArray(data?.profiles) ? data.profiles.filter((p: any) => p?.model_id === modelId && typeof p.id === 'string') : []); this.profilesLoading.set(false); },
+      error: () => { this.profiles.set([]); this.profilesLoading.set(false); }
+    });
+  }
+
+  orchestrationRouteLabel(): string {
+    const plan = this.orchestrationPlan();
+    const selected = plan?.nodes?.find((node: any) => node?.capability_id === 'text.chat')?.selected;
+    if (!selected) return 'Plan resolved';
+    const profile = this.profiles().find(item => item.id === selected.profile_id);
+    return `${selected.model_id}${profile ? ` · ${profile.name}` : ''} · ${selected.runtime_id}`;
+  }
+
+  togglePlanInspector(): void { this.planInspectorOpen.update(open => !open); }
+
+  orchestrationNodes(): any[] {
+    const nodes = this.orchestrationPlan()?.nodes;
+    return Array.isArray(nodes) ? nodes.filter((node: any) => !!node && typeof node === 'object') : [];
+  }
+
+  selectedRouteWhy(node: any): any | null {
+    const rows = Array.isArray(node?.why) ? node.why : [];
+    return rows.find((row: any) => row?.route_id === node?.selected?.id && row?.selected === true) ?? null;
+  }
+
+  alternativeReason(node: any, routeId: string): string {
+    const rows = Array.isArray(node?.why) ? node.why : [];
+    const row = rows.find((item: any) => item?.route_id === routeId);
+    if (!row) return 'No route explanation reported.';
+    if (row.eligible) return row.reasons?.join(', ') || 'Compatible alternative.';
+    return row.reasons?.join(', ') || 'Not eligible for this plan.';
+  }
+
+  profileNameFor(profileId?: string | null): string {
+    if (!profileId) return 'Automatic profile';
+    return this.profiles().find(profile => profile.id === profileId)?.name || profileId;
   }
 
   activeLoadedModel(): Model | null {
@@ -373,12 +624,11 @@ export class ChatPage implements OnInit {
 
   selectChat(id: string): void {
     const version = ++this.selectionVersion;
+    this.orchestrationPlan.set(null);
+    this.approvedGuidedPlanKey.set('');
+    this.selectedPlanOverride.set(null);
+    this.selectedPlanOverrideKey.set('');
     this.canvasOpen.set(false);
-    this.selectedArtifactId.set('');
-    this.canvasDraft.set('');
-    this.canvasMode.set('code');
-    this.canvasSourceId = '';
-    this.canvasDrafts.clear();
     this.generationLoadVersion++;
     this.selectedChatId.set(id);
     this.messages.set([]);
@@ -397,7 +647,7 @@ export class ChatPage implements OnInit {
         const data = unwrap(response) as any;
         const chat = data?.chat || data;
         if (!chat || chat.id !== id || !Array.isArray(chat.messages)) { this.generationLoading.set(false); this.apiError.set('The conversation response has an unexpected shape.'); return; }
-        this.messages.set(chat.messages.map((message: any, index: number) => ({ role: message.role === 'user' ? 'user' : 'assistant', content: typeof message.content === 'string' ? message.content : '', created_at: message.created_at, key: `${id}:${index}:${message.created_at || ''}` })));
+        this.messages.set(chat.messages.map((message: any, index: number) => ({ role: message.role === 'user' ? 'user' : 'assistant', content: typeof message.content === 'string' ? message.content : '', created_at: message.created_at, run_id: typeof message.run_id === 'string' ? message.run_id : undefined, key: `${id}:${index}:${message.created_at || ''}` })));
         this.loadChatGeneration(id);
         this.apiError.set('');
       },
@@ -495,11 +745,6 @@ export class ChatPage implements OnInit {
         this.selectedChatId.set(chat.id);
         this.messages.set([]);
         this.canvasOpen.set(false);
-        this.selectedArtifactId.set('');
-        this.canvasDraft.set('');
-        this.canvasMode.set('code');
-        this.canvasSourceId = '';
-        this.canvasDrafts.clear();
         this.loadChats(chat.id);
       },
       error: (error) => { this.creatingChat.set(false); this.apiError.set(error?.error?.error || error?.message || 'Could not create a conversation.'); }
@@ -552,7 +797,7 @@ export class ChatPage implements OnInit {
 
   busy(): boolean { return this.streaming() || this.sending() || this.creatingChat() || this.mutatingChat(); }
   canCompose(): boolean { return this.api.connected() && !!this.selectedChatId() && !this.busy(); }
-  canSend(): boolean { return this.canCompose() && !!this.selectedModelId() && !!this.prompt().trim() && !this.modelsLoading(); }
+  canSend(): boolean { return this.canCompose() && !!this.selectedModelId() && !!this.prompt().trim() && !this.modelsLoading() && !this.planningChat(); }
 
   onComposerKey(event: KeyboardEvent): void {
     if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); this.send(); }
@@ -564,6 +809,12 @@ export class ChatPage implements OnInit {
     const chatId = this.selectedChatId();
     const modelId = this.selectedModelId();
     if (!text || !chatId || !modelId || this.busy()) return;
+    if (this.chatExecutionMode() === 'orchestrated') {
+      const mode = this.selectionModeService.mode();
+      if (mode === 'guided') await this.previewChatPlan();
+      else await this.sendOrchestrated(text, chatId, modelId);
+      return;
+    }
     const previousMessages = this.messages();
     const incidentId = crypto.randomUUID().replaceAll('-', '');
     this.lastIncidentId.set('');
@@ -608,6 +859,187 @@ export class ChatPage implements OnInit {
       }
       this.streamText.set('');
     }
+  }
+
+  private selectionForMode(mode = this.selectionModeService.mode(), modelId = this.selectedModelId(), text = this.prompt().trim()): Record<string, unknown> {
+    const selection: Record<string, unknown> = mode === 'manual'
+      ? { mode: 'manual', pinned_model_id: modelId }
+      : { mode };
+    if (mode === 'manual' && this.selectedProfileId()) selection['pinned_profile_id'] = this.selectedProfileId();
+    const override = this.selectedPlanOverride();
+    if (mode !== 'manual' && override && this.selectedPlanOverrideKey() === this.guidedPlanKey(text)) {
+      selection['capability_pins'] = { [override.capabilityId]: {
+        model_id: override.modelId,
+        ...(override.profileId ? { profile_id: override.profileId } : {}),
+      } };
+    }
+    return selection;
+  }
+
+  private async resolveChatPlan(text: string, mode = this.selectionModeService.mode(), modelId = this.selectedModelId()): Promise<any> {
+    const selection = this.selectionForMode(mode, modelId, text);
+    const request = { inputs: { prompt: { kind: 'text', text } }, selection };
+    const response = await firstValueFrom(this.api.post<unknown>('/api/skills/chat.general/plan', request));
+    const data = unwrap(response) as any;
+    if (!data?.plan || !Array.isArray(data.plan.nodes)) throw new Error('The local API returned an invalid chat plan.');
+    if (mode === 'manual') {
+      const node = data.plan.nodes.find((item: any) => item?.capability_id === 'text.chat');
+      if (!node?.selected || node.selected.model_id !== modelId
+        || (this.selectedProfileId() && node.selected.profile_id !== this.selectedProfileId())) {
+        throw new Error('The selected model or profile is not compatible with this chat route. Manual mode will not substitute another route.');
+      }
+    }
+    return data.plan;
+  }
+
+  async previewChatPlan(): Promise<void> {
+    if (this.planningChat() || !this.prompt().trim() || !this.selectedModelId()) return;
+    this.planningChat.set(true);
+    this.orchestrationError.set('');
+    this.planNotice.set('');
+    this.orchestrationPlan.set(null);
+    try {
+      const text = this.prompt().trim();
+      const mode = this.selectionModeService.mode();
+      const plan = await this.resolveChatPlan(text, mode);
+      this.orchestrationPlan.set(plan);
+      this.approvedGuidedPlanKey.set(mode === 'guided' ? this.guidedPlanKey(text) : '');
+      if (mode === 'guided') this.planInspectorOpen.set(true);
+    }
+    catch (error) { this.orchestrationError.set(error instanceof Error ? error.message : 'Could not resolve a local chat route.'); }
+    finally { this.planningChat.set(false); }
+  }
+
+  async confirmGuidedPlan(): Promise<void> {
+    if (this.selectionModeService.mode() !== 'guided' || !this.guidedPlanCurrent()) {
+      this.planNotice.set('The reviewed plan is out of date. Resolve the current prompt and selections again before running.');
+      this.orchestrationPlan.set(null);
+      this.approvedGuidedPlanKey.set('');
+      return;
+    }
+    const chatId = this.selectedChatId();
+    if (!chatId) return;
+    await this.runResolvedChatPlan(this.prompt().trim(), chatId, this.orchestrationPlan(), 'guided');
+  }
+
+  private async sendOrchestrated(text: string, chatId: string, modelId: string): Promise<void> {
+    const previousMessages = this.messages();
+    const draft = this.prompt();
+    const temporaryUser: TranscriptMessage = { role: 'user', content: text, key: `pending-user-${Date.now()}` };
+    this.prompt.set('');
+    this.turnError.set('');
+    this.orchestrationError.set('');
+    this.chatRunId.set('');
+    this.chatRunState.set('Planning');
+    this.sending.set(true);
+    this.planningChat.set(true);
+    this.messages.update(messages => [...messages, temporaryUser]);
+    try {
+      const mode = this.selectionModeService.mode();
+      const plan = await this.resolveChatPlan(text, mode, modelId);
+      this.orchestrationPlan.set(plan);
+      this.planNotice.set('');
+      this.planningChat.set(false);
+      const selection = this.selectionForMode(mode, modelId, text);
+      const response = await firstValueFrom(this.api.post<unknown>('/api/skills/chat.general/run', { chat_id: chatId, inputs: { prompt: { kind: 'text', text } }, selection }));
+      const data = unwrap(response) as any;
+      const run = data?.run;
+      if (!run || typeof run.id !== 'string') throw new Error('The local API did not create a chat run.');
+      this.chatRunId.set(run.id);
+      this.chatRunState.set(run.state || 'queued');
+      this.sending.set(false);
+      this.streaming.set(true);
+      const deadline = Date.now() + 300_000;
+      while (Date.now() < deadline) {
+        const snapshotResponse = await firstValueFrom(this.api.get<unknown>(`/api/runs/${encodeURIComponent(run.id)}`));
+        const snapshot = (unwrap(snapshotResponse) as any)?.run;
+        if (!snapshot || snapshot.id !== run.id) throw new Error('The local API returned an invalid run status.');
+        this.chatRunState.set(snapshot.state);
+        if (snapshot.state === 'succeeded') {
+          this.streaming.set(false);
+          this.aborter = null;
+          await this.refreshTranscript(chatId, temporaryUser);
+          this.loadRuntimeStatus();
+          return;
+        }
+        if (snapshot.state === 'failed' || snapshot.state === 'cancelled') {
+          throw new Error(snapshot.error?.message || `Chat run ${snapshot.state}.`);
+        }
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      throw new Error('The chat run is still active; open Runs to inspect its current state.');
+    } catch (error) {
+      this.sending.set(false);
+      this.streaming.set(false);
+      this.planningChat.set(false);
+      this.prompt.set(draft);
+      this.messages.set(previousMessages);
+      const message = error instanceof Error ? error.message : 'The orchestration run failed.';
+      this.orchestrationError.set(message);
+      this.turnError.set(message);
+    }
+  }
+
+  private async runResolvedChatPlan(text: string, chatId: string, plan: any, mode: 'guided'): Promise<void> {
+    const previousMessages = this.messages();
+    const draft = this.prompt();
+    const temporaryUser: TranscriptMessage = { role: 'user', content: text, key: `pending-user-${Date.now()}` };
+    this.prompt.set('');
+    this.turnError.set('');
+    this.orchestrationError.set('');
+    this.chatRunId.set('');
+    this.chatRunState.set('Planning');
+    this.sending.set(true);
+    this.messages.update(messages => [...messages, temporaryUser]);
+    try {
+      const response = await firstValueFrom(this.api.post<unknown>('/api/skills/chat.general/run', {
+        chat_id: chatId, inputs: { prompt: { kind: 'text', text } },
+        selection: this.selectionForResolvedPlan(plan, mode, text), expected_plan_id: plan?.plan_id,
+      }));
+      const run = (unwrap(response) as any)?.run;
+      if (!run || typeof run.id !== 'string') throw new Error('The local API did not create a chat run.');
+      this.chatRunId.set(run.id);
+      this.chatRunState.set(run.state || 'queued');
+      this.sending.set(false);
+      this.streaming.set(true);
+      const deadline = Date.now() + 300_000;
+      while (Date.now() < deadline) {
+        const snapshot = (unwrap(await firstValueFrom(this.api.get<unknown>(`/api/runs/${encodeURIComponent(run.id)}`))) as any)?.run;
+        if (!snapshot || snapshot.id !== run.id) throw new Error('The local API returned an invalid run status.');
+        this.chatRunState.set(snapshot.state);
+        if (snapshot.state === 'succeeded') {
+          this.streaming.set(false);
+          await this.refreshTranscript(chatId, temporaryUser);
+          this.loadRuntimeStatus();
+          return;
+        }
+        if (snapshot.state === 'failed' || snapshot.state === 'cancelled') throw new Error(snapshot.error?.message || `Chat run ${snapshot.state}.`);
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      throw new Error('The chat run is still active; open Runs to inspect its current state.');
+    } catch (error) {
+      this.sending.set(false);
+      this.streaming.set(false);
+      this.prompt.set(draft);
+      this.messages.set(previousMessages);
+      const message = error instanceof Error ? error.message : 'The orchestration run failed.';
+      this.orchestrationError.set(message);
+      this.turnError.set(message);
+    }
+  }
+
+  private selectionForResolvedPlan(plan: any, mode: 'guided', text: string): Record<string, unknown> {
+    const selection = this.selectionForMode(mode, this.selectedModelId(), text);
+    const pins = { ...((selection['capability_pins'] as Record<string, Record<string, string>> | undefined) ?? {}) };
+    for (const node of Array.isArray(plan?.nodes) ? plan.nodes : []) {
+      if (typeof node?.capability_id !== 'string' || typeof node?.selected?.model_id !== 'string') continue;
+      pins[node.capability_id] = {
+        model_id: node.selected.model_id,
+        ...(typeof node.selected.profile_id === 'string' ? { profile_id: node.selected.profile_id } : {}),
+      };
+    }
+    selection['capability_pins'] = pins;
+    return selection;
   }
 
   private async readStream(body: ReadableStream<Uint8Array>): Promise<void> {
@@ -683,7 +1115,7 @@ export class ChatPage implements OnInit {
       const data = unwrap(await response.json()) as any;
       const chat = data?.chat || data;
       if (Array.isArray(chat?.messages)) {
-        this.messages.set(chat.messages.map((message: any, index: number) => ({ role: message.role === 'user' ? 'user' : 'assistant', content: typeof message.content === 'string' ? message.content : '', created_at: message.created_at, key: `${chatId}:${index}:${message.created_at || ''}` })));
+        this.messages.set(chat.messages.map((message: any, index: number) => ({ role: message.role === 'user' ? 'user' : 'assistant', content: typeof message.content === 'string' ? message.content : '', created_at: message.created_at, run_id: typeof message.run_id === 'string' ? message.run_id : undefined, key: `${chatId}:${index}:${message.created_at || ''}` })));
       } else {
         this.messages.update(messages => [...messages.filter(item => item.key !== fallbackUser.key), { ...fallbackUser, key: `${chatId}:user:${Date.now()}` }, { role: 'assistant', content: this.streamText(), key: `${chatId}:assistant:${Date.now()}` }]);
       }
@@ -697,7 +1129,11 @@ export class ChatPage implements OnInit {
     }
   }
 
-  cancel(): void { this.aborter?.abort(); }
+  cancel(): void {
+    const runId = this.chatRunId();
+    if (runId) { this.chatRunState.set('cancelling'); this.api.post<unknown>(`/api/runs/${encodeURIComponent(runId)}/cancel`, {}).subscribe({ error: () => this.orchestrationError.set('Could not cancel the active orchestration run.') }); }
+    else this.aborter?.abort();
+  }
   async copyMessage(message: TranscriptMessage): Promise<void> {
     try {
       await navigator.clipboard.writeText(message.content);
@@ -722,55 +1158,23 @@ export class ChatPage implements OnInit {
   formatTime(value: string): string { const date = new Date(value); return Number.isNaN(date.valueOf()) ? '' : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
 }
 
-function extractCodeArtifacts(content: string, messageKey: string): CodeArtifact[] {
-  const artifacts: CodeArtifact[] = [];
-  const fence = /(?:^|\n)(`{3,}|~{3,})([^\n]*)\n([\s\S]*?)\n\1(?=\n|$)/g;
-  let match: RegExpExecArray | null;
-  while ((match = fence.exec(content)) !== null) {
-    const language = (match[2] || '').trim().split(/\s+/)[0] || 'code';
-    const blockIndex = artifacts.length;
-    artifacts.push({ id: `${messageKey}::code-${blockIndex}`, language, content: match[3].replace(/\n$/, ''), messageKey, blockIndex });
-  }
-  return artifacts;
-}
-
-function splitMessageParts(message: TranscriptMessage): MessagePart[] {
-  if (message.role !== 'assistant') return [{ key: `${message.key}:text`, kind: 'text', content: message.content }];
-  const parts: MessagePart[] = [];
-  const fence = /(?:^|\n)(`{3,}|~{3,})([^\n]*)\n([\s\S]*?)\n\1(?=\n|$)/g;
-  let cursor = 0;
-  let blockIndex = 0;
-  let match: RegExpExecArray | null;
-  while ((match = fence.exec(message.content)) !== null) {
-    const before = message.content.slice(cursor, match.index);
-    if (before) parts.push({ key: `${message.key}:text-${blockIndex}`, kind: 'text', content: before });
-    const language = (match[2] || '').trim().split(/\s+/)[0] || 'code';
-    const artifact: CodeArtifact = { id: `${message.key}::code-${blockIndex}`, language, content: match[3].replace(/\n$/, ''), messageKey: message.key, blockIndex };
-    parts.push({ key: artifact.id, kind: 'code', artifact });
-    blockIndex += 1;
-    cursor = match.index + match[0].length;
-  }
-  const after = message.content.slice(cursor);
-  if (after) parts.push({ key: `${message.key}:text-${blockIndex}`, kind: 'text', content: after });
-  return parts.length ? parts : [{ key: `${message.key}:text`, kind: 'text', content: message.content }];
-}
-
-function sandboxHtml(source: string): string {
-  const policy = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; font-src data:; media-src data: blob:; form-action 'none'; base-uri 'none'">`;
-  const referrer = '<meta name="referrer" content="no-referrer">';
-  const trimmed = source.trim();
-  if (/<html(?:\s|>)/i.test(trimmed)) {
-    if (/<head(?:\s|>)/i.test(trimmed)) return trimmed.replace(/<head([^>]*)>/i, `<head$1>${policy}${referrer}`);
-    return trimmed.replace(/<html([^>]*)>/i, `<html$1><head>${policy}${referrer}</head>`);
-  }
-  return `<!doctype html><html><head>${policy}${referrer}<meta charset="utf-8"><style>html,body{margin:0;min-height:100%;font-family:system-ui,sans-serif}</style></head><body>${source}</body></html>`;
-}
-
 function unwrap(response: any): any { return response && typeof response === 'object' && 'data' in response ? response.data : response; }
 function finiteNumber(value: unknown, fallback: number): number { return typeof value === 'number' && Number.isFinite(value) ? value : fallback; }
 function finiteNumberOrNull(value: unknown): number | null { return typeof value === 'number' && Number.isFinite(value) ? value : null; }
 function integerNumberOrNull(value: unknown): number | null { return typeof value === 'number' && Number.isInteger(value) ? value : null; }
 function safeFilename(value: string): string { return value.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 72) || 'conversation'; }
+function attachmentKind(file: File): UploadArtifactKind | null {
+  const extension = file.name.split('.').pop()?.toLowerCase() ?? '';
+  if (['png', 'jpg', 'jpeg', 'webp'].includes(extension)) return 'image';
+  if (['wav', 'mp3', 'ogg', 'oga', 'webm', 'flac', 'm4a'].includes(extension)) return 'audio';
+  if (['pdf', 'txt', 'md', 'markdown', 'csv'].includes(extension)) return 'document';
+  return null;
+}
+function suggestedSkillIds(kind: UploadArtifactKind): string[] {
+  if (kind === 'image') return ['image.describe', 'image.edit-from-instruction'];
+  if (kind === 'audio') return ['voice.transcribe', 'voice.conversation'];
+  return ['document.summarize', 'document.extract-text'];
+}
 async function responseMessage(response: Response): Promise<string> {
   try { const body = await response.json(); return body?.error || body?.message || `Local API returned HTTP ${response.status}`; }
   catch { return `Local API returned HTTP ${response.status}`; }

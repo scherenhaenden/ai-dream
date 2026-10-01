@@ -135,6 +135,19 @@ export interface ModelProfile {
   placement: RuntimePlacement;
   load: RuntimeLoadOptions;
   generation: GenerationOptions;
+  purpose?: string[];
+  companion_artifacts?: string[];
+  hardware_signature?: string | null;
+  profile_class?: string;
+  verification?: {
+    status: 'verified' | 'supported' | 'probable' | 'unknown' | 'failed';
+    runtime_version?: string;
+    verified_at?: string;
+    hardware_signature?: string;
+    details?: string;
+  } | null;
+  /** Input compatibility alias; the backend persists the documented `verification` field. */
+  verification_summary?: ModelProfile['verification'];
   created_at: string;
   updated_at: string;
 }

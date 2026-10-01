@@ -14,7 +14,7 @@ from urllib.request import Request, urlopen
 
 from aidream.conversation import ChatStore
 from aidream.diagnostics import DiagnosticsLog
-from aidream.http_api import MAX_MODELS, MAX_REQUEST_BYTES, ReadOnlyAPI, create_server
+from aidream.http_api import APIConflict, APIUnavailable, APINotFound, MAX_MODELS, MAX_REQUEST_BYTES, ReadOnlyAPI, create_server
 from aidream.runtime import LlamaCppBackend
 
 
@@ -204,6 +204,19 @@ class HTTPAPITests(unittest.TestCase):
         self.assertTrue(runtime["data"]["backends"][0]["available"])
         self.assertEqual(runtime["data"]["backends"][0]["name"], "fixture")
 
+    def test_manifest_verify_endpoint_fails_closed_without_a_local_verifier(self):
+        path = "/api/model-manifests/local.aaaaaaaaaaaaaaaaaaaaaaaa/verify"
+        with self.assertRaises(HTTPError) as error:
+            self.post_json(path, {})
+        self.assertEqual(error.exception.code, 503)
+        self.assertIn("No local runtime manifest verifier is configured",
+                      error.exception.read().decode("utf-8"))
+
+        with self.assertRaises(HTTPError) as invalid:
+            self.post_json(path, {"success": True})
+        self.assertEqual(invalid.exception.code, 400)
+        invalid.exception.read()
+
     def test_logs_snapshot_accepts_bounded_limit_query(self):
         with self.request("/api/logs?limit=50") as response:
             payload = json.loads(response.read())
@@ -246,6 +259,216 @@ class HTTPAPITests(unittest.TestCase):
         caught.exception.read()
         caught.exception.close()
 
+    def test_run_skill_api_sse_status_and_cancel_routes(self):
+        from aidream.run_manager import RunManager
+
+        manager = RunManager(executor=lambda **kwargs: [{"kind": "text", "text": "done"}])
+        self.addCleanup(manager.close)
+        api = self.server.services
+        api.run_manager = manager
+        api.run_planner = lambda **kwargs: {"plan": {"id": "plan-test", "nodes": []}}
+        with self.post_json("/api/skills/chat.general/run", {
+            "inputs": {"prompt": {"kind": "text", "text": "hello"}},
+            "parameters": {}, "selection": {"mode": "auto"},
+        }) as response:
+            self.assertEqual(response.status, 202)
+            run = json.loads(response.read())["data"]["run"]
+        run_id = run["id"]
+        with self.request(f"/api/runs/{run_id}") as response:
+            details = json.loads(response.read())["data"]["run"]
+        self.assertIn(details["state"], {"queued", "running", "succeeded"})
+        with self.request(f"/api/runs/{run_id}/events?after=0") as response:
+            stream = response.read().decode()
+        self.assertIn("event: plan.resolved", stream)
+        self.assertIn("event: run.succeeded", stream)
+        with self.request("/api/runs", method="OPTIONS",
+                          headers={"Origin": "http://127.0.0.1:5173"}) as response:
+            self.assertEqual(response.status, 204)
+        with self.post_json(f"/api/runs/{run_id}/cancel", {}) as response:
+            self.assertEqual(response.status, 200)
+
+    def test_run_event_stream_reports_when_bounded_history_has_a_gap(self):
+        from aidream.run_manager import RunManager
+
+        def execute(*, emit, **kwargs):
+            for index in range(10):
+                emit("node.progress", {"index": index})
+            return [{"kind": "text", "text": "complete"}]
+
+        manager = RunManager(executor=execute, max_events_per_run=4)
+        self.addCleanup(manager.close)
+        self.server.services.run_manager = manager
+        self.server.services.run_planner = lambda **kwargs: {"plan": {"id": "plan-gap", "nodes": []}}
+        with self.post_json("/api/skills/chat.general/run", {
+            "inputs": {"prompt": {"kind": "text", "text": "hello"}},
+            "parameters": {}, "selection": {"mode": "auto"},
+        }) as response:
+            run = json.loads(response.read())["data"]["run"]
+        with self.request(f"/api/runs/{run['id']}/events?after=0") as response:
+            stream = response.read().decode()
+        self.assertIn("event: run.replay_gap", stream)
+        self.assertIn('"missing_from":1', stream)
+        self.assertIn("event: run.succeeded", stream)
+
+    def test_run_requires_the_exact_plan_id_after_explicit_review(self):
+        from aidream.run_manager import RunManager
+
+        manager = RunManager(executor=lambda **kwargs: [])
+        self.addCleanup(manager.close)
+        self.server.services.run_manager = manager
+        expected = "a" * 24
+        self.server.services.run_planner = lambda **kwargs: {"plan": {"plan_id": expected, "nodes": []}}
+        request_body = {
+            "inputs": {"prompt": {"kind": "text", "text": "hello"}},
+            "parameters": {}, "selection": {"mode": "guided"},
+            "expected_plan_id": "b" * 24,
+        }
+        with self.assertRaises(HTTPError) as caught:
+            self.post_json("/api/skills/chat.general/run", request_body)
+        self.assertEqual(caught.exception.code, 409)
+        caught.exception.read()
+        caught.exception.close()
+        self.assertEqual(manager.list_runs(), [])
+
+        request_body["expected_plan_id"] = expected
+        with self.post_json("/api/skills/chat.general/run", request_body) as response:
+            self.assertEqual(response.status, 202)
+        self.assertEqual(len(manager.list_runs()), 1)
+
+        with self.assertRaises(HTTPError) as caught:
+            self.post_json("/api/skills/chat.general/plan", request_body)
+        self.assertEqual(caught.exception.code, 400)
+        caught.exception.read()
+        caught.exception.close()
+
+    def test_artifact_upload_list_content_owner_scope_and_delete(self):
+        with self.request("/api/artifacts", method="OPTIONS",
+                          headers={"Origin": "http://127.0.0.1:5173"}) as response:
+            self.assertEqual(response.status, 204)
+            self.assertIn("X-AI-Dream-Artifact-Kind",
+                          response.headers.get("Access-Control-Allow-Headers", ""))
+        headers = {
+            "Origin": "http://127.0.0.1:5173",
+            "Content-Type": "image/png",
+            "X-AI-Dream-Artifact-Kind": "image",
+            "X-AI-Dream-Artifact-Name": "tiny.png",
+            "X-AI-Dream-Artifact-Owner-Type": "session",
+            "X-AI-Dream-Artifact-Owner-ID": "web-session-123",
+            "X-AI-Dream-Artifact-Lifetime": "session",
+        }
+        payload = b"\x89PNG\r\n\x1a\nfixture"
+        with self.request("/api/artifacts", method="POST", headers=headers, data=payload) as response:
+            self.assertEqual(response.status, 201)
+            artifact = json.loads(response.read())["data"]["artifact"]
+        artifact_id = artifact["id"]
+        self.assertNotIn("/tmp", json.dumps(artifact))
+        owner_query = "owner_type=session&owner_id=web-session-123"
+        with self.request(f"/api/artifacts?{owner_query}") as response:
+            rows = json.loads(response.read())["data"]["artifacts"]
+        self.assertEqual([item["id"] for item in rows], [artifact_id])
+        with self.request(f"/api/artifacts/{artifact_id}/metadata?{owner_query}") as response:
+            self.assertEqual(json.loads(response.read())["data"]["artifact"]["size_bytes"], len(payload))
+        with self.request(f"/api/artifacts/{artifact_id}/content?{owner_query}") as response:
+            self.assertEqual(response.read(), payload)
+            self.assertEqual(response.headers.get("X-Content-Type-Options"), "nosniff")
+            self.assertEqual(response.headers.get("Content-Type"), "image/png")
+        with self.assertRaises(HTTPError) as caught:
+            self.request(f"/api/artifacts/{artifact_id}/metadata?owner_type=session&owner_id=other")
+        self.assertEqual(caught.exception.code, 404)
+        caught.exception.read()
+        caught.exception.close()
+        with self.request(f"/api/artifacts/{artifact_id}?{owner_query}", method="DELETE",
+                          headers={"Origin": "http://127.0.0.1:5173"}) as response:
+            self.assertEqual(json.loads(response.read())["data"]["deleted"], True)
+
+        run_id = "a" * 32
+        run_artifact = self.server.services.get_artifact_api().create(
+            b"rendered-run-output", kind="image", media_type="image/png", name="output.png",
+            owner_type="run", owner_id=run_id, lifetime="session")
+        with self.request(f"/api/artifacts/{run_artifact['id']}/content?owner_type=run&owner_id={run_id}") as response:
+            self.assertEqual(response.read(), b"rendered-run-output")
+        with self.assertRaises(HTTPError) as caught:
+            self.request(f"/api/artifacts/{run_artifact['id']}/content?owner_type=run&owner_id={'b' * 32}")
+        self.assertEqual(caught.exception.code, 404)
+        caught.exception.read()
+        caught.exception.close()
+
+    def test_artifact_upload_rejects_oversize_before_reading_body(self):
+        conn = http.client.HTTPConnection("127.0.0.1", self.server.server_address[1], timeout=2)
+        conn.putrequest("POST", "/api/artifacts")
+        conn.putheader("Origin", "http://127.0.0.1:5173")
+        conn.putheader("Content-Type", "application/octet-stream")
+        conn.putheader("Content-Length", str(32 * 1024 * 1024 + 1))
+        conn.putheader("X-AI-Dream-Artifact-Kind", "file_reference")
+        conn.putheader("X-AI-Dream-Artifact-Name", "oversize.bin")
+        conn.putheader("X-AI-Dream-Artifact-Owner-Type", "session")
+        conn.putheader("X-AI-Dream-Artifact-Owner-ID", "web-session-oversize")
+        conn.endheaders()
+        response = conn.getresponse()
+        self.assertEqual(response.status, 413)
+        response.read()
+        conn.close()
+
+    def test_residency_actions_route_pin_only_allowlisted_existing_residents(self):
+        from aidream.model_scheduler import LeaseRequest, ModelScheduler
+        from aidream.runtime_adapters import FakeRuntimeAdapter
+
+        api = self.server.services
+        adapter = FakeRuntimeAdapter(runtime_id="fixture")
+        scheduler = ModelScheduler({"fixture": adapter})
+        api._orchestration_scheduler = scheduler
+        api._orchestration_route_allowlist = {"route_fixture_chat": ("model-a", "fixture", None)}
+        lease = scheduler.acquire(LeaseRequest("model-a", "fixture", {"model_id": "model-a"},
+                                               owner_id="run-1", orchestration_owned=True))
+        scheduler.release(lease)
+
+        with self.post_json("/api/models/residency/actions", {
+            "route_id": "route_fixture_chat", "action": "pin",
+        }) as response:
+            result = json.loads(response.read())["data"]["residency"]
+        self.assertTrue(result["resident"]["pinned"])
+        self.assertEqual(adapter.calls.count("load"), 1)
+        self.assertEqual(adapter.calls.count("unload"), 0)
+
+        with self.assertRaises(HTTPError) as caught:
+            self.post_json("/api/models/residency/actions", {
+                "route_id": "model-a", "action": "unload",
+            })
+        self.assertEqual(caught.exception.code, 404)
+        caught.exception.read()
+        caught.exception.close()
+
+    def test_capability_preferences_patch_persists_and_updates_scheduler_eviction_policy(self):
+        from aidream.model_scheduler import ModelScheduler
+        from aidream.capabilities.preferences import CapabilityPreferenceStore
+
+        self.server.services.capability_preference_store = CapabilityPreferenceStore(
+            Path(self.temp.name) / "capability-preferences.json")
+        scheduler = ModelScheduler({})
+        self.server.services._orchestration_scheduler = scheduler
+        with self.request("/api/capability-preferences") as response:
+            initial = json.loads(response.read())["data"]
+        self.assertEqual(initial["selection_defaults"]["eviction_policy"], "lru")
+        with self.patch_json("/api/capability-preferences", {
+            "selection_defaults": {"eviction_policy": "never"},
+        }) as response:
+            updated = json.loads(response.read())["data"]
+        self.assertEqual(updated["selection_defaults"]["eviction_policy"], "never")
+        self.assertEqual(scheduler.eviction_policy, "never")
+        with self.request("/api/capability-preferences") as response:
+            self.assertEqual(json.loads(response.read())["data"]["selection_defaults"]["eviction_policy"], "never")
+
+    def test_assisted_draft_endpoint_is_explicit_and_off_by_default(self):
+        from aidream.capabilities.preferences import CapabilityPreferenceStore
+
+        self.server.services.capability_preference_store = CapabilityPreferenceStore(
+            Path(self.temp.name) / "planner-preferences.json")
+        with self.assertRaises(HTTPError) as caught:
+            self.post_json("/api/skills/chat.general/draft", {"goal": "summarize a local note"})
+        self.assertEqual(caught.exception.code, 409)
+        self.assertIn("disabled globally", caught.exception.read().decode())
+        caught.exception.close()
+
     def test_rejects_unknown_routes_query_and_bad_host(self):
         for path in ("/api/unknown", "/api/health?x=1"):
             with self.subTest(path=path), self.assertRaises(HTTPError) as caught:
@@ -281,7 +504,7 @@ class HTTPAPITests(unittest.TestCase):
         caught.exception.close()
 
     def test_runtime_actions_allow_browser_preflight(self):
-        for path in ("/api/runtime/load", "/api/runtime/unload", "/api/runtime/command", "/api/runtime/chat", "/api/diagnostics"):
+        for path in ("/api/runtime/load", "/api/runtime/unload", "/api/runtime/command", "/api/runtime/chat", "/api/diagnostics", "/api/models/residency/actions"):
             with self.subTest(path=path):
                 with self.request(path, method="OPTIONS", headers={
                         "Origin": "http://127.0.0.1:5173",
@@ -370,6 +593,7 @@ class HTTPAPITests(unittest.TestCase):
             server.shutdown()
             server.server_close()
             thread.join(timeout=2)
+
 
         class SlowHardware:
             def detect(self):
@@ -718,6 +942,87 @@ class HTTPAPITests(unittest.TestCase):
             server.shutdown()
             server.server_close()
             thread.join(timeout=2)
+
+
+class ResourceSnapshotAPIRouteTest(unittest.TestCase):
+    def test_resource_routes_use_default_service_or_injected_service(self):
+        api = ReadOnlyAPI(hardware=FakeHardware(), catalog=FakeCatalog(), runtimes=FakeRuntime())
+        status, resources = api.get("/api/resources")
+        self.assertEqual(status, 200)
+        self.assertIn(resources["data"]["status"], {"partial", "unknown"})
+        status, residency = api.get("/api/models/residency")
+        self.assertEqual(status, 200)
+        self.assertEqual(residency["data"]["residency"]["items"], [])
+
+        class SnapshotService:
+            def resources(self):
+                return {"resources": {"ram": {"total_bytes": None, "total_status": "unknown"}},
+                        "status": "unknown"}
+
+            def residency(self):
+                return {"items": [], "count": 0, "active_lease_count": 0, "status": "observed"}
+
+        api.resource_snapshot_service = SnapshotService()
+        status, resources = api.get("/api/resources")
+        self.assertEqual(status, 200)
+        self.assertEqual(resources["data"]["status"], "unknown")
+        self.assertIsNone(resources["data"]["resources"]["ram"]["total_bytes"])
+        status, residency = api.get("/api/models/residency")
+        self.assertEqual(status, 200)
+        self.assertEqual(residency["data"]["residency"]["items"], [])
+        self.assertEqual(residency["data"]["residency"]["active_lease_count"], 0)
+        with self.assertRaises(ValueError):
+            api.get("/api/resources", "bad=1")
+        api.close()
+
+    def test_residency_control_api_uses_only_server_allowlisted_existing_resident(self):
+        from aidream.model_scheduler import LeaseRequest, ModelScheduler
+        from aidream.runtime_adapters import FakeRuntimeAdapter
+
+        api = ReadOnlyAPI(hardware=FakeHardware(), catalog=FakeCatalog(), runtimes=FakeRuntime())
+        adapter = FakeRuntimeAdapter(runtime_id="fixture")
+        scheduler = ModelScheduler({"fixture": adapter})
+        api._orchestration_scheduler = scheduler
+        route_id = "route_fixture_chat"
+        api._orchestration_route_allowlist = {route_id: ("model-a", "fixture", None)}
+        lease = scheduler.acquire(LeaseRequest("model-a", "fixture", {"model_id": "model-a"},
+                                               owner_id="run-1", orchestration_owned=True))
+        scheduler.release(lease)
+
+        result = api.apply_residency_action(route_id, "pin")
+        self.assertTrue(result["data"]["residency"]["resident"]["pinned"])
+        self.assertEqual(adapter.calls.count("load"), 1)
+        self.assertEqual(adapter.calls.count("unload"), 0)
+        with self.assertRaises(APINotFound):
+            api.apply_residency_action("caller-supplied-model-id", "unload")
+        api.close()
+
+    def test_residency_unload_conflicts_with_an_active_direct_chat_turn(self):
+        from aidream.model_scheduler import LeaseRequest, ModelScheduler
+        from aidream.runtime_adapters import FakeRuntimeAdapter
+
+        api = ReadOnlyAPI(hardware=FakeHardware(), catalog=FakeCatalog(), runtimes=FakeRuntime())
+        adapter = FakeRuntimeAdapter(runtime_id="fixture")
+        scheduler = ModelScheduler({"fixture": adapter})
+        api._orchestration_scheduler = scheduler
+        api._orchestration_route_allowlist = {"route_fixture_chat": ("model-a", "fixture", None)}
+        lease = scheduler.acquire(LeaseRequest("model-a", "fixture", {"model_id": "model-a"},
+                                               owner_id="run-1", orchestration_owned=True))
+        scheduler.release(lease)
+
+        self.assertTrue(api._chat_lock.acquire(blocking=False))
+        try:
+            with self.assertRaises(APIConflict):
+                api.apply_residency_action("route_fixture_chat", "unload")
+            self.assertEqual(adapter.calls.count("unload"), 0)
+            self.assertEqual(len(scheduler.residency()), 1)
+        finally:
+            api._chat_lock.release()
+
+        result = api.apply_residency_action("route_fixture_chat", "unload")
+        self.assertIsNone(result["data"]["residency"]["resident"])
+        self.assertEqual(adapter.calls.count("unload"), 1)
+        api.close()
 
 
 if __name__ == "__main__":

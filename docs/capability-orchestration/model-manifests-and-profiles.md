@@ -323,6 +323,17 @@ The public orchestration layer should never assemble backend CLI flags itself.
 
 For current AI Dream, llama.cpp and vLLM can gradually implement this interface around existing backend classes rather than being rewritten at once.
 
+The current `BackendRuntimeAdapter` owns one loaded handle and rejects a second
+`load()` until that handle is unloaded. Its synchronous backend call is
+serialized per adapter. Existing engines expose a process-wide
+`cancel_generation()` rather than request-scoped cancellation, so the adapter
+only cancels the currently active call when the optional request ID matches;
+an idle call or mismatched ID returns `false`. It does not advertise
+`requests.concurrent`, even if the engine supports internal batching, because
+this adapter boundary cannot safely run concurrent invocations with global
+cancellation. A future adapter may advertise concurrency after it provides
+request-scoped cancellation and matching lifecycle tests.
+
 ## 14. Model card requirements
 
 Every model card should eventually show the information the resolver uses:
@@ -357,3 +368,14 @@ A good UX for new models:
 ```
 
 This is the foundation for a system that becomes more accurate about its own local stack over time without uncontrolled self-modification.
+
+The manifest verifier is bound to one `runtime_id`. Before the probe callback is
+invoked, that ID must match an enabled and available local runtime installation
+or an available backend already registered with AI Dream; the typed result
+must report the same ID. This lookup uses cached local registry state and does
+not start a runtime. An installation's executable/help probe establishes that
+the runtime interface is available, but it does not verify a model capability.
+The verifier callback must still perform its bounded model startup and
+capability probe before returning successful claims. No default model verifier
+is configured on hosts without that implementation, so the UI disables the
+verification action there.

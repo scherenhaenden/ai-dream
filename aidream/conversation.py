@@ -145,7 +145,8 @@ class ChatStore:
         return session["settings"]
 
     def append(self, session_id: str, role: str, content: str,
-               attachments: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+               attachments: list[dict[str, Any]] | None = None,
+               run_id: str | None = None) -> dict[str, Any]:
         if role not in _ROLES:
             raise ValueError("role must be user, assistant, or system")
         if not isinstance(content, str) or not content.strip():
@@ -156,6 +157,10 @@ class ChatStore:
             if role != "user" and attachments:
                 raise ValueError("only user messages may contain attachments")
             message["attachments"] = _validate_attachments(attachments)
+        if run_id is not None:
+            if role != "assistant" or not isinstance(run_id, str) or not re.fullmatch(r"[a-f0-9]{32}", run_id):
+                raise ValueError("run_id must identify an assistant orchestration run")
+            message["run_id"] = run_id
         session["messages"].append(message)
         session["updated_at"] = _now()
         if role == "user" and session.get("title") == "New chat":
@@ -242,6 +247,9 @@ def _valid_message(message: Any) -> bool:
         if "attachments" in message:
             _validate_attachments(message["attachments"])
             if message["attachments"] and message["role"] != "user":
+                return False
+        if "run_id" in message:
+            if message["role"] != "assistant" or not isinstance(message["run_id"], str) or not re.fullmatch(r"[a-f0-9]{32}", message["run_id"]):
                 return False
     except (ValueError, TypeError):
         return False

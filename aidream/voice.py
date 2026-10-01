@@ -4,9 +4,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import subprocess
+import tempfile
 import threading
 import time
 
@@ -16,10 +18,13 @@ class VoiceCapabilities:
     tts_executable: str | None
     recorder_executable: str | None
     stt_executable: str | None
+    flite_executable: str | None = None
+    flite_voices: tuple[str, ...] = ()
+    tts_playback_executable: str | None = None
 
     @property
     def text_to_speech(self) -> bool:
-        return self.tts_executable is not None
+        return self.tts_executable is not None or bool(self.flite_executable and self.flite_voices)
 
     @property
     def recording(self) -> bool:
@@ -29,11 +34,15 @@ class VoiceCapabilities:
     def speech_to_text(self) -> bool:
         return self.stt_executable is not None
 
-    def details(self) -> dict[str, dict[str, str | bool | None]]:
+    def details(self) -> dict[str, dict[str, object]]:
         """Return UI-friendly capability state, executable path, and setup hint."""
         return {
-            "text_to_speech": {"available": self.text_to_speech, "executable": self.tts_executable,
-                               "setup": None if self.text_to_speech else "Install espeak-ng (or espeak)."},
+            "text_to_speech": {"available": self.text_to_speech,
+                               "executable": self.tts_executable or self.flite_executable,
+                               "provider": "espeak" if self.tts_executable else "ffmpeg-flite" if self.text_to_speech else None,
+                               "voices": list(self.flite_voices),
+                               "playback_available": bool(self.tts_executable or self.tts_playback_executable),
+                               "setup": None if self.text_to_speech else "Install espeak-ng or FFmpeg built with libflite."},
             "recording": {"available": self.recording, "executable": self.recorder_executable,
                           "setup": None if self.recording else "Install alsa-utils (arecord)."},
             "speech_to_text": {"available": self.speech_to_text, "executable": self.stt_executable,
@@ -49,6 +58,13 @@ class VoiceCapabilities:
 class VoiceConfiguration:
     capabilities: VoiceCapabilities
     whisper_models: tuple[Path, ...]
+
+
+# Keep direct transcription aligned with the bounded orchestration contract.
+MAX_VOICE_INPUT_BYTES = 32 * 1024 * 1024
+MAX_TRANSCRIPT_BYTES = 64 * 1024
+MAX_VOICE_DIAGNOSTIC_BYTES = 8 * 1024
+VOICE_TOOL_TIMEOUT_SECONDS = 180
 
 
 def discover_whisper_models(directories: list[str | Path] | None = None) -> tuple[Path, ...]:
@@ -114,7 +130,9 @@ class SpeechWorker:
 
     def _run(self) -> None:
         try:
-            process = subprocess.Popen([self._executable, self._text], text=True,
+            command = ([self._executable, "--wait", self._text]
+                       if Path(self._executable).name == "spd-say" else [self._executable, self._text])
+            process = subprocess.Popen(command, text=True,
                                        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
                                        start_new_session=True)
             with self._lock:
@@ -213,19 +231,25 @@ class RecordingWorker:
 class LocalVoice:
     """Run local TTS, microphone capture, and whisper.cpp transcription tools."""
     def __init__(self):
+        tts = shutil.which("espeak-ng") or shutil.which("espeak")
+        flite = None if tts else shutil.which("ffmpeg")
+        flite_voices = _discover_flite_voices(flite) if flite else ()
+        speech_dispatcher = shutil.which("spd-say") if flite_voices else None
         self.capabilities = VoiceCapabilities(
-            shutil.which("espeak-ng") or shutil.which("espeak"),
-            shutil.which("arecord"), shutil.which("whisper-cli") or shutil.which("whisper-cpp"))
+            tts, shutil.which("arecord"), shutil.which("whisper-cli") or shutil.which("whisper-cpp"),
+            flite, flite_voices, speech_dispatcher)
 
     def configuration(self, model_directories: list[str | Path] | None = None) -> VoiceConfiguration:
         return VoiceConfiguration(self.capabilities, discover_whisper_models(model_directories))
 
     def speak_async(self, text: str) -> SpeechWorker:
-        if not self.capabilities.tts_executable:
+        executable = self.capabilities.tts_executable or self.capabilities.tts_playback_executable
+        if not executable:
             raise RuntimeError("Offline text-to-speech unavailable; " + self.capabilities.setup_help())
         if not isinstance(text, str) or not text.strip():
             raise ValueError("Text to speak cannot be empty")
-        return SpeechWorker(self.capabilities.tts_executable, text)
+        return SpeechWorker(executable, text)
+
 
     def speak(self, text: str) -> None:
         self.speak_async(text).wait()
@@ -258,8 +282,42 @@ class LocalVoice:
         audio_path, model_path = Path(audio).expanduser().resolve(), Path(model).expanduser().resolve()
         if not audio_path.is_file() or not model_path.is_file():
             raise FileNotFoundError("Choose an existing audio file and a whisper.cpp model file")
-        result = self._run([exe, "-m", str(model_path), "-f", str(audio_path), "--no-timestamps"], capture=True)
-        return result.stdout.strip()
+        audio_size = audio_path.stat().st_size
+        if not 1 <= audio_size <= MAX_VOICE_INPUT_BYTES:
+            raise ValueError(f"Audio input must be from 1 to {MAX_VOICE_INPUT_BYTES} bytes")
+        if model_path.stat().st_size <= 0:
+            raise ValueError("The selected whisper.cpp model file is empty")
+        if not (model_path.name.startswith("ggml-") and model_path.suffix == ".bin"):
+            raise ValueError("Choose an installed whisper.cpp GGML model file (ggml-*.bin)")
+        output = self._run_bounded_capture(
+            [exe, "-m", str(model_path), "-f", str(audio_path), "--no-timestamps"])
+        return output.strip()
+
+    @staticmethod
+    def _run_bounded_capture(command: list[str]) -> str:
+        """Run a local tool without retaining unbounded child output in memory."""
+        try:
+            with tempfile.TemporaryFile(mode="w+b") as stdout_file, \
+                    tempfile.TemporaryFile(mode="w+b") as stderr_file:
+                result = subprocess.run(command, check=False, stdout=stdout_file,
+                                        stderr=stderr_file, timeout=VOICE_TOOL_TIMEOUT_SECONDS)
+                stdout_file.seek(0, os.SEEK_END)
+                stdout_size = stdout_file.tell()
+                if stdout_size > MAX_TRANSCRIPT_BYTES:
+                    raise RuntimeError("Local transcription exceeded its output limit")
+                stdout_file.seek(0)
+                stdout = stdout_file.read(MAX_TRANSCRIPT_BYTES + 1).decode(errors="replace")
+                if result.returncode:
+                    stderr_file.seek(0, os.SEEK_END)
+                    stderr_size = stderr_file.tell()
+                    stderr_file.seek(max(0, stderr_size - MAX_VOICE_DIAGNOSTIC_BYTES))
+                    detail = stderr_file.read(MAX_VOICE_DIAGNOSTIC_BYTES).decode(errors="replace").strip()
+                    raise RuntimeError(f"Voice tool exited with status {result.returncode}: {detail}")
+                return stdout
+        except RuntimeError:
+            raise
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise RuntimeError(f"Could not run local voice tool: {exc}") from exc
 
     @staticmethod
     def _run(command: list[str], capture: bool = False):
@@ -271,3 +329,16 @@ class LocalVoice:
             detail = (result.stderr or result.stdout or "").strip()
             raise RuntimeError(f"Voice tool exited with status {result.returncode}: {detail[-1200:]}")
         return result
+
+
+def _discover_flite_voices(executable: str) -> tuple[str, ...]:
+    """Probe FFmpeg's compiled-in Flite filter without synthesizing speech."""
+    try:
+        result = subprocess.run(
+            [executable, "-hide_banner", "-f", "lavfi", "-i", "flite=list_voices=true", "-f", "null", "-"],
+            check=False, capture_output=True, text=True, timeout=5, close_fds=True,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ()
+    voices = re.findall(r"^\[Parsed_flite_\d+ @ [^]]+\]\s+([a-z0-9_-]+)\s*$", result.stderr, re.MULTILINE)
+    return tuple(sorted(set(voice for voice in voices if re.fullmatch(r"[a-z0-9_-]{1,40}", voice))))

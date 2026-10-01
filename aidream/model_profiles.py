@@ -28,7 +28,28 @@ _GENERATION_KEYS = {
     "system_prompt", "reasoning", "temperature", "max_tokens", "stop_strings",
     "top_p", "top_k", "min_p", "repeat_penalty", "seed", "structured_output",
 }
-_PROFILE_KEYS = {"id", "model_id", "name", "runtime_id", "backend_name", "placement", "load", "generation", "created_at", "updated_at"}
+_PROFILE_CLASSES = {
+    "safe/default", "balanced", "fast", "max-context", "low-vram",
+    "multi-gpu", "capability-specific", "user", "verified", "portable",
+    "hardware-bound", "adapted",
+}
+_VERIFICATION_STATUSES = {"verified", "supported", "probable", "unknown", "failed"}
+_CAPABILITY_ID = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+\Z")
+_HARDWARE_SIGNATURE = re.compile(r"hw_[a-f0-9]{16,64}\Z")
+_COMPANION_ARTIFACT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
+_PROFILE_KEYS = {
+    "id", "model_id", "name", "runtime_id", "backend_name", "placement", "load",
+    "generation", "purpose", "companion_artifacts", "hardware_signature", "profile_class",
+    "verification", "verification_summary", "created_at", "updated_at",
+}
+_VERIFICATION_KEYS = {"status", "runtime_version", "verified_at", "hardware_signature", "details"}
+_PROFILE_DEFAULTS = {
+    "purpose": [],
+    "companion_artifacts": [],
+    "hardware_signature": None,
+    "profile_class": "user",
+    "verification": None,
+}
 
 
 def _default_profiles_path() -> Path:
@@ -52,6 +73,17 @@ def _validate_profile(value: Any) -> dict[str, Any]:
     if extra:
         raise ValueError(f"unsupported profile field(s): {', '.join(sorted(map(str, extra)))}")
     profile = dict(value)
+    if "verification" in profile and "verification_summary" in profile:
+        raise ValueError("provide verification or verification_summary, not both")
+    # `verification_summary` was used by an intermediate schema. Accept it as
+    # an input/read alias, but always return and persist the documented field.
+    if "verification_summary" in profile:
+        profile["verification"] = profile.pop("verification_summary")
+    # Profiles written before the orchestration fields were introduced stay
+    # readable. Defaults are added in memory and become durable on next write.
+    for key, default in _PROFILE_DEFAULTS.items():
+        if key not in profile:
+            profile[key] = _copy_json(default)
     name = profile.get("name")
     if not isinstance(name, str) or not name.strip() or len(name.strip()) > 100 or not name.strip().isprintable():
         raise ValueError("profile name must contain 1 to 100 printable characters")
@@ -68,6 +100,73 @@ def _validate_profile(value: Any) -> dict[str, Any]:
         if unknown:
             raise ValueError(f"unsupported {key} setting(s): {', '.join(sorted(map(str, unknown)))}")
         profile[key] = _copy_json(dict(item))
+
+    purpose = profile["purpose"]
+    if (not isinstance(purpose, list) or len(purpose) > 32
+            or any(not isinstance(item, str) or len(item) > 128 or not _CAPABILITY_ID.fullmatch(item)
+                   for item in purpose)):
+        raise ValueError("purpose must be a list of at most 32 namespaced capability IDs")
+    if len(purpose) != len(set(purpose)):
+        raise ValueError("purpose capability IDs must be unique")
+    profile["purpose"] = list(purpose)
+
+    companion_artifacts = profile["companion_artifacts"]
+    if (not isinstance(companion_artifacts, list) or len(companion_artifacts) > 32
+            or any(not isinstance(item, str) or not _COMPANION_ARTIFACT_ID.fullmatch(item)
+                   for item in companion_artifacts)):
+        raise ValueError("companion_artifacts must be a list of at most 32 opaque artifact IDs")
+    if len(companion_artifacts) != len(set(companion_artifacts)):
+        raise ValueError("companion_artifacts IDs must be unique")
+    profile["companion_artifacts"] = list(companion_artifacts)
+
+    hardware_signature = profile["hardware_signature"]
+    if hardware_signature is not None and (
+            not isinstance(hardware_signature, str) or not _HARDWARE_SIGNATURE.fullmatch(hardware_signature)):
+        raise ValueError("hardware_signature must be None or an opaque hw_ hash")
+
+    profile_class = profile["profile_class"]
+    if not isinstance(profile_class, str) or profile_class not in _PROFILE_CLASSES:
+        raise ValueError("profile_class must be one of the supported profile categories")
+
+    verification = profile["verification"]
+    if verification is not None:
+        if not isinstance(verification, Mapping):
+            raise ValueError("verification must be an object or None")
+        unknown = set(verification) - _VERIFICATION_KEYS
+        if unknown:
+            raise ValueError("unsupported verification field(s): " + ", ".join(sorted(map(str, unknown))))
+        summary = dict(verification)
+        status = summary.get("status")
+        if not isinstance(status, str) or status not in _VERIFICATION_STATUSES:
+            raise ValueError("verification.status must be a supported verification status")
+        for key, max_length in (("runtime_version", 128), ("hardware_signature", 128), ("details", 512)):
+            item = summary.get(key)
+            if item is not None and (
+                    not isinstance(item, str) or not item.strip() or len(item) > max_length
+                    or not item.isprintable()):
+                raise ValueError(f"verification.{key} must be bounded printable text or None")
+        summary_signature = summary.get("hardware_signature")
+        if summary_signature is not None and not _HARDWARE_SIGNATURE.fullmatch(summary_signature):
+            raise ValueError("verification.hardware_signature must be an opaque hw_ hash")
+        verified_at = summary.get("verified_at")
+        if verified_at is not None:
+            if not isinstance(verified_at, str) or len(verified_at) > 40:
+                raise ValueError("verification.verified_at must be a bounded ISO timestamp")
+            try:
+                parsed = datetime.fromisoformat(verified_at.replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise ValueError("verification.verified_at must be a bounded ISO timestamp") from exc
+            if parsed.tzinfo is None:
+                raise ValueError("verification.verified_at must include a timezone")
+        if status == "verified" and (not summary.get("runtime_version") or not verified_at):
+            raise ValueError("verified summaries require runtime_version and verified_at")
+        profile["verification"] = _copy_json(summary)
+
+    if profile_class == "hardware-bound" and hardware_signature is None:
+        raise ValueError("hardware-bound profiles require hardware_signature")
+    if profile_class == "verified" and (
+            verification is None or verification.get("status") != "verified"):
+        raise ValueError("verified profiles require a verified verification object")
     for key in ("id", "created_at", "updated_at"):
         if key in profile and not isinstance(profile[key], str):
             raise ValueError(f"{key} must be text")
@@ -96,11 +195,13 @@ class ModelProfileStore:
                 return _copy_json(profile)
         raise KeyError(f"Model profile not found: {identity}")
 
-    def create(self, profile: Mapping[str, Any]) -> dict[str, Any]:
+    def create(self, profile: Mapping[str, Any], *, allow_verified: bool = False) -> dict[str, Any]:
         data = dict(profile)
         data.pop("id", None)
         data.pop("created_at", None)
         data.pop("updated_at", None)
+        if data.get("profile_class") == "verified" and not allow_verified:
+            raise ValueError("verified profiles can only be created from a successful runtime verification")
         normalized = _validate_profile(data)
         now = _now()
         normalized.update(id=uuid.uuid4().hex, created_at=now, updated_at=now)
@@ -109,15 +210,26 @@ class ModelProfileStore:
         self._write(records)
         return _copy_json(normalized)
 
-    def update(self, profile_id: str, changes: Mapping[str, Any]) -> dict[str, Any]:
+    def update(self, profile_id: str, changes: Mapping[str, Any], *, allow_verified: bool = False) -> dict[str, Any]:
         identity = _validate_id(profile_id)
         if not isinstance(changes, Mapping) or set(changes) - (_PROFILE_KEYS - {"id", "created_at", "updated_at"}):
             raise ValueError("profile update contains unsupported fields")
+        if "verification" in changes and "verification_summary" in changes:
+            raise ValueError("provide verification or verification_summary, not both")
+        supplied_verification = changes.get("verification", changes.get("verification_summary"))
+        if not allow_verified and (
+                changes.get("profile_class") == "verified"
+                or isinstance(supplied_verification, Mapping)
+                and supplied_verification.get("status") == "verified"):
+            raise ValueError("verification evidence can only be changed by a successful runtime verification")
         records = self._read()
         for index, current in enumerate(records):
             if current["id"] == identity:
                 updated = dict(current)
-                for key, value in changes.items():
+                normalized_changes = dict(changes)
+                if "verification_summary" in normalized_changes:
+                    normalized_changes["verification"] = normalized_changes.pop("verification_summary")
+                for key, value in normalized_changes.items():
                     if key in {"placement", "load", "generation"}:
                         merged = dict(updated.get(key, {}))
                         if not isinstance(value, Mapping):
@@ -126,6 +238,18 @@ class ModelProfileStore:
                         updated[key] = merged
                     else:
                         updated[key] = value
+                verified_profile_fields = {
+                    "model_id", "runtime_id", "backend_name", "placement", "load", "generation",
+                    "purpose", "companion_artifacts", "hardware_signature", "profile_class",
+                    "verification", "verification_summary",
+                }
+                if (not allow_verified and current.get("profile_class") == "verified"
+                        and verified_profile_fields.intersection(normalized_changes)):
+                    # Capability verification is tied to the tested launch
+                    # configuration. Editing those settings keeps the user's
+                    # work but explicitly demotes its evidence.
+                    updated["profile_class"] = "user"
+                    updated["verification"] = None
                 updated["updated_at"] = _now()
                 records[index] = _validate_profile(updated)
                 self._write(records)
