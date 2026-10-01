@@ -9,6 +9,7 @@ item is not an available feature until the corresponding implementation exists.
 | Install, launch, find local data, or diagnose a startup problem | [Operations and local data](operations.md) |
 | Understand Python modules and the flow from a prompt to llama.cpp | [Backend architecture](backend-architecture.md) |
 | Understand Angular routes, services, state, and build | [Angular frontend](angular-frontend.md) |
+| Review the proposed navigation, Settings/API consolidation, and progressive-disclosure UX direction | [UX information architecture](ux-information-architecture.md) |
 | Integrate with the browser-facing HTTP service | [Local HTTP API](local-http-api.md) |
 | Understand chat settings and presets | [Per-chat settings](chat-session-settings.md) |
 | Understand saved image and document references | [Chat attachment history](chat-attachment-history.md) |
