@@ -5,6 +5,12 @@ const page = await readFile(new URL('../src/app/pages/capability-map.page.ts', i
 
 assert.match(page, /aria-label="Search capabilities"/,
   'the capability catalog must expose an accessible search field');
+assert.match(page, /\[attr\.aria-pressed\]="statusFilter\(\) === 'all'"/,
+  'the all-capabilities summary button must expose its selected state');
+assert.match(page, /\[attr\.aria-pressed\]="statusFilter\(\) === status"/,
+  'status summary buttons must expose their selected state to assistive technology');
+assert.match(page, /\[attr\.aria-pressed\]="statusFilter\(\) === filter\.value"/,
+  'catalog filter buttons must expose their selected state to assistive technology');
 assert.match(page, /Search ID, input, output or route/,
   'the search hint should describe the searchable capability facts');
 assert.match(page, /const routeTerms = \(item\.routeDetails \|\| \[\]\)\.flatMap\(route => \[/,

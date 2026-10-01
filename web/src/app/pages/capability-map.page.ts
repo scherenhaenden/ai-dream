@@ -29,11 +29,11 @@ type CapabilityCard = CapabilityMapItem & {
           <span class="connection" [class.offline]="!api.connected()"><i></i>{{ api.connected() ? 'CONNECTED' : 'OFFLINE' }}</span>
         </div>
         <div class="overview-stats">
-          <button type="button" class="stat total" [class.selected]="statusFilter() === 'all'" (click)="setStatusFilter('all')" aria-label="Show all capabilities">
+          <button type="button" class="stat total" [class.selected]="statusFilter() === 'all'" [attr.aria-pressed]="statusFilter() === 'all'" (click)="setStatusFilter('all')" aria-label="Show all capabilities">
             <b>{{ items().length }}</b><span>Reported</span>
           </button>
           @for (status of statuses; track status) {
-            <button type="button" class="stat" [class.selected]="statusFilter() === status" [attr.data-status]="status" (click)="setStatusFilter(status)" [attr.aria-label]="'Filter by ' + status + ' status'">
+            <button type="button" class="stat" [class.selected]="statusFilter() === status" [attr.aria-pressed]="statusFilter() === status" [attr.data-status]="status" (click)="setStatusFilter(status)" [attr.aria-label]="'Filter by ' + status + ' status'">
               <b>{{ statusCount(status) }}</b><span>{{ statusLabel(status) }}</span>
             </button>
           }
@@ -57,7 +57,7 @@ type CapabilityCard = CapabilityMapItem & {
           <div class="filter-row" aria-label="Current filters">
             <span>Filter</span>
             @for (filter of filterOptions; track filter.value) {
-              <button type="button" [class.active]="statusFilter() === filter.value" (click)="setStatusFilter(filter.value)">{{ filter.label }}<small>{{ filter.count() }}</small></button>
+              <button type="button" [class.active]="statusFilter() === filter.value" [attr.aria-pressed]="statusFilter() === filter.value" (click)="setStatusFilter(filter.value)">{{ filter.label }}<small>{{ filter.count() }}</small></button>
             }
           </div>
           @if (!visibleItems().length) {

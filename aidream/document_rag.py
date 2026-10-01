@@ -19,6 +19,7 @@ MAX_CONTEXT_CHARS = 4_500
 MAX_CITATION_QUOTE_CHARS = 900
 MAX_PROMPT_CHARS = 8_000
 _TOKEN = re.compile(r"[^\W_]+", re.UNICODE)
+_CITATION_MARKER = re.compile(r"\[\s*C\s*\d+\s*\]", re.IGNORECASE)
 
 
 class DocumentRetrievalError(ValueError):
@@ -91,7 +92,11 @@ def retrieve_document_context(document_text: str, question: str, *, name: str = 
     citations: list[dict[str, Any]] = []
     for score, index, start, end, chunk, matched_terms in selected:
         citation_id = f"C{len(citations) + 1}"
-        context_parts.append(f"[{citation_id}] {chunk}")
+        # Reserve citation syntax for markers generated from this result. Source
+        # documents are untrusted and may contain forged labels such as [C1].
+        # Keep the exact original text in the citation quote and offsets below.
+        safe_chunk = _CITATION_MARKER.sub(lambda match: match.group(0).replace("[", "［").replace("]", "］"), chunk)
+        context_parts.append(f"[{citation_id}] {safe_chunk}")
         citations.append({
             "id": citation_id,
             "document_name": safe_name,

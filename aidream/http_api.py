@@ -2765,6 +2765,24 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
                 while True:
                     events = manager.wait_events(run_id, after=after, timeout=15.0)
                     if events:
+                        # The per-run journal is deliberately bounded. Make a
+                        # lost replay window explicit so clients can refresh
+                        # the authoritative run snapshot instead of presenting
+                        # a silently incomplete trace after a long disconnect.
+                        first_sequence = events[0]["sequence"]
+                        if first_sequence > after + 1:
+                            gap_sequence = first_sequence - 1
+                            self._send_event("run.replay_gap", {
+                                "run_id": run_id,
+                                "sequence": gap_sequence,
+                                "timestamp": events[0]["timestamp"],
+                                "type": "run.replay_gap",
+                                "data": {
+                                    "missing_from": after + 1,
+                                    "missing_through": gap_sequence,
+                                },
+                            })
+                            after = gap_sequence
                         for event in events:
                             self._send_event(event["type"], event)
                             after = event["sequence"]

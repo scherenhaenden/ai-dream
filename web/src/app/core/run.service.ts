@@ -5,7 +5,7 @@ import type { RunEvent, RunSnapshot, RunStreamState } from './run.types';
 
 const RUN_EVENTS = [
   'run.created', 'plan.resolved', 'run.started', 'run.cancelling', 'run.completed',
-  'run.succeeded', 'run.failed', 'run.cancelled', 'node.ready', 'node.started',
+  'run.succeeded', 'run.failed', 'run.cancelled', 'run.replay_gap', 'node.ready', 'node.started',
   'node.progress', 'node.completed', 'node.failed', 'node.cancelled', 'artifact.created', 'artifact.produced',
 ];
 const MAX_VISIBLE_EVENTS = 200;
@@ -138,6 +138,9 @@ export class RunService {
     };
     this.lastSequence = normalized.sequence;
     this.events.update(events => [...events, normalized].slice(-MAX_VISIBLE_EVENTS));
+    if (normalized.type === 'run.replay_gap') {
+      void this.refresh().catch(error => this.error.set(messageOf(error, 'Could not refresh the run after event history expired.')));
+    }
     if (normalized.type === 'run.started') this.run.update(run => run ? { ...run, state: 'running' } : run);
     if (['run.succeeded', 'run.failed', 'run.cancelled'].includes(normalized.type)) {
       void this.refresh().catch(error => this.error.set(messageOf(error, 'Could not refresh final run status.')));

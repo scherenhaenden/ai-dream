@@ -1,5 +1,6 @@
 import unittest
 from itertools import permutations
+from types import MappingProxyType
 
 from aidream.capabilities import ArtifactKind, ArtifactType, ResolutionRequest, RouteCandidate, resolve_route
 
@@ -18,6 +19,38 @@ def route(route_id, model_id, *, verified=False, loaded=False, memory=100, avail
 
 
 class CapabilityResolverTests(unittest.TestCase):
+    def test_request_and_route_are_stable_snapshots_of_input_containers(self):
+        source_inputs = [ArtifactType(ArtifactKind.TEXT)]
+        source_features = {"tools"}
+        source_metadata = {"profile": {"load": {"threads": 4}}, "labels": ["curated"]}
+        candidate = RouteCandidate(
+            id="snapshot", capability_id="text.chat", model_id="model", runtime_id="runtime.test",
+            inputs=source_inputs, outputs=[ArtifactType(ArtifactKind.TEXT)], features=source_features,
+            metadata=source_metadata,
+        )
+        source_inputs.clear()
+        source_features.add("unadvertised")
+        source_metadata["profile"]["load"]["threads"] = 99
+        source_metadata["labels"].append("changed")
+
+        self.assertEqual(candidate.inputs, (ArtifactType(ArtifactKind.TEXT),))
+        self.assertEqual(candidate.features, frozenset({"tools"}))
+        self.assertEqual(candidate.metadata["profile"]["load"]["threads"], 4)
+        self.assertEqual(candidate.metadata["labels"], ("curated",))
+        self.assertIsInstance(candidate.metadata, MappingProxyType)
+        with self.assertRaises(TypeError):
+            candidate.metadata["new"] = True
+
+        required_features = {"tools"}
+        request = ResolutionRequest("text.chat", ArtifactType(ArtifactKind.TEXT),
+                                    required_features=required_features)
+        required_features.add("json")
+        self.assertEqual(request.required_features, frozenset({"tools"}))
+
+    def test_bad_mode_type_is_a_contract_error_not_an_internal_type_error(self):
+        with self.assertRaisesRegex(ValueError, "mode must be"):
+            ResolutionRequest("text.chat", ArtifactType(ArtifactKind.TEXT), mode=[])
+
     def test_selection_is_stable_and_prefers_verified_before_loaded(self):
         request = ResolutionRequest("text.chat", ArtifactType(ArtifactKind.TEXT))
         candidates = [route("z", "loaded", loaded=True), route("a", "verified", verified=True)]

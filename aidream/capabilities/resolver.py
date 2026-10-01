@@ -2,10 +2,27 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from collections.abc import Mapping as MappingABC
+from types import MappingProxyType
 from typing import Any, Iterable, Mapping
 
 from .contracts import ArtifactType, EvidenceStatus, validate_capability_id
 from .registry import artifact_types_compatible
+
+
+def _freeze_metadata(value: Any) -> Any:
+    """Detach container metadata so a route snapshot cannot drift in place.
+
+    Runtime/model handles are intentionally retained as opaque leaf values;
+    orchestration metadata containers around them are immutable snapshots.
+    """
+    if isinstance(value, MappingABC):
+        return MappingProxyType({key: _freeze_metadata(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_metadata(item) for item in value)
+    if isinstance(value, (set, frozenset)):
+        return frozenset(_freeze_metadata(item) for item in value)
+    return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,10 +52,21 @@ class RouteCandidate:
             if not isinstance(value, str) or not value or len(value) > 512:
                 raise ValueError(f"route {name} must be bounded non-empty text")
         object.__setattr__(self, "capability_id", validate_capability_id(self.capability_id))
-        if any(not isinstance(item, ArtifactType) for item in (*self.inputs, *self.outputs)):
-            raise TypeError("route input/output declarations must be ArtifactType values")
-        if not isinstance(self.features, (set, frozenset)) or any(not isinstance(item, str) for item in self.features):
-            raise ValueError("route features must be strings")
+        for name in ("inputs", "outputs"):
+            values = getattr(self, name)
+            if not isinstance(values, (tuple, list)):
+                raise TypeError(f"route {name} must be an artifact type sequence")
+            if any(not isinstance(item, ArtifactType) for item in values):
+                raise TypeError("route input/output declarations must be ArtifactType values")
+            object.__setattr__(self, name, tuple(values))
+        if not isinstance(self.features, (set, frozenset, tuple, list)) or any(
+            not isinstance(item, str) or not item.strip() for item in self.features
+        ):
+            raise ValueError("route features must be non-empty strings")
+        object.__setattr__(self, "features", frozenset(self.features))
+        if not isinstance(self.metadata, MappingABC):
+            raise TypeError("route metadata must be an object")
+        object.__setattr__(self, "metadata", _freeze_metadata(self.metadata))
         if self.evidence_status not in {item.value for item in EvidenceStatus}:
             raise ValueError("unsupported route evidence status")
         for name in ("loaded", "dependencies_available", "available"):
@@ -74,7 +102,7 @@ class ResolutionRequest:
         object.__setattr__(self, "capability_id", validate_capability_id(self.capability_id))
         if not isinstance(self.input, ArtifactType) or (self.output is not None and not isinstance(self.output, ArtifactType)):
             raise TypeError("resolution input/output must be ArtifactType values")
-        if self.mode not in {"auto", "guided", "manual"}:
+        if not isinstance(self.mode, str) or self.mode not in {"auto", "guided", "manual"}:
             raise ValueError("mode must be auto, guided, or manual")
         if self.mode == "manual" and not self.pinned_model_id:
             raise ValueError("manual mode requires a pinned model_id")
@@ -82,10 +110,11 @@ class ResolutionRequest:
             value = getattr(self, name)
             if value is not None and (not isinstance(value, str) or not value or len(value) > 512):
                 raise ValueError(f"{name} must be bounded non-empty text or None")
-        if not isinstance(self.required_features, (set, frozenset)) or any(
-            not isinstance(item, str) or not item or len(item) > 256 for item in self.required_features
+        if not isinstance(self.required_features, (set, frozenset, tuple, list)) or any(
+            not isinstance(item, str) or not item.strip() or len(item) > 256 for item in self.required_features
         ):
             raise ValueError("required_features must be a set of bounded non-empty strings")
+        object.__setattr__(self, "required_features", frozenset(self.required_features))
         if not isinstance(self.prefer_verified, bool) or not isinstance(self.prefer_loaded, bool):
             raise ValueError("selection preferences must be boolean")
         if isinstance(self.resource_headroom_percent, bool) or not isinstance(self.resource_headroom_percent, int) or not 0 <= self.resource_headroom_percent <= 100:

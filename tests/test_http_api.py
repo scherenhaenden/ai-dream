@@ -287,6 +287,29 @@ class HTTPAPITests(unittest.TestCase):
         with self.post_json(f"/api/runs/{run_id}/cancel", {}) as response:
             self.assertEqual(response.status, 200)
 
+    def test_run_event_stream_reports_when_bounded_history_has_a_gap(self):
+        from aidream.run_manager import RunManager
+
+        def execute(*, emit, **kwargs):
+            for index in range(10):
+                emit("node.progress", {"index": index})
+            return [{"kind": "text", "text": "complete"}]
+
+        manager = RunManager(executor=execute, max_events_per_run=4)
+        self.addCleanup(manager.close)
+        self.server.services.run_manager = manager
+        self.server.services.run_planner = lambda **kwargs: {"plan": {"id": "plan-gap", "nodes": []}}
+        with self.post_json("/api/skills/chat.general/run", {
+            "inputs": {"prompt": {"kind": "text", "text": "hello"}},
+            "parameters": {}, "selection": {"mode": "auto"},
+        }) as response:
+            run = json.loads(response.read())["data"]["run"]
+        with self.request(f"/api/runs/{run['id']}/events?after=0") as response:
+            stream = response.read().decode()
+        self.assertIn("event: run.replay_gap", stream)
+        self.assertIn('"missing_from":1', stream)
+        self.assertIn("event: run.succeeded", stream)
+
     def test_artifact_upload_list_content_owner_scope_and_delete(self):
         with self.request("/api/artifacts", method="OPTIONS",
                           headers={"Origin": "http://127.0.0.1:5173"}) as response:
