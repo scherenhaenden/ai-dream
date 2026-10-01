@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, ElementRef, OnInit, effect, inject, signal, untracked, viewChild, ViewEncapsulation } from '@angular/core';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { ApiService } from '../core/api.service';
 import { firstValueFrom } from 'rxjs';
 import { ArtifactService, MAX_ARTIFACT_UPLOAD_BYTES } from '../core/artifact.service';
@@ -247,6 +247,7 @@ export class ChatPage implements OnInit {
   private readonly artifactService = inject(ArtifactService);
   private readonly canvasWorkspace = inject(CanvasWorkspaceService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   private readonly skillService = inject(SkillService);
   readonly chats = signal<ChatSummary[]>([]);
   readonly models = signal<Model[]>([]);
@@ -396,7 +397,7 @@ export class ChatPage implements OnInit {
     await this.api.check();
     if (!this.api.connected()) { this.apiError.set(this.api.error() || 'The local API did not respond.'); return; }
     this.loadModels();
-    this.loadChats();
+    this.loadChats(this.route.snapshot.queryParamMap.get('chat_id') || undefined);
     this.loadRuntimeStatus();
     void this.loadSkills();
   }

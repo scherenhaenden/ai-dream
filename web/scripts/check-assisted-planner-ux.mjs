@@ -10,6 +10,11 @@ assert.match(page, /Enable the global opt-in above to request a draft/, 'draftin
 assert.match(page, /Generate assisted draft/, 'draft inference must require an explicit action');
 assert.match(page, /Blocked: load a local model in Chat or Runtime/, 'missing loaded model must be explained');
 assert.match(page, /I reviewed the validated draft and resolved plan/, 'assisted execution must be gated on review');
+assert.match(page, /Find a skill by goal or name[\s\S]*?Goal matches use only skill names and API-reported descriptions, categories, inputs and outputs\. They do not infer capabilities\./, 'goal discovery must be grounded in declared skill metadata');
+assert.match(page, /skillGoalMatchScore\(skill: SkillCatalogItem, query: string, terms: string\[\]\)[\s\S]*?skill\.description[\s\S]*?skill\.inputs\.map[\s\S]*?skill\.outputs\.map/, 'goal matching must use installed skill metadata only');
+assert.match(page, /assisted-plan-review[\s\S]*?aria-label="Generated assisted draft"[\s\S]*?aria-label="Deterministically resolved plan"/, 'draft and resolved route must be shown as distinct review panels');
+assert.match(page, /\.assisted-plan-review\{display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/, 'wide approval layout must compare draft and resolved plan side by side');
+assert.match(page, /@media\(max-width:700px\)\{\.assisted-plan-review\{grid-template-columns:1fr\}\}/, 'approval panels must stack at narrow widths');
 assert.match(page, /\(click\)="preview\(skill\)"[\s\S]*?Preview plan/, 'plan review must be explicitly requested');
 assert.match(page, /aria-label="Plan preview"[\s\S]*?Review the selected route before starting/, 'resolved plan must be visible before execution');
 assert.match(page, /readonly canRun = computed\(\(\) => !!this\.plan\(\) && this\.planReady\(\)[\s\S]*?draftReviewed\(\)/, 'assisted execution must require a successful reviewed plan');

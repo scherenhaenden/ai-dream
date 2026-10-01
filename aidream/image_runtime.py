@@ -235,8 +235,10 @@ class LocalImageRuntimeAdapter:
         cancel = getattr(self.backend, "cancel_generation", None)
         if not callable(cancel):
             return False
-        cancel()
-        return True
+        # Some providers (including ComfyUI) can safely remove a queued job but
+        # cannot interrupt an active one without affecting unrelated work.
+        # Do not report cancellation unless the backend confirms it.
+        return cancel() is True
 
     def unload(self, handle: RuntimeHandle) -> None:
         self._require_handle(handle)

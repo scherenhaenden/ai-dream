@@ -171,7 +171,24 @@ The client should be able to reconnect and request events after a sequence numbe
 GET /api/runs/<id>/events?after=42
 ```
 
-A small bounded event journal is persisted for active/recent runs.
+A small bounded event journal is persisted for active/recent runs in the
+current OS user's private state directory. The journal is atomically replaced,
+fsynced and limited to 64 records, 512 events per run and 4 MiB total. It stores
+run-owned metadata/event tails only: prompts, input bodies, generated text,
+tool arguments, artifact bytes and storage tokens are redacted or omitted.
+`GET /api/runs/<id>` reports `durable` and `durability_error`; a disk failure
+does not disable in-memory execution, but the run is explicitly marked as not
+recoverable. Runs associated with a conversation retain its validated `chat_id`
+in the local-user journal. This is a single-user local API, not a multi-tenant
+authorization boundary.
+
+On process restart, terminal recent runs and their event sequences are
+recoverable. Queued/running records become terminal `failed` runs with
+`error.kind = "process_restarted"`; execution is never resumed without its
+original runtime handles and leases. Temporary artifact bytes remain
+process-local, so recovered snapshots do not claim that those outputs can be
+read after restart. Journal schema v1 migrates to v2 by adding a null
+conversation association; unknown future schema versions fail closed.
 
 ## 7. Artifact endpoints
 

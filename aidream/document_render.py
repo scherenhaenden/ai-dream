@@ -196,8 +196,10 @@ def _html_document(title: str, body: str) -> bytes:
         f"<title>{escape(title, quote=True)}</title>"
         "<style>body{max-width:48rem;margin:3rem auto;padding:0 1rem;"
         "font:1rem/1.65 system-ui,sans-serif;color:#182230}h1,h2{line-height:1.2}"
-        "section{margin:2rem 0}p{white-space:pre-wrap}table{width:100%;border-collapse:collapse}"
-        "th,td{border:1px solid #cbd5e1;padding:.45rem;text-align:left;vertical-align:top}"
+        "section{margin:2rem 0}p{white-space:pre-wrap}table{width:100%;table-layout:fixed;"
+        "border-collapse:collapse;overflow-wrap:anywhere}"
+        "th,td{border:1px solid #cbd5e1;padding:.45rem;text-align:left;vertical-align:top;"
+        "overflow-wrap:anywhere;word-break:break-word}"
         "thead{background:#f1f5f9}li{margin:.25rem 0}</style></head><body>"
         f"<main>{body}</main></body></html>\n"
     ).encode("utf-8")

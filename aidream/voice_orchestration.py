@@ -1,7 +1,8 @@
 """Bounded orchestration callbacks for already-installed local voice tools.
 
-Probing only inspects executable/model availability. No downloads, model loads,
-recording, or speech processes happen until a callback is explicitly invoked.
+Readiness probes may run bounded help/voice-list commands but never synthesize,
+record, download, or load a speech model. Audio work starts only in an explicit
+workflow callback.
 """
 from __future__ import annotations
 
@@ -9,6 +10,7 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 import subprocess
 import tempfile
+import re
 from typing import Any
 
 from aidream.artifacts.contracts import ArtifactEnvelope, validate_artifact_envelope
@@ -32,11 +34,15 @@ class VoiceOrchestrationError(ValueError):
 
 
 def local_voice_readiness(voice: LocalVoice, *, whisper_model: str | Path | None = None) -> dict[str, Any]:
-    """Report current local tool/model presence without starting any process."""
+    """Report installed tool/model presence without synthesis or recording."""
     config = voice.configuration()
     model = _select_whisper_model(config.whisper_models, whisper_model, required=False)
     stt_available = bool(config.capabilities.speech_to_text and model is not None)
-    tts_available = bool(config.capabilities.text_to_speech)
+    tts_executable = getattr(config.capabilities, "tts_executable", None)
+    flite_executable = getattr(config.capabilities, "flite_executable", None)
+    flite_voices = tuple(getattr(config.capabilities, "flite_voices", ()))
+    tts_provider = "espeak" if tts_executable else "ffmpeg-flite" if flite_executable and flite_voices else None
+    tts_available = tts_provider is not None
     stt_reasons = []
     if not config.capabilities.speech_to_text:
         stt_reasons.append("Install whisper.cpp and put whisper-cli on PATH.")
@@ -45,8 +51,11 @@ def local_voice_readiness(voice: LocalVoice, *, whisper_model: str | Path | None
     return {
         "audio.transcribe": {"available": stt_available, "model_configured": model is not None,
                              "reasons": stt_reasons},
-        "audio.synthesize": {"available": tts_available,
-                             "reasons": [] if tts_available else ["Install espeak-ng (or espeak)."]},
+        "audio.synthesize": {"available": tts_available, "provider": tts_provider,
+                             "voices": list(flite_voices),
+                             "selected_voice": ("kal" if "kal" in flite_voices else flite_voices[0]) if flite_voices else None,
+                             "reasons": [] if tts_available else [
+                                 "No local TTS provider found. Install espeak-ng or FFmpeg built with libflite."]},
     }
 
 
@@ -69,7 +78,7 @@ def create_local_voice_callbacks(
         raise TypeError("read_artifact must be callable")
     config = voice.configuration()
     model_path = _select_whisper_model(config.whisper_models, whisper_model, required=False)
-    render = render_speech or _render_espeak
+    render = render_speech
 
     def transcribe(_node: Mapping[str, Any], inputs: Mapping[str, Any]) -> Mapping[str, Any]:
         executable = config.capabilities.stt_executable
@@ -105,15 +114,24 @@ def create_local_voice_callbacks(
         return {"transcript": {"kind": "text", "text": transcript}}
 
     def synthesize(_node: Mapping[str, Any], inputs: Mapping[str, Any]) -> Mapping[str, Any]:
-        executable = config.capabilities.tts_executable
-        if not executable:
-            raise VoiceOrchestrationError("Local text-to-speech is unavailable; install espeak-ng or espeak.")
+        executable = getattr(config.capabilities, "tts_executable", None)
+        ffmpeg = getattr(config.capabilities, "flite_executable", None)
+        voices = tuple(getattr(config.capabilities, "flite_voices", ()))
+        if render is None and not executable and not (ffmpeg and voices):
+            raise VoiceOrchestrationError(
+                "Local text-to-speech is unavailable; install espeak-ng or FFmpeg built with libflite.")
         text_artifact = inputs.get("text")
         text = text_artifact.get("text") if isinstance(text_artifact, Mapping) and text_artifact.get("kind") == "text" else None
         if not isinstance(text, str) or not text.strip() or len(text) > MAX_VOICE_TEXT_CHARS:
             raise VoiceOrchestrationError(f"Speech text must contain 1 to {MAX_VOICE_TEXT_CHARS} characters.")
         try:
-            audio = render(executable, text.strip())
+            if render is not None:
+                audio = render(executable or ffmpeg or "", text.strip())
+            elif executable:
+                audio = _render_espeak(executable, text.strip())
+            else:
+                voice_name = "kal" if "kal" in voices else voices[0]
+                audio = _render_ffmpeg_flite(ffmpeg, text.strip(), voice_name)
         except Exception as exc:
             raise VoiceOrchestrationError("Local speech synthesis failed.") from exc
         if not isinstance(audio, bytes) or not _is_wav(audio) or len(audio) > MAX_SYNTHESIZED_AUDIO_BYTES:
@@ -121,7 +139,9 @@ def create_local_voice_callbacks(
         return {"audio": {
             "kind": "audio", "media_type": "audio/wav", "name": "speech.wav",
             "content_bytes": audio,
-            "metadata": {"generator": "local-espeak", "text_chars": len(text.strip())},
+            "metadata": {"generator": "local-espeak" if executable else "local-ffmpeg-flite",
+                         "voice": None if executable else voice_name,
+                         "text_chars": len(text.strip())},
         }}
 
     return {"audio.transcribe": transcribe, "audio.synthesize": synthesize}
@@ -177,6 +197,32 @@ def _render_espeak(executable: str, text: str) -> bytes:
         raise VoiceOrchestrationError("Could not finish local speech synthesis within its time limit.") from exc
     if result.returncode != 0:
         raise VoiceOrchestrationError("Local speech synthesizer returned a failure status.")
+    if len(result.stdout) > MAX_SYNTHESIZED_AUDIO_BYTES:
+        raise VoiceOrchestrationError("Synthesized audio exceeded its byte limit.")
+    return result.stdout
+
+
+def _render_ffmpeg_flite(executable: str, text: str, voice: str) -> bytes:
+    """Synthesize bounded local PCM WAV through FFmpeg's compiled Flite filter."""
+    if not re.fullmatch(r"[a-z0-9_-]{1,40}", voice):
+        raise VoiceOrchestrationError("Selected local Flite voice is invalid.")
+    try:
+        with tempfile.TemporaryDirectory(prefix="ai-dream-flite-", dir="/tmp") as temporary:
+            directory = Path(temporary)
+            directory.chmod(0o700)
+            text_path = directory / "speech.txt"
+            text_path.write_text(text, encoding="utf-8")
+            text_path.chmod(0o600)
+            result = subprocess.run(
+                [executable, "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i",
+                 f"flite=textfile={text_path}:voice={voice}", "-t", "30", "-ac", "1", "-ar", "22050",
+                 "-c:a", "pcm_s16le", "-f", "wav", "pipe:1"],
+                check=False, capture_output=True, timeout=TTS_TIMEOUT_SECONDS, close_fds=True,
+            )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise VoiceOrchestrationError("Could not finish local Flite speech synthesis within its time limit.") from exc
+    if result.returncode != 0:
+        raise VoiceOrchestrationError("Local FFmpeg Flite synthesis failed.")
     if len(result.stdout) > MAX_SYNTHESIZED_AUDIO_BYTES:
         raise VoiceOrchestrationError("Synthesized audio exceeded its byte limit.")
     return result.stdout

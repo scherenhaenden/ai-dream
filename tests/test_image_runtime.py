@@ -16,6 +16,7 @@ class FakeImageBackend:
     def __init__(self):
         self.calls = []
         self.model = {"id": "fake-model", "private_path": "/never-serialize/model"}
+        self.cancel_result = False
 
     def capabilities(self):
         self.calls.append("probe")
@@ -43,8 +44,21 @@ class FakeImageBackend:
     def unload(self):
         self.calls.append("unload")
 
+    def cancel_generation(self):
+        return self.cancel_result
+
 
 class LocalImageRuntimeTest(unittest.TestCase):
+    def test_cancel_reports_only_confirmed_backend_cancellation(self):
+        backend = FakeImageBackend()
+        adapter = LocalImageRuntimeAdapter(backend)
+        model = adapter.list_models()[0]
+        handle = adapter.load(adapter.prepare({"model": model,
+                                               "required_capability": "image.generate"}))
+        self.assertFalse(adapter.cancel(handle))
+        backend.cancel_result = True
+        self.assertTrue(adapter.cancel(handle))
+
     def test_probe_lists_compatible_models_without_loading(self):
         backend = FakeImageBackend()
         adapter = LocalImageRuntimeAdapter(backend)

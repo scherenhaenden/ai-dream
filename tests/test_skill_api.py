@@ -169,7 +169,9 @@ class SkillAPITests(unittest.TestCase):
                 self.created.append(values)
                 return {"id": "a" * 32, "state": "queued", "plan": values["plan"]}
 
-        service = api([manifest("chat.general", "text.chat")], [])
+        service = api([manifest("chat.general", "text.chat")], [
+            {"id": "text.chat", "status": "supported", "routes": [{"id": "chat-route"}]},
+        ])
         service.run_planner = lambda **kwargs: {"plan": {"nodes": ["resolved"]}}
         service.run_manager = Runs()
         request = {"inputs": {"prompt": {"kind": "text", "text": "hi"}},
@@ -179,6 +181,25 @@ class SkillAPITests(unittest.TestCase):
         started = service.start_skill("chat.general", request)
         self.assertEqual(started["data"]["run"]["state"], "queued")
         self.assertEqual(service.run_manager.created[0]["skill_version"], "1.0.0")
+
+    def test_start_refuses_skill_when_required_local_route_is_not_ready(self):
+        class Runs:
+            def __init__(self): self.created = []
+            def create(self, **values): self.created.append(values); return {"id": "a" * 32}
+
+        service = api([manifest("voice.transcribe", "audio.transcribe")], [
+            {"id": "audio.transcribe", "status": "unavailable", "routes": [],
+             "evidence": [{"details": "No local speech-to-text route is configured."}]},
+        ])
+        service.run_planner = lambda **_kwargs: {"plan": {"plan_id": "a" * 24, "nodes": []}}
+        service.run_manager = Runs()
+        with self.assertRaisesRegex(APIError, "voice.transcribe is not ready.*No local speech-to-text route") as error:
+            service.start_skill("voice.transcribe", {
+                "inputs": {"prompt": {"kind": "text", "text": ""}},
+                "expected_plan_id": "a" * 24,
+            })
+        self.assertEqual(error.exception.status, 409)
+        self.assertEqual(service.run_manager.created, [])
 
     def test_planning_is_unavailable_without_deterministic_planner(self):
         service = api([manifest("chat.general", "text.chat")], [])
@@ -191,6 +212,7 @@ class SkillAPITests(unittest.TestCase):
 
         class Scheduler:
             def release_owner(self, _owner): pass
+            def release_owner_after_calls(self, owner): return self.release_owner(owner)
             def residency(self): return ()
 
         class Service:
@@ -487,7 +509,9 @@ class SkillAPITests(unittest.TestCase):
             "kind": "image", "media_type": "image/png", "name": "generated.png",
             "content_bytes": b"png-bytes", "metadata": {"source": "fixture"},
         }])
-        service = api([manifest("chat.general", "text.chat")], [])
+        service = api([manifest("chat.general", "text.chat")], [
+            {"id": "text.chat", "status": "supported", "routes": [{"id": "chat-route"}]},
+        ])
         service.run_planner = lambda **_kwargs: {"plan": {"nodes": []}}
         service.run_manager = manager
         service.artifact_api = ArtifactAPI(store)

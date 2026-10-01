@@ -2,6 +2,10 @@ export type RunState = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelle
 
 export interface RunSnapshot {
   id: string;
+  chat_id?: string | null;
+  recovered?: boolean;
+  durable?: boolean;
+  durability_error?: string | null;
   skill_id: string;
   skill_version: string;
   plan?: Record<string, unknown>;

@@ -129,6 +129,7 @@ class ModelScheduler:
         self.event_callback = event_callback
         self._records: dict[tuple[str, str, str | None], ResidencyRecord] = {}
         self._leases: dict[str, tuple[ResidencyRecord, str | None]] = {}
+        self._deferred_release_owners: set[str] = set()
         self._mutation_lock = threading.RLock()
 
     @staticmethod
@@ -346,7 +347,9 @@ class ModelScheduler:
             entry = self._leases.get(lease_id)
             if entry is None:
                 raise SchedulerError(SchedulerErrorCode.INVALID_LEASE, "Lease is no longer active")
-            record, _owner = entry
+            record, owner = entry
+            if owner in self._deferred_release_owners:
+                raise SchedulerError(SchedulerErrorCode.BUSY, "Run lease release is pending")
             adapter, handle = self._adapter(record.runtime_id), record.handle
             # Prevent a concurrent owner cleanup from unloading the handle
             # until the cancellation signal itself has returned.
@@ -359,6 +362,7 @@ class ModelScheduler:
         finally:
             with self._mutation_lock:
                 record.active_calls -= 1
+                self._release_deferred_owners_locked()
 
     def begin_call(self, lease: ModelLease | str) -> None:
         """Mark an adapter invocation active for the lifetime of its call."""
@@ -367,7 +371,9 @@ class ModelScheduler:
             entry = self._leases.get(lease_id)
             if entry is None:
                 raise SchedulerError(SchedulerErrorCode.INVALID_LEASE, "Lease is no longer active")
-            record, _owner = entry
+            record, owner = entry
+            if owner in self._deferred_release_owners:
+                raise SchedulerError(SchedulerErrorCode.BUSY, "Run lease release is pending")
             record.active_calls += 1
             record.state = "busy"
 
@@ -383,18 +389,51 @@ class ModelScheduler:
                 raise SchedulerError(SchedulerErrorCode.LIFECYCLE_FAILED,
                                      "Lease has no active adapter call")
             record.active_calls -= 1
+            self._release_deferred_owners_locked()
 
     def release_owner(self, owner_id: str) -> int:
         """Release every lease associated with a cancelled/finished run."""
         with self._mutation_lock:
-            lease_ids = [lease_id for lease_id, (_record, owner) in self._leases.items()
-                         if owner == owner_id]
+            lease_ids = self._lease_ids_for_owner_locked(owner_id)
             if any(self._leases[lease_id][0].active_calls for lease_id in lease_ids):
                 raise SchedulerError(SchedulerErrorCode.BUSY,
                                      "Cannot release run leases while adapter calls are active")
-            for lease_id in lease_ids:
-                self._release_locked(lease_id)
-            return len(lease_ids)
+            return self._release_owner_locked(owner_id, lease_ids)
+
+    def release_owner_after_calls(self, owner_id: str) -> int:
+        """Release run leases now or after any in-flight cancel/invoke callback returns.
+
+        This is for terminal run cleanup racing with a cancellation callback.
+        It never unloads a runtime or invalidates a lease while adapter code is
+        still using the handle. The strict ``release_owner`` API retains its
+        immediate BUSY behavior for callers that need synchronous confirmation.
+        """
+        with self._mutation_lock:
+            lease_ids = self._lease_ids_for_owner_locked(owner_id)
+            if not lease_ids:
+                self._deferred_release_owners.discard(owner_id)
+                return 0
+            if any(self._leases[lease_id][0].active_calls for lease_id in lease_ids):
+                self._deferred_release_owners.add(owner_id)
+                return 0
+            self._deferred_release_owners.discard(owner_id)
+            return self._release_owner_locked(owner_id, lease_ids)
+
+    def _lease_ids_for_owner_locked(self, owner_id: str) -> list[str]:
+        return [lease_id for lease_id, (_record, owner) in self._leases.items()
+                if owner == owner_id]
+
+    def _release_owner_locked(self, owner_id: str, lease_ids: list[str]) -> int:
+        for lease_id in lease_ids:
+            self._release_locked(lease_id)
+        self._deferred_release_owners.discard(owner_id)
+        return len(lease_ids)
+
+    def _release_deferred_owners_locked(self) -> None:
+        for owner_id in tuple(self._deferred_release_owners):
+            lease_ids = self._lease_ids_for_owner_locked(owner_id)
+            if not lease_ids or not any(self._leases[lease_id][0].active_calls for lease_id in lease_ids):
+                self._release_owner_locked(owner_id, lease_ids)
 
     def _release_locked(self, lease_id: str) -> None:
         entry = self._leases.get(lease_id)

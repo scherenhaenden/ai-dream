@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from aidream.capabilities import CapabilityRegistry
 from aidream.http_api import APIError, APINotFound, ReadOnlyAPI
@@ -47,6 +49,13 @@ def _api(models=(), backends=()):
         "runtime_id": "runtime-fixture",
     }
     api._all_backends = lambda: list(backends)
+    # Keep read-only capability tests deterministic across hosts with optional
+    # speech tools installed; provider discovery has dedicated fixture tests.
+    api.local_voice = SimpleNamespace(configuration=lambda: SimpleNamespace(
+        capabilities=SimpleNamespace(tts_executable=None, flite_executable=None, flite_voices=(),
+                                     stt_executable=None, speech_to_text=False, text_to_speech=False),
+        whisper_models=(),
+    ))
     return api
 
 
@@ -163,6 +172,20 @@ class CapabilityAPITests(unittest.TestCase):
         self.assertTrue(all(item["status"] == "unavailable" for item in full
                             if item["id"].startswith(("audio.", "image.", "music.", "embedding.", "rerank."))))
 
+    def test_tts_readiness_is_independent_from_stt_readiness(self):
+        api = _api()
+        api.local_voice = SimpleNamespace(configuration=lambda: SimpleNamespace(
+            capabilities=SimpleNamespace(tts_executable=None, flite_executable="/usr/bin/ffmpeg",
+                                         flite_voices=("kal", "slt"), stt_executable=None,
+                                         speech_to_text=False, text_to_speech=True),
+            whisper_models=(),
+        ))
+        full = {item["id"]: item for item in api.get("/api/capabilities")[1]["data"]["capabilities"]}
+        self.assertEqual(full["audio.synthesize"]["status"], "supported")
+        self.assertEqual(full["audio.synthesize"]["routes"][0]["model_id"], "ffmpeg-flite:kal")
+        self.assertEqual(full["audio.transcribe"]["status"], "unavailable")
+        self.assertIn("whisper.cpp", full["audio.transcribe"]["evidence"][0]["details"])
+
     def test_supported_route_requires_available_chat_runtime_and_loadable_model(self):
         cases = (
             (_Backend(available=False), False),
@@ -208,6 +231,26 @@ class CapabilityAPITests(unittest.TestCase):
         self.assertEqual(capabilities["image.edit"]["outputs"], [{"kind": "image"}])
         self.assertIn("No compatible local image generation runtime",
                       capabilities["image.generate"]["evidence"][0]["details"])
+
+    def test_comfyui_requires_explicit_local_configuration_and_reports_invalid_host(self):
+        api = _api()
+        with patch.dict(os.environ, {"AI_DREAM_COMFYUI_URL": ""}):
+            self.assertEqual(api._local_image_adapters(), ())
+            from aidream.skills import SkillRegistry, builtin_skill_manifests
+            api.skill_registry = SkillRegistry(builtin_skill_manifests())
+            fallback = {item["id"]: item for item in api._skill_summaries([
+                {"id": "image.generate", "routes": []},
+            ])}
+            self.assertIn("AI_DREAM_COMFYUI_URL", fallback["image.generate"]["alternatives"][0])
+
+        with patch.dict(os.environ, {"AI_DREAM_COMFYUI_URL": "http://example.com:8188"}):
+            adapters = api._local_image_adapters()
+            self.assertEqual(len(adapters), 1)
+            descriptor = adapters[0].probe()
+            self.assertFalse(descriptor.available)
+            self.assertIn("loopback", descriptor.details)
+            capabilities = {item["id"]: item for item in api.get("/api/capabilities")[1]["data"]["capabilities"]}
+            self.assertIn("loopback", capabilities["image.generate"]["evidence"][0]["details"])
 
     def test_image_routes_require_explicit_offline_backend_and_serialize_no_paths(self):
         class LocalImageBackend:

@@ -1,4 +1,4 @@
-"""Bounded process-local orchestration run lifecycle and event journal."""
+"""Bounded orchestration lifecycle with optional durable run/event journal."""
 from __future__ import annotations
 
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -43,6 +43,8 @@ class _Run:
     error: Mapping[str, Any] | None = None
     events: list[dict[str, Any]] = field(default_factory=list)
     next_sequence: int = 1
+    chat_id: str | None = None
+    recovered: bool = False
     future: Future | None = None
     cancel_callback: Callable[[], None] | None = None
     context: Any = field(default=None, repr=False)
@@ -52,12 +54,14 @@ class RunManager:
     """Runs validated immutable plans with bounded concurrency and event history.
 
     Planning/validation and node execution are injected; this manager never
-    chooses a model or starts a runtime itself.
+    chooses a model or starts a runtime itself. Durable metadata is optional,
+    bounded, and never resumes work without its original runtime leases.
     """
 
     def __init__(self, *, executor: Callable[..., Any], artifact_store=None, release_leases=None,
                  max_active_runs: int = 4, max_retained_runs: int = 64,
-                 max_events_per_run: int = 512, workers: int = 4, clock=time.time):
+                 max_events_per_run: int = 512, workers: int = 4, clock=time.time,
+                 journal_store=None, journal_error: str | None = None):
         for name, value in (("max_active_runs", max_active_runs), ("max_retained_runs", max_retained_runs),
                             ("max_events_per_run", max_events_per_run), ("workers", workers)):
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
@@ -73,20 +77,29 @@ class RunManager:
         self._max_retained = max_retained_runs
         self._max_events = max_events_per_run
         self._clock = clock
+        self._journal_store = journal_store
+        self._journal_error: str | None = (journal_error or
+            ("Run persistence is not configured." if journal_store is None else None))
+        self._durable_run_ids: set[str] = set()
         self._lock = threading.RLock()
         self._changed = threading.Condition(self._lock)
         self._runs: dict[str, _Run] = {}
         self._pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="ai-dream-run")
         self._closed = False
+        self._restore_journal()
 
     def create(self, *, skill_id: str, skill_version: str, plan: Mapping[str, Any],
-               cancel_callback: Callable[[], None] | None = None, context: Any = None) -> dict[str, Any]:
+               cancel_callback: Callable[[], None] | None = None, context: Any = None,
+               chat_id: str | None = None) -> dict[str, Any]:
         if not isinstance(skill_id, str) or not skill_id or len(skill_id) > 256:
             raise ValueError("skill_id must be bounded non-empty text")
         if not isinstance(skill_version, str) or not skill_version or len(skill_version) > 64:
             raise ValueError("skill_version must be bounded non-empty text")
         if not isinstance(plan, Mapping):
             raise ValueError("plan must be an object")
+        if chat_id is not None and (not isinstance(chat_id, str) or len(chat_id) != 32
+                                    or any(char not in "0123456789abcdef" for char in chat_id)):
+            raise ValueError("chat_id must be a valid conversation identifier")
         # The plan is detached, JSON-compatible and never returned mutable.
         immutable_plan = _freeze_mapping(plan)
         with self._changed:
@@ -96,11 +109,12 @@ class RunManager:
                 raise RunStateError("active run limit reached")
             run_id = uuid.uuid4().hex
             run = _Run(run_id, skill_id, skill_version, immutable_plan, self._clock(),
-                       cancel_callback=cancel_callback, context=context)
+                       cancel_callback=cancel_callback, context=context, chat_id=chat_id)
             self._runs[run_id] = run
             self._prune_locked()
             self._emit_locked(run, "run.created", {"skill_id": skill_id, "skill_version": skill_version})
             self._emit_locked(run, "plan.resolved", {"plan": _thaw(immutable_plan)})
+            self._persist_locked()
             run.future = self._pool.submit(self._execute, run_id)
             return self._snapshot_locked(run)
 
@@ -210,6 +224,7 @@ class RunManager:
         run.events.append(event)
         if len(run.events) > self._max_events:
             del run.events[:len(run.events) - self._max_events]
+        self._persist_locked()
         self._changed.notify_all()
 
     def _finish_locked(self, run: _Run, state: str) -> None:
@@ -245,7 +260,60 @@ class RunManager:
                 "plan": _thaw(run.plan), "state": run.state, "created_at": run.created_at,
                 "started_at": run.started_at, "completed_at": run.completed_at,
                 "current_nodes": list(run.current_nodes), "outputs": deepcopy(list(run.outputs)),
-                "error": deepcopy(run.error), "last_sequence": run.next_sequence - 1}
+                "error": deepcopy(run.error), "last_sequence": run.next_sequence - 1,
+                "chat_id": run.chat_id, "recovered": run.recovered,
+                "durable": run.id in self._durable_run_ids and self._journal_error is None,
+                "durability_error": self._journal_error}
+
+    def _restore_journal(self) -> None:
+        if self._journal_store is None:
+            return
+        with self._changed:
+            for row in self._journal_store.records():
+                run = _Run(
+                    id=row["id"], skill_id=row["skill_id"], skill_version=row["skill_version"],
+                    plan=row["plan"], created_at=row["created_at"], state=row["state"],
+                    started_at=row.get("started_at"), completed_at=row.get("completed_at"),
+                    current_nodes=tuple(row.get("current_nodes", ())), outputs=(),
+                    error=row.get("error"), events=list(row["events"]),
+                    next_sequence=row["next_sequence"], chat_id=row.get("chat_id"), recovered=True,
+                )
+                self._runs[run.id] = run
+                if run.state not in _TERMINAL:
+                    run.state = "failed"
+                    run.completed_at = self._clock()
+                    run.current_nodes = ()
+                    run.error = {"kind": "process_restarted",
+                                 "message": "Run was interrupted by an AI Dream restart and was not resumed."}
+                    self._emit_locked(run, "run.failed", dict(run.error))
+            self._prune_locked()
+            self._persist_locked()
+
+    def _persist_locked(self) -> None:
+        if self._journal_store is None:
+            return
+        rows = []
+        for run in self._runs.values():
+            rows.append({
+                "id": run.id, "skill_id": run.skill_id, "skill_version": run.skill_version,
+                "plan": _journal_safe(run.plan), "state": run.state,
+                "created_at": run.created_at, "started_at": run.started_at,
+                "completed_at": run.completed_at, "current_nodes": list(run.current_nodes),
+                # Runtime artifacts use a temporary store and are intentionally
+                # not claimed to survive a host restart.
+                "outputs": [], "error": _journal_safe(run.error) if run.error else None,
+                "events": [_journal_safe(event) for event in run.events],
+                "next_sequence": run.next_sequence, "chat_id": run.chat_id,
+            })
+        rows = rows[-getattr(self._journal_store, "max_records", self._max_retained):]
+        try:
+            self._journal_store.replace_all(rows)
+            self._journal_error = None
+            self._durable_run_ids = {row["id"] for row in rows}
+        except (OSError, ValueError, TypeError) as exc:
+            self._journal_error = (
+                f"Run journal write failed ({type(exc).__name__}); recent run state may not survive restart."
+            )
 
     def _require_locked(self, run_id: str) -> _Run:
         if not isinstance(run_id, str) or run_id not in self._runs:
@@ -384,6 +452,35 @@ def _freeze_mapping(value: Mapping[str, Any]) -> Mapping[str, Any]:
 
 def _thaw(value: Any) -> Any:
     return deepcopy(value)
+
+
+def _journal_safe(value: Any) -> Any:
+    """Keep operational metadata while excluding conversation and tool input."""
+    sensitive = {"arguments", "tool_arguments", "tool_args", "raw_input", "input_value", "base64",
+                 "transcript", "storage", "bytes", "content_bytes", "base64", "data_url",
+                 "token", "tokens", "access_token", "authorization", "secret", "api_key", "path", "url",
+                 "value", "answer", "response", "result", "generated_text", "completion"}
+    sensitive_fragments = ("prompt", "query", "instruction", "transcript", "message", "input",
+                           "tool_arg", "content", "text", "token", "secret", "authorization")
+    if isinstance(value, Mapping):
+        result = {str(key): _journal_safe(item) for key, item in value.items()
+                  if isinstance(key, str) and key.lower() not in sensitive
+                  and not any(fragment in key.lower() for fragment in sensitive_fragments)}
+        if isinstance(value.get("message"), str) and isinstance(value.get("kind"), str):
+            # Error text can include the request that triggered it. Preserve
+            # only a normalized operational explanation, never free text.
+            if value.get("kind") == "process_restarted":
+                result["message"] = "Run was interrupted by an AI Dream restart and was not resumed."
+            else:
+                result["message"] = "Run failed; details are omitted from durable history."
+        return result
+    if isinstance(value, (list, tuple)):
+        return [_journal_safe(item) for item in value[:128]]
+    if isinstance(value, str):
+        return value[:4000]
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return "[omitted]"
+    return value
 
 
 __all__ = ["RunCancelled", "RunManager", "RunNotFound", "RunStateError"]

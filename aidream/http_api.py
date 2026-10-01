@@ -186,7 +186,7 @@ class ReadOnlyAPI:
                  manifest_verifier=None, manifest_verification_store=None,
                  capability_preference_store=None, skill_registry=None, run_manager=None, run_planner=None,
                  resource_snapshot_service=None, artifact_api=None, local_voice=None,
-                 voice_render_speech=None, image_backends=None):
+                 voice_render_speech=None, image_backends=None, run_journal_store=None):
         if hardware is None:
             from aidream.hardware import HardwareService
             hardware = HardwareService()
@@ -292,7 +292,19 @@ class ReadOnlyAPI:
             self.run_planner = self._build_orchestration_plan
         if self.run_manager is None and uses_default_planner:
             from aidream.run_manager import RunManager
-            self.run_manager = RunManager(executor=self._execute_orchestration_run)
+            from aidream.run_journal import RunJournalStore
+            journal_error = None
+            try:
+                run_journal_store = run_journal_store or RunJournalStore()
+            except (OSError, ValueError, TypeError) as exc:
+                run_journal_store = None
+                journal_error = (
+                    f"Run journal is unavailable ({type(exc).__name__}); recent run state may not survive restart."
+                )
+            self.run_journal_store = run_journal_store
+            self.run_manager = RunManager(executor=self._execute_orchestration_run,
+                                          journal_store=run_journal_store,
+                                          journal_error=journal_error)
             self._owns_run_manager = True
         self._run_artifact_store_attached = False
         self._installation_backends = {}
@@ -351,6 +363,21 @@ class ReadOnlyAPI:
                 backends = provider() if callable(provider) else ()
             except (OSError, RuntimeError, TypeError, ValueError):
                 backends = ()
+            # ComfyUI is opt-in through an explicit loopback URL. Merely
+            # importing/starting AI Dream never discovers a service or sends
+            # a request; the backend is probed only when image capability
+            # status is requested.
+            from aidream.comfyui_image import ComfyUIBackend
+            comfy_url = os.environ.get("AI_DREAM_COMFYUI_URL")
+            configured_comfy = None
+            if isinstance(comfy_url, str) and comfy_url.strip():
+                if (getattr(self, "_comfyui_image_backend_url", None) != comfy_url.strip()
+                        or getattr(self, "_comfyui_image_backend", None) is None):
+                    self._comfyui_image_backend_url = comfy_url.strip()
+                    self._comfyui_image_backend = ComfyUIBackend(comfy_url.strip())
+                configured_comfy = self._comfyui_image_backend
+            if configured_comfy is not None:
+                backends = (tuple(backends) if isinstance(backends, (list, tuple)) else ()) + (configured_comfy,)
         if not isinstance(backends, (list, tuple)):
             return ()
         adapters = []
@@ -1836,7 +1863,7 @@ class ReadOnlyAPI:
                         self.chat_store.append(chat_id, "assistant", response["text"], run_id=run_id)
                 return list(outputs.values())
             finally:
-                service.scheduler.release_owner(owner_id)
+                service.scheduler.release_owner_after_calls(owner_id)
                 for resident in service.scheduler.residency():
                     if resident.lease_count == 0 and not resident.pinned:
                         try:
@@ -1892,6 +1919,12 @@ class ReadOnlyAPI:
         expected_plan_id = request.get("expected_plan_id") if isinstance(request, Mapping) else None
         if expected_plan_id is not None and planned.get("plan_id") != expected_plan_id:
             raise APIConflict("The plan changed after review. Preview the current plan again before running it.")
+        current_summary = next((item for item in self._skill_summaries() if item.get("id") == skill_id), None)
+        if current_summary is not None and current_summary.get("status") != "ready":
+            reasons = current_summary.get("not_ready_reasons", [])
+            explanation = "; ".join(reason for reason in reasons if isinstance(reason, str))
+            detail = f": {explanation}" if explanation else ""
+            raise APIConflict(f"Skill {skill_id} is not ready to run{detail}")
         execution_context = None
         if result.get("service") is not None:
             execution_context = (result["service"], result["execution_plan"], result["inputs"], request.get("chat_id"))
@@ -1905,7 +1938,7 @@ class ReadOnlyAPI:
             run = run_manager.create(
                 skill_id=skill_id, skill_version=skill["version"], plan=planned,
                 cancel_callback=result.get("cancel_callback") if callable(result.get("cancel_callback")) else None,
-                context=execution_context,
+                context=execution_context, chat_id=request.get("chat_id"),
             )
         except (ValueError, TypeError) as exc:
             raise APIError(str(exc)) from exc
@@ -1960,7 +1993,7 @@ class ReadOnlyAPI:
                 "vision.understand": ("Use chat.general with a text-only description of the image, or configure a local vision-capable runtime." if text_chat_ready else "Configure a local runtime that advertises vision.understand."),
                 "audio.transcribe": ("If you already have a transcript, continue with chat.general; otherwise configure a local speech-to-text route." if text_chat_ready else "Configure a local runtime that advertises audio.transcribe."),
                 "audio.synthesize": ("Use the text response from chat.general while no local speech synthesizer is available." if text_chat_ready else "Configure a local runtime that advertises audio.synthesize."),
-                "image.generate": ("No compatible local image-generation runtime and model are configured. Configure a supported local generator; text.chat can help refine the prompt in the meantime." if text_chat_ready else "No compatible local image-generation runtime and model are configured."),
+                "image.generate": ("No compatible local image-generation runtime and model are configured. To use local ComfyUI generation, set AI_DREAM_COMFYUI_URL to its loopback origin (default http://127.0.0.1:8188) and restart AI Dream; generation remains unverified until run. text.chat can help refine the prompt in the meantime." if text_chat_ready else "No compatible local image-generation runtime and model are configured. Set AI_DREAM_COMFYUI_URL to a ComfyUI loopback origin and restart AI Dream."),
                 "image.edit": ("No compatible local image-editing runtime and model are configured. Keep the source image and retry when an editor route is available." if text_chat_ready else "No compatible local image-editing runtime and model are configured."),
                 "text.chat": "Select or install a local model and runtime that advertise text.chat.",
             }
@@ -2015,6 +2048,8 @@ class ReadOnlyAPI:
         except (OSError, RuntimeError, ValueError, TypeError):
             return []
 
+        comfyui_diagnostics: list[str] = []
+        from aidream.comfyui_image import ComfyUIBackend
         for backend in backends:
             try:
                 capabilities = backend.capabilities()
@@ -2049,6 +2084,8 @@ class ReadOnlyAPI:
         for adapter in self._local_image_adapters():
             try:
                 descriptor = adapter.probe()
+                if isinstance(adapter.backend, ComfyUIBackend) and isinstance(descriptor.details, str):
+                    comfyui_diagnostics.append(descriptor.details[:500])
                 if not descriptor.available:
                     continue
                 try:
@@ -2080,10 +2117,16 @@ class ReadOnlyAPI:
             from aidream.voice_orchestration import local_voice_readiness
             voice_readiness = local_voice_readiness(self._local_voice_instance())
             for capability_id in ("audio.transcribe", "audio.synthesize"):
-                if voice_readiness[capability_id]["available"]:
+                capability_ready = voice_readiness[capability_id]
+                if capability_ready["available"]:
+                    provider = capability_ready.get("provider")
+                    selected_voice = capability_ready.get("selected_voice")
+                    model_id = (f"{provider}:{selected_voice}" if capability_id == "audio.synthesize"
+                                and provider == "ffmpeg-flite" and selected_voice
+                                else provider or "local-voice-tools")
                     routes[capability_id].append({
                         "id": "route_local_" + capability_id.replace(".", "_"),
-                        "model_id": "local-voice-tools",
+                        "model_id": model_id,
                         "runtime_id": "local-voice",
                         "preferred": True,
                     })
@@ -2143,7 +2186,9 @@ class ReadOnlyAPI:
                     if capability_id == "retrieval.search" else
                     "Local whisper.cpp executable and an installed GGML model were detected; transcription has not been run."
                     if capability_id == "audio.transcribe" else
-                    "A local espeak executable was detected; synthesis has not been run."
+                    (f"Local {voice_readiness.get(capability_id, {}).get('provider')} synthesis is available "
+                     f"({', '.join(voice_readiness.get(capability_id, {}).get('voices', ())) or 'default voice'}); "
+                     "no audio has been synthesized during discovery.")
                     if capability_id == "audio.synthesize" else
                     "An explicitly local, network-disabled backend reports a compatible generation model; no image was generated during discovery."
                     if capability_id == "image.generate" else
@@ -2173,6 +2218,8 @@ class ReadOnlyAPI:
                             "rerank.score": "No local reranker model or runtime is configured; results use deterministic lexical ranking.",
                         }.get(capability_id, "No local voice route is currently available."))
                 )
+            if capability_id == "image.generate" and comfyui_diagnostics:
+                details += " " + " ".join(comfyui_diagnostics)
             declarations.append(CapabilityDeclaration(
                 id=capability_id,
                 inputs=input_types,

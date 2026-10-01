@@ -29,6 +29,8 @@ await page.route('**/*', async route => {
     if (url.pathname === `/api/runs/${runId}`) {
       return route.fulfill({ json: { data: { run: {
         id: runId, skill_id: 'document.create-report', skill_version: '1.0.0', state: 'succeeded',
+        chat_id: 'chat-associated', recovered: true, durable: false,
+        durability_error: 'The local run journal could not be written.',
         created_at: 1790800000, started_at: 1790800001, completed_at: 1790800002,
         current_nodes: [], outputs: [
           { kind: 'text', text: 'A report is ready.' },
@@ -45,6 +47,9 @@ await page.route('**/*', async route => {
       assert.equal(Buffer.byteLength(html), artifact.size_bytes);
       return route.fulfill({ status: 200, contentType: 'text/html', body: html });
     }
+    if (url.pathname === '/api/chats') return route.fulfill({ json: { data: { chats: [{ id: 'chat-associated', title: 'Associated chat' }] } } });
+    if (url.pathname === '/api/chats/chat-associated') return route.fulfill({ json: { data: { chat: { id: 'chat-associated', messages: [] } } } });
+    if (url.pathname === '/api/chats/chat-associated/settings') return route.fulfill({ json: { data: { settings: {} } } });
     if (url.pathname.endsWith('/events')) return route.fulfill({ status: 200, contentType: 'text/event-stream', body: '' });
     const fixtures = {
       '/api/health': { data: { status: 'ok', service: 'ai-dream' } },
@@ -79,6 +84,13 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`http://localhost:4200/runs/${runId}`);
   await expect(page.getByRole('heading', { name: 'Run details' })).toBeVisible();
+  await expect(page.getByRole('status', { name: 'Run recovered after restart' })).toContainText('This run was not resumed');
+  await expect(page.getByRole('status', { name: 'Run is not durable' })).toContainText('The local run journal could not be written.');
+  const chatLink = page.getByRole('link', { name: 'Open associated conversation' });
+  await expect(chatLink).toHaveAttribute('href', /\/chat\?chat_id=chat-associated$/);
+  await chatLink.click();
+  await expect(page.locator('.active-thread-bar')).toContainText('Associated chat');
+  await page.goto(`http://localhost:4200/runs/${runId}`);
   await expect(page.getByText('A report is ready.')).toBeVisible();
   await expect(page.getByText('"status": "complete"')).toBeVisible();
   const previewButton = page.getByRole('button', { name: 'Preview here' });

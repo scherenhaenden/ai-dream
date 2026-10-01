@@ -252,6 +252,53 @@ class ModelSchedulerTest(unittest.TestCase):
         self.assertEqual(scheduler.residency()[0].state, "busy")
         self.assertEqual(scheduler.release_owner("run-1"), 1)
 
+    def test_owner_cleanup_cannot_unload_while_cancel_callback_is_in_flight(self):
+        entered, resume = threading.Event(), threading.Event()
+        adapter = FakeAdapter()
+
+        def blocked_cancel(handle, request_id=None):
+            adapter.calls.append(("cancel-enter", request_id))
+            entered.set()
+            if not resume.wait(2):
+                raise RuntimeError("test cancellation callback timed out")
+            adapter.calls.append(("cancel-return", request_id))
+            return True
+
+        adapter.cancel = blocked_cancel
+        scheduler = ModelScheduler({"fake": adapter})
+        lease = scheduler.acquire(req("chat", 10, owner="run-1"))
+        errors = []
+
+        def cancel():
+            try:
+                scheduler.cancel(lease, "request-1")
+            except Exception as exc:
+                errors.append(exc)
+
+        thread = threading.Thread(target=cancel)
+        thread.start()
+        self.assertTrue(entered.wait(1), "cancellation callback should start")
+        try:
+            with self.assertRaises(SchedulerError) as raised:
+                scheduler.release_owner("run-1")
+            self.assertEqual(SchedulerErrorCode.BUSY, raised.exception.code)
+            self.assertEqual(0, scheduler.release_owner_after_calls("run-1"))
+            with self.assertRaises(SchedulerError) as raised:
+                scheduler.begin_call(lease)
+            self.assertEqual(SchedulerErrorCode.BUSY, raised.exception.code)
+            self.assertEqual((lease.lease_id,), tuple(item.lease_id for item in scheduler.active_leases()))
+            self.assertNotIn("unload", [call[0] for call in adapter.calls])
+        finally:
+            resume.set()
+            thread.join(2)
+
+        self.assertFalse(thread.is_alive(), "cancellation callback thread should finish")
+        self.assertEqual([], errors)
+        self.assertEqual((), scheduler.active_leases(), "deferred cleanup should release the run lease after callback return")
+        scheduler.unload("chat", "fake")
+        self.assertEqual(["load", "cancel-enter", "cancel-return", "unload"],
+                         [call[0] for call in adapter.calls])
+
     def test_active_adapter_call_prevents_release_and_unload_until_call_returns(self):
         adapter = FakeAdapter()
         scheduler = ModelScheduler({"fake": adapter})
@@ -271,6 +318,19 @@ class ModelSchedulerTest(unittest.TestCase):
         scheduler.end_call(lease)
         scheduler.release_owner("run-1")
         self.assertEqual((), scheduler.active_leases())
+
+    def test_deferred_owner_release_finishes_when_active_invocation_returns(self):
+        adapter = FakeAdapter()
+        scheduler = ModelScheduler({"fake": adapter})
+        lease = scheduler.acquire(req("chat", 10, owner="run-1"))
+        scheduler.begin_call(lease)
+
+        self.assertEqual(0, scheduler.release_owner_after_calls("run-1"))
+        self.assertEqual((lease.lease_id,), tuple(item.lease_id for item in scheduler.active_leases()))
+        scheduler.end_call(lease)
+        self.assertEqual((), scheduler.active_leases())
+        scheduler.unload("chat", "fake")
+        self.assertEqual(["load", "unload"], [call[0] for call in adapter.calls])
 
     def test_orchestration_pin_and_unload_require_allowlisted_owned_resident(self):
         adapter = FakeAdapter()

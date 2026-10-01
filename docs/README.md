@@ -17,21 +17,27 @@ item is not an available feature until the corresponding implementation exists.
 | Use offline speech tools | [Voice](voice.md) |
 | Interpret local GGUF metadata | [Local model metadata](model-metadata.md) |
 | Interpret Hub repository metadata | [Hugging Face metadata](huggingface-metadata.md) |
-| Design the next capability/skill/multimodal orchestration layer | [Capability, skill and multimodal orchestration](capability-orchestration/README.md) |
+| Understand capability, skill and multimodal orchestration design and implementation status | [Capability orchestration](capability-orchestration/README.md) |
 
 The Python Tk interface and Angular browser interface share the backend and
 local files, but their controls differ. The feature tables in the architecture
 guides identify which interface currently exposes each workflow.
 
-## Future architecture design
+## Capability orchestration: design and current implementation
 
-The `capability-orchestration/` documentation is a design package for the next
-architecture layer. It is intentionally separate from the documents above,
-which describe implemented behavior. The proposal covers a normalized
-capability registry, typed artifacts, model manifests, hardware-aware loading
-profiles, declarative skills, multimodal workflow graphs, resource-aware model
-scheduling, UX, API/storage contracts and a staged implementation plan.
+The `capability-orchestration/` package documents an active implementation as
+well as its architecture target. Typed capabilities and artifacts, planning,
+local runtime/scheduler integration, skills, run events/artifacts and parts of
+the multimodal workflows already exist. Other areas remain partial or depend
+on host configuration: real image inference, Whisper STT, semantic manifest
+verification, assisted planning with an already-loaded model, and broader
+rendered UX verification. The design chapters also describe planned behavior;
+they should not be read as feature availability claims.
 
-Start with [capability-orchestration/README.md](capability-orchestration/README.md),
-then use the implementation plan to divide the work into parallel backend,
-runtime, UX, artifact, skill and testing streams.
+Start with the [architecture and implementation snapshot](capability-orchestration/README.md).
+For day-to-day operation and validation, use the [user handbook](capability-orchestration/user-handbook.md),
+[testing guide](capability-orchestration/testing-guide.md),
+[local provider operations](capability-orchestration/local-provider-operations.md),
+and [readiness snapshot](capability-orchestration/readiness.md). The readiness
+percentages summarize objective coverage and unresolved acceptance gates; they
+do not mean the whole system is ready or complete.

@@ -3,6 +3,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch, Mock
 
 from aidream.voice import (MAX_TRANSCRIPT_BYTES, LocalVoice, RecordingWorker,
@@ -33,6 +34,23 @@ class VoiceTests(unittest.TestCase):
                 config = voice.configuration([tmp])
             self.assertEqual(config.capabilities.recorder_executable, "/bin/arecord")
             self.assertEqual(config.whisper_models, (model,))
+
+    def test_ffmpeg_flite_probe_discovers_voices_without_synthesizing(self):
+        paths = {"espeak-ng": None, "espeak": None, "ffmpeg": "/usr/bin/ffmpeg",
+                 "arecord": "/usr/bin/arecord", "whisper-cli": None, "whisper-cpp": None,
+                 "spd-say": "/usr/bin/spd-say"}
+        probe = Mock(return_value=SimpleNamespace(
+            returncode=0,
+            stderr="[Parsed_flite_0 @ 0x1234] kal\n[Parsed_flite_0 @ 0x1234] slt\n",
+        ))
+        with patch("aidream.voice.shutil.which", side_effect=lambda name: paths.get(name)):
+            with patch("aidream.voice.subprocess.run", probe):
+                voice = LocalVoice()
+        self.assertEqual(voice.capabilities.flite_voices, ("kal", "slt"))
+        self.assertEqual(voice.capabilities.details()["text_to_speech"]["provider"], "ffmpeg-flite")
+        command = probe.call_args.args[0]
+        self.assertIn("flite=list_voices=true", command)
+        self.assertFalse(any("textfile=" in item for item in command))
 
     def test_speak_async_validates_text_and_missing_tts(self):
         voice = LocalVoice()

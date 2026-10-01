@@ -376,6 +376,13 @@ pool shutdown are finalized immediately because they never acquired runtime
 resources. This prevents shutdown from reporting a stopped run while its
 runtime is still using the lease.
 
+Run cleanup that races a cancellation callback uses deferred owner release.
+The scheduler keeps the leases valid while either invoke or cancel adapter
+callbacks are active, blocks new calls for that owner once deferred release is
+pending, and releases the leases as the last callback returns. Synchronous
+`release_owner` remains fail-fast with `BUSY` so callers that need immediate
+confirmation cannot mistake a deferred cleanup for a completed one.
+
 ## 17. Concurrency
 
 Initial safe policy:

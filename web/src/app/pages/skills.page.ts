@@ -36,7 +36,7 @@ import type { SkillCatalogItem, SkillReadiness, SkillPort, SkillPermissionKey, S
       @if (skills().length) {
         <section aria-label="Skill catalog" class="catalog">
           <div class="toolbar">
-            <label class="search"><span aria-hidden="true">⌕</span><input type="search" aria-label="Search skills" placeholder="Search name, category, input, or output" [value]="query()" (input)="query.set($any($event.target).value)"></label>
+            <label class="search"><span aria-hidden="true">⌕</span><input type="search" aria-label="Find a skill by goal or name" placeholder="e.g. create a PDF report" [value]="query()" (input)="query.set($any($event.target).value)"></label>
             <label class="filter-label">Readiness
               <select aria-label="Filter skills by readiness" [value]="readinessFilter()" (change)="readinessFilter.set($any($event.target).value)">
                 <option value="all">All</option><option value="ready">Ready</option><option value="not_ready">Not ready</option><option value="unknown">Unknown</option>
@@ -44,6 +44,7 @@ import type { SkillCatalogItem, SkillReadiness, SkillPort, SkillPermissionKey, S
             </label>
             <span class="result-count" aria-live="polite" aria-atomic="true">{{ visibleSkills().length }} of {{ skills().length }} shown</span>
           </div>
+          <p class="discovery-note">Goal matches use only skill names and API-reported descriptions, categories, inputs and outputs. They do not infer capabilities.</p>
           @if (!visibleSkills().length) {
             <section class="state empty"><b>No matching skills</b><p>Try another search or readiness filter.</p><button type="button" (click)="clearFilters()">Clear filters</button></section>
           }
@@ -132,13 +133,17 @@ import type { SkillCatalogItem, SkillReadiness, SkillPort, SkillPermissionKey, S
                       @if (!skill.inputs.length) { <p class="unsupported-input">This skill declares no inputs. Planning will use its declared workflow only.</p> }
                       @if (composerError()) { <p class="composer-error" role="alert">{{ composerError() }}</p> }
                       <div class="composer-actions"><button type="button" class="prepare" (click)="preview(skill)" [disabled]="planning() || running() || uploadInProgress() || !permissionsReady(skill.id)">{{ planning() ? 'Planning…' : 'Preview plan' }}</button>
-                        <button type="button" class="execute" (click)="execute(skill)" [disabled]="!canRun() || running() || !permissionsReady(skill.id)">{{ running() ? 'Starting…' : 'Run skill' }}</button></div>
+                        <button type="button" class="execute" (click)="execute(skill)" [disabled]="!canRun() || skill.status !== 'ready' || running() || !permissionsReady(skill.id)">{{ running() ? 'Starting…' : 'Run skill' }}</button></div>
                       @if (plan(); as preview) {
                         <section class="plan-preview" aria-label="Plan preview"><header><b>Plan preview</b><span>{{ planReady() ? 'Route available' : 'Needs attention' }}</span></header>
                           <p>Review the selected route before starting. The plan is based on current local capability evidence.</p>
                           @if (selectedImageResources(); as resources) { <p class="image-resource-note">Image model estimate: {{ formatSize(resources.estimated) }} VRAM@if (resources.available !== null) { · {{ formatSize(resources.available) }} observed free at planning time } @else { · available VRAM not reported }. Scheduler headroom still applies when the run starts.</p> }
-                          @if (assistedDraftDetails(); as assisted) { <div class="draft-review"><b>Validated assisted draft</b><span>Generated with {{ assisted.model.id }}@if (assisted.model.runtime_id) { · {{ assisted.model.runtime_id }} }</span><pre>{{ prettyPlan(assisted.draft) }}</pre><label><input type="checkbox" [checked]="draftReviewed()" (change)="draftReviewed.set($any($event.target).checked)"> I reviewed the validated draft and resolved plan</label></div> }
-                          <pre>{{ prettyPlan(preview) }}</pre>
+                          @if (assistedDraftDetails(); as assisted) {
+                            <div class="assisted-plan-review">
+                              <section class="draft-review" aria-label="Generated assisted draft"><b>Validated assisted draft</b><span>Generated with {{ assisted.model.id }}@if (assisted.model.runtime_id) { · {{ assisted.model.runtime_id }} }</span><pre>{{ prettyPlan(assisted.draft) }}</pre><label><input type="checkbox" [checked]="draftReviewed()" (change)="draftReviewed.set($any($event.target).checked)"> I reviewed the validated draft and resolved plan</label></section>
+                              <section class="resolved-review" aria-label="Deterministically resolved plan"><h3>Deterministically resolved plan</h3><p>Routes and requirements were checked against the current local evidence.</p><pre>{{ prettyPlan(preview) }}</pre></section>
+                            </div>
+                          } @else { <pre>{{ prettyPlan(preview) }}</pre> }
                           @if (!planReady()) { <p class="plan-limit">This plan reports unresolved routes or requirements. Resolve them before running.</p> }
                         </section>
                       }
@@ -160,6 +165,7 @@ import type { SkillCatalogItem, SkillReadiness, SkillPort, SkillPermissionKey, S
     .planner-status{padding:8px 9px;border:1px solid #3e4552;border-radius:4px;background:#1b2029}.planner-status>b{color:#e2c58f;font:9px ui-monospace,monospace}.planner-status>p{margin:4px 0 0;color:#aeb7c6;font-size:9px;line-height:1.45}.planner-toggle,.assisted-draft,.draft-review{display:grid;gap:7px;padding:10px 11px;border:1px solid #334155;border-radius:5px;background:#161e2a}.planner-toggle{grid-template-columns:1fr auto;align-items:center}.planner-toggle label,.assisted-draft label,.draft-review label{display:grid;gap:6px;color:#d3deee;font-size:10px}.planner-toggle label{display:flex;align-items:center;gap:8px}.planner-toggle p,.assisted-draft p,.draft-review span{margin:0;color:#9eabc0;font-size:9px;line-height:1.45}.planner-toggle>span{color:#92d8ad;font:9px ui-monospace,monospace}.planner-toggle>span.blocked,.planner-blocked,.planner-error{color:#ffb4ab!important}.planner-error{grid-column:1/-1;font-size:9px}.assisted-draft textarea{width:100%;box-sizing:border-box;padding:8px;border:1px solid #344052;border-radius:4px;background:#101721;color:#e2e8f2;font:10px/1.45 inherit;resize:vertical}.draft-review{margin:8px 0;border-color:#556682}.draft-review>b{font:9px ui-monospace,monospace;color:#dce6f5}.draft-review pre{max-height:180px;overflow:auto;margin:0;padding:8px;background:#101721;color:#cbd5e8;font:9px/1.45 ui-monospace,monospace}.draft-review label{display:flex;align-items:center}.planner-toggle input,.draft-review input{accent-color:#a9c7ff}
     :host{display:block;color:var(--text,#e4e9f2)}.skills-page{max-width:1240px;margin:auto;padding:20px;display:grid;gap:14px}.page-head{display:flex;justify-content:space-between;align-items:center;gap:14px;border-bottom:1px solid #2b3240;padding-bottom:12px}.eyebrow{font:9px ui-monospace,monospace;letter-spacing:1px;color:#8793a8}h1{margin:4px 0;font-size:24px;font-weight:550}.page-head p{margin:5px 0 0;color:#929aaa;font-size:11px;line-height:1.5}.refresh,.state button,.empty button,.prepare,.execute,.upload-success button{border:1px solid #343d4b;border-radius:4px;background:#171c26;color:#c6cede;padding:7px 10px;font:10px ui-monospace,monospace;cursor:pointer}.refresh:disabled,.state button:disabled,.prepare:disabled,.execute:disabled,.upload-success button:disabled{opacity:.55;cursor:wait}.state{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:13px;border:1px solid #303744;border-radius:5px;background:#171c26}.state b{font-size:12px}.state p{margin:5px 0 0;color:#9ca6b6;font-size:10px;line-height:1.5}.error{border-color:#53323a;background:#2b2025;color:#ffb4ab}.error p{color:#d9b5bb}.empty{display:block}.empty button{margin-top:9px}.state-message{color:#a5b1c3;font-size:11px}.toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.search{display:flex;align-items:center;gap:7px;flex:1 1 280px;min-width:0;min-height:34px;padding:0 9px;border:1px solid #303744;border-radius:4px;background:#111721;color:#9aa5b7}.search:focus-within{border-color:#819ac2}.search input{width:100%;min-width:0;border:0;outline:0;background:transparent;color:inherit;font:inherit;font-size:11px}.filter-label{display:flex;align-items:center;gap:7px;color:#aab4c4;font-size:10px}.filter-label select{height:34px;padding:5px 8px;border:1px solid #303744;border-radius:4px;background:#111721;color:#dce3ef;font:10px ui-monospace,monospace}.result-count{color:#8994a7;font:9px ui-monospace,monospace}.skill-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,370px),1fr));gap:10px}.skill-card{min-width:0;padding:13px;border:1px solid #2c3441;border-radius:5px;background:#171c26}.card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:9px;padding-bottom:9px;border-bottom:1px solid #2a303b}.card-head h2{margin:5px 0;font-size:14px;font-weight:550}.card-head code,.card-foot code{color:#aebbd0;font:9px ui-monospace,monospace;overflow-wrap:anywhere}.readiness{flex:none;padding:4px 6px;border-radius:3px;background:#252a34;color:#c0c7d3;font:8px ui-monospace,monospace;text-transform:uppercase}.readiness.ready{background:#1c302d;color:#82dbac}.readiness.not_ready{background:#342326;color:#ffb4ab}.readiness.unknown{background:#282d37;color:#bac4d3}.description{min-height:2.8em;margin:10px 0;color:#c4ccda;font-size:10px;line-height:1.45;overflow-wrap:anywhere}.io{display:grid;grid-template-columns:1fr 1fr;gap:10px}.io section{min-width:0}.io h3{margin:0 0 5px;color:#8793a8;font:8px ui-monospace,monospace;text-transform:uppercase}.chips{display:flex;align-items:flex-start;flex-wrap:wrap;gap:4px}.chip{max-width:100%;padding:4px 5px;border:1px solid #303b4e;border-radius:3px;background:#141923;color:#c1d0e8;font:8px ui-monospace,monospace;overflow-wrap:anywhere}.chip small{display:block;margin-top:2px;color:#939fb2}.missing{color:#8994a7;font-size:9px}.reason{margin-top:10px;padding:8px 9px;border-left:2px solid #d39b62;background:#211f1b}.reason b{color:#e4c699;font-size:9px}.reason p,.reason li{color:#c4b9a8;font-size:9px;line-height:1.45}.reason p{margin:5px 0 0}.reason ul{margin:5px 0 0;padding-left:17px}.unknown-reason{border-color:#6c819e;background:#1c232d}.unknown-reason b{color:#b7c9e4}.unknown-reason p{color:#a9b5c6}.card-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:10px;padding-top:8px;border-top:1px solid #2a303b}.card-foot span{color:#8793a8;font:8px ui-monospace,monospace;text-transform:uppercase}.card-foot code{overflow-wrap:anywhere;text-align:right}.skill-actions{margin-top:11px}.composer{display:grid;gap:8px;margin-top:9px;padding:10px;border:1px solid #313c4d;border-radius:4px;background:#121821}.composer-intro,.plan-preview>p{margin:0;color:#aeb9ca;font-size:9px;line-height:1.5}.input-field{display:grid;gap:4px;color:#bbc7d9;font-size:9px}.input-field textarea{box-sizing:border-box;width:100%;min-height:62px;padding:7px;border:1px solid #374252;border-radius:4px;background:#0e131b;color:#e1e8f1;font:10px/1.45 ui-monospace,monospace;resize:vertical}.upload-field{display:grid;gap:5px;padding:8px;border:1px solid #303947;border-radius:4px;background:#10151e}.upload-label{display:grid;gap:5px;color:#c3cede;font-size:9px}.upload-label input,.upload-label select{max-width:100%;padding:6px;border:1px solid #374252;border-radius:4px;background:#0e131b;color:#cdd7e6;font-size:9px}.upload-help,.upload-progress{color:#8f9bac;font-size:8px;line-height:1.4}.upload-progress{color:#d6bf7d}.upload-error{color:#ffb4ab;font-size:9px;line-height:1.4;overflow-wrap:anywhere}.upload-success{display:flex;align-items:center;justify-content:space-between;gap:8px;color:#91d6a9;font-size:9px;overflow-wrap:anywhere}.upload-success button{flex:none;padding:4px 6px}.unsupported-input{display:grid;gap:3px;padding:7px;border-left:2px solid #a67c4b;background:#211f1b;color:#dfc18e;font-size:9px}.unsupported-input span{color:#bcb3a5;line-height:1.45}.composer-actions{display:flex;gap:7px;flex-wrap:wrap}.execute{border-color:#3d684f;background:#203229;color:#9de2b9}.composer-error{margin:0;color:#ffb4ab;font-size:9px}.plan-preview{display:grid;gap:6px;padding:8px;border:1px solid #344154;border-radius:4px;background:#0f151f}.plan-preview>header{display:flex;justify-content:space-between;gap:8px;color:#cfdaea;font-size:9px}.plan-preview>header span{color:#85d4a7;font:8px ui-monospace,monospace}.plan-preview pre{max-height:240px;overflow:auto;margin:0;padding:8px;border-radius:3px;background:#090d13;color:#c2d0e4;font:9px/1.45 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere}.plan-preview .plan-limit{color:#e4c699}.skills-page button:focus-visible,.skills-page input:focus-visible,.skills-page textarea:focus-visible,.skills-page select:focus-visible{outline:2px solid #adc6ff;outline-offset:2px}@media(max-width:560px){.skills-page{padding:14px 11px}.page-head{align-items:flex-start}.toolbar{align-items:stretch;flex-direction:column}.filter-label{justify-content:space-between}.filter-label select{flex:1}.skill-grid{grid-template-columns:1fr}.io{grid-template-columns:1fr}}
     .search input{font:inherit;font-size:11px}.skill-group{display:grid;gap:8px;margin-top:14px}.group-heading{display:flex;justify-content:space-between;align-items:center;margin:0;padding:4px 1px;color:#cbd4e3;font-size:12px;font-weight:550}.group-heading span{color:#8994a7;font:9px ui-monospace,monospace}.alternatives{margin-top:8px;padding-top:7px;border-top:1px solid #45382d}.alternatives button{margin-top:6px;border:1px solid #574a3e;border-radius:4px;background:#2b241f;color:#ead6bd;padding:6px 8px;font-size:9px;cursor:pointer}
+    .discovery-note{margin:-4px 0 0;color:#8998ad;font-size:9px;line-height:1.45}.assisted-plan-review{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.assisted-plan-review>section{min-width:0}.draft-review,.resolved-review{margin:0}.resolved-review{display:grid;align-content:start;gap:7px;padding:10px;border:1px solid #385445;border-radius:4px;background:#14201b}.resolved-review h3{margin:0;color:#a9dfbb;font-size:10px}.resolved-review p{margin:0;color:#a8b9ad;font-size:9px;line-height:1.45}.resolved-review pre{max-height:240px;overflow:auto;margin:0;padding:8px;border-radius:3px;background:#0c1511;color:#d0e3d5;font:9px/1.45 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere}.draft-review label{align-items:flex-start}.draft-review input{flex:none;margin-top:1px}.draft-review:focus-within,.resolved-review:focus-within{border-color:#adc6ff}@media(max-width:700px){.assisted-plan-review{grid-template-columns:1fr}}
   `],
 })
 export class SkillsPage implements OnInit {
@@ -219,15 +225,13 @@ export class SkillsPage implements OnInit {
     (!this.assistedDraftDetails() || this.draftReviewed()) &&
     !this.planning() && !this.running() && !this.uploadInProgress());
   readonly visibleSkills = computed(() => {
-    const query = this.query().trim().toLocaleLowerCase();
-    return this.skills().filter((skill) => {
-      if (this.readinessFilter() !== 'all' && skill.status !== this.readinessFilter()) return false;
-      if (!query) return true;
-      return [skill.id, skill.name, skill.description, skill.category ?? '',
-        ...skill.inputs.map((port) => `${port.name} ${port.artifact}`),
-        ...skill.outputs.map((port) => `${port.name} ${port.artifact}`),
-      ].join(' ').toLocaleLowerCase().includes(query);
-    });
+    const query = this.query().trim();
+    const terms = this.goalSearchTerms(query);
+    return this.skills().map((skill, index) => ({ skill, index, score: this.skillGoalMatchScore(skill, query, terms) }))
+      .filter(({ skill, score }) => (this.readinessFilter() === 'all' || skill.status === this.readinessFilter())
+        && (!query || score > 0))
+      .sort((left, right) => right.score - left.score || left.index - right.index)
+      .map(({ skill }) => skill);
   });
   readonly skillGroups = computed(() => {
     const groups = new Map<string, SkillCatalogItem[]>();
@@ -506,6 +510,26 @@ export class SkillsPage implements OnInit {
   }
   plannerGoal(skillId: string): string { return this.plannerGoals()[skillId] ?? ''; }
   setPlannerGoal(skillId: string, value: string): void { this.plannerGoals.update(goals => ({ ...goals, [skillId]: value })); }
+  private goalSearchTerms(value: string): string[] {
+    const ignored = new Set(['a', 'an', 'and', 'for', 'i', 'in', 'make', 'my', 'of', 'please', 'the', 'to', 'want', 'with', 'do', 'me', 'un', 'una', 'el', 'la', 'los', 'las', 'de', 'del', 'para', 'por', 'que', 'quiero', 'necesito']);
+    return this.normalizeSearchText(value).split(' ').filter(term => term.length > 1 && !ignored.has(term));
+  }
+  private skillGoalMatchScore(skill: SkillCatalogItem, query: string, terms: string[]): number {
+    const id = this.normalizeSearchText(skill.id);
+    const name = this.normalizeSearchText(skill.name);
+    const category = this.normalizeSearchText(skill.category ?? '');
+    const declared = this.normalizeSearchText([
+      skill.description,
+      ...skill.inputs.map(port => `${port.name} ${port.artifact}`),
+      ...skill.outputs.map(port => `${port.name} ${port.artifact}`),
+    ].join(' '));
+    if (!query) return 0;
+    if (!terms.length) return declared.concat(' ', id, ' ', name, ' ', category).includes(this.normalizeSearchText(query)) ? 1 : 0;
+    return terms.reduce((score, term) => score + (id.includes(term) ? 6 : name.includes(term) ? 5 : category.includes(term) ? 3 : declared.includes(term) ? 1 : 0), 0);
+  }
+  private normalizeSearchText(value: string): string {
+    return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  }
   async generateAssistedDraft(skill: SkillCatalogItem): Promise<void> {
     this.planning.set(true); this.composerError.set(''); this.plan.set(null);
     this.assistedDraftDetails.set(null); this.draftReviewed.set(false);
@@ -521,6 +545,13 @@ export class SkillsPage implements OnInit {
   }
   async execute(skill: SkillCatalogItem): Promise<void> {
     if (!this.canRun()) return;
+    if (skill.status !== 'ready') {
+      const reasons = this.notReadyReasons(skill);
+      this.composerError.set(reasons.length
+        ? `This skill is not ready: ${reasons.join('; ')}`
+        : 'This skill is not ready. Resolve its local requirements before running it.');
+      return;
+    }
     const expectedPlanId = this.plan()?.['plan_id'];
     if (typeof expectedPlanId !== 'string' || !/^[a-f0-9]{24}$/.test(expectedPlanId)) {
       this.composerError.set('The resolved plan has no valid review ID. Preview the plan again before running.');

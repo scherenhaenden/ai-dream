@@ -16,6 +16,7 @@
     "test:run-citation-document-ui": "node scripts/check-run-citation-document-ui.mjs",
     "test:voice-transcript-handoff": "node scripts/check-voice-transcript-handoff.mjs",
     "test:assisted-planner-ux": "node scripts/check-assisted-planner-ux.mjs",
+    "test:assisted-planner-ui": "node scripts/smoke-assisted-planner-ui.mjs",
     "test:model-capability-profile-context": "node scripts/check-model-capability-profile-context.mjs",
     "test:model-manifest-verification": "node scripts/check-model-manifest-verification.mjs",
     "test:capability-map-search": "node scripts/check-capability-map-search.mjs",

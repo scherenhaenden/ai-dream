@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -68,6 +69,41 @@ class VoiceOrchestrationTests(unittest.TestCase):
         readiness = local_voice_readiness(missing)
         self.assertFalse(readiness["audio.transcribe"]["available"])
         self.assertTrue(readiness["audio.synthesize"]["available"])
+
+    def test_readiness_reports_ffmpeg_flite_provider_and_voice_without_loading_audio(self):
+        voice = FakeLocalVoice(self.model)
+        voice.capabilities.tts_executable = None
+        voice.capabilities.flite_executable = "/usr/bin/ffmpeg"
+        voice.capabilities.flite_voices = ("kal", "slt")
+        readiness = local_voice_readiness(voice)
+        self.assertTrue(readiness["audio.synthesize"]["available"])
+        self.assertEqual(readiness["audio.synthesize"]["provider"], "ffmpeg-flite")
+        self.assertEqual(readiness["audio.synthesize"]["selected_voice"], "kal")
+
+    def test_ffmpeg_flite_synthesis_uses_private_text_file_and_emits_wav(self):
+        voice = FakeLocalVoice(self.model)
+        voice.capabilities.tts_executable = None
+        voice.capabilities.flite_executable = "/usr/bin/ffmpeg"
+        voice.capabilities.flite_voices = ("kal",)
+        observed = {}
+
+        def fake_run(command, **kwargs):
+            observed["command"] = command
+            observed["text"] = Path(command[command.index("-i") + 1].split("textfile=", 1)[1].split(":voice=", 1)[0]).read_text()
+            observed["mode"] = Path(command[command.index("-i") + 1].split("textfile=", 1)[1].split(":voice=", 1)[0]).stat().st_mode & 0o777
+            observed["kwargs"] = kwargs
+            return SimpleNamespace(returncode=0, stdout=wav_fixture())
+
+        callbacks = create_local_voice_callbacks(voice, read_artifact=lambda _artifact: b"")
+        with patch("aidream.voice_orchestration.subprocess.run", side_effect=fake_run):
+            result = callbacks["audio.synthesize"]({}, {"text": {"kind": "text", "text": "fixture speech"}})
+        self.assertEqual(observed["text"], "fixture speech")
+        self.assertEqual(observed["mode"], 0o600)
+        self.assertIn("voice=kal", " ".join(observed["command"]))
+        self.assertFalse(observed["kwargs"].get("shell", False))
+        audio = result["audio"]
+        self.assertEqual(audio["content_bytes"], wav_fixture())
+        self.assertEqual(audio["metadata"]["generator"], "local-ffmpeg-flite")
 
     def test_transcribe_uses_selected_artifact_and_private_temp_file(self):
         reads = []

@@ -49,6 +49,17 @@ class DocumentRenderTests(unittest.TestCase):
         self.assertIn("<ul><li>&lt;script&gt;no&lt;/script&gt;</li><li>Ship Friday</li></ul>", report)
         self.assertIn("<th scope=\"col\">Name</th><th scope=\"col\">State</th>", report)
         self.assertIn("<td>&lt;ready&gt;</td>", report)
+
+    def test_report_table_wraps_long_unbroken_values_in_narrow_previews(self):
+        report = render_report({
+            "title": "Long values",
+            "sections": [{"heading": "Identifiers", "kind": "table", "columns": ["ID"],
+                          "rows": [["x" * 500]]}],
+        }).decode("utf-8")
+        self.assertIn("table-layout:fixed", report)
+        self.assertIn("overflow-wrap:anywhere", report)
+        self.assertIn("word-break:break-word", report)
+        self.assertIn("<td>" + "x" * 500 + "</td>", report)
         self.assertNotIn("<script>", report)
 
     def test_report_rejects_undeclared_or_unbounded_section_shapes(self):
