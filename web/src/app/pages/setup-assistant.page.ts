@@ -15,15 +15,20 @@ type SetupAction = { path: '/models' | '/runtime' | '/resources' | '/skills'; la
       <header class="page-heading">
         <div><span class="eyebrow">FIRST RUN / LOCAL READINESS</span><h1>Setup Assistant</h1>
           <p>Review what the local capability map reports and follow a concrete setup link for each capability.</p></div>
-        <button type="button" (click)="load()" [disabled]="loading()">{{ loading() ? 'Checking…' : '↻ Check again' }}</button>
+        <button type="button" (click)="load()" [disabled]="loading()" aria-controls="setup-results" [attr.aria-busy]="loading()">
+          {{ loading() ? 'Checking…' : checked() ? '↻ Refresh status' : '↻ Check status' }}
+        </button>
       </header>
+
+      <p class="sr-only" role="status" aria-live="polite">{{ announcement() }}</p>
 
       <section class="read-only-note"><span class="lock" aria-hidden="true">◈</span><div><b>Read-only check</b>
         <p>This page reads <code>/api/capability-map</code> only. It does not start services, load models, or infer readiness.</p></div>
         @if (checkedAt()) { <small>Checked {{ checkedAt()!.toLocaleTimeString() }}</small> }
       </section>
 
-      @if (loading() && !checked()) { <p class="state-message" role="status">Reading capability status from the local API…</p> }
+      <div id="setup-results" aria-live="off">
+      @if (loading() && !checked()) { <p class="state-message">Reading capability status from the local API…</p> }
       @if (error()) {
         <section class="fallback" role="alert"><div><b>Capability map unavailable</b>
           <p>The local API did not return capability data. Readiness is unknown until the API responds; this assistant will not probe or start runtimes.</p>
@@ -52,10 +57,11 @@ type SetupAction = { path: '/models' | '/runtime' | '/resources' | '/skills'; la
           }
         </section>
       }
+      </div>
     </main>
   `,
   styles: [`
-    :host{display:block;color:var(--text,#e4e9f2)}.setup-page{max-width:1120px;margin:0 auto;padding:20px;display:grid;gap:12px}.page-heading{display:flex;align-items:center;justify-content:space-between;gap:14px;padding-bottom:12px;border-bottom:1px solid #2b3240}.eyebrow{color:#8793a8;font:9px ui-monospace,monospace;letter-spacing:.07em}.page-heading h1{margin:5px 0;font-size:23px}.page-heading p{margin:0;color:#98a3b5;font-size:11px;line-height:1.5}.page-heading button,.fallback button{padding:8px 10px;border:1px solid #3b4b63;border-radius:4px;background:#182334;color:#c8daf6;font-size:10px;cursor:pointer}.page-heading button:disabled,.fallback button:disabled{opacity:.55}.read-only-note{display:flex;align-items:center;gap:10px;padding:11px 12px;border:1px solid #304052;border-radius:5px;background:#141d29}.lock{color:#a6c7f6;font-size:17px}.read-only-note div{flex:1}.read-only-note b{color:#d6e4f8;font-size:10px}.read-only-note p{margin:4px 0 0;color:#9ba9bd;font-size:9px;line-height:1.5}.read-only-note code{color:#c6d7f2;font:9px ui-monospace,monospace}.read-only-note small{color:#8794a8;font:8px ui-monospace,monospace}.state-message{padding:12px;color:#a9b7cb;font-size:10px}.fallback,.empty-map{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:13px;border:1px solid #563c42;border-radius:5px;background:#241b20}.fallback b,.empty-map b{color:#f1d2d1;font-size:11px}.fallback p,.empty-map p{margin:5px 0;color:#bdafb2;font-size:10px;line-height:1.5}.fallback small{color:#de9da1;font-size:9px}.empty-map{display:block;border-color:#303b4b;background:#151b25}.empty-map b{color:#d8e2f1}.empty-map p{color:#9aa7ba}.empty-map nav{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}.empty-map a{padding:7px 9px;border:1px solid #3a4a61;border-radius:4px;color:#c3d6f6;background:#192435;font-size:9px;text-decoration:none}.summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.summary div{display:grid;gap:3px;padding:10px;border:1px solid #2b3544;border-radius:4px;background:#151b25}.summary b{color:#dce7f7;font:16px ui-monospace,monospace}.summary span{color:#939fb2;font-size:9px}.capability-list{display:grid;gap:7px}.capability-row{display:grid;grid-template-columns:minmax(190px,1.1fr) minmax(130px,.7fr) minmax(170px,.8fr);align-items:center;gap:14px;padding:11px;border:1px solid #2d3746;border-radius:5px;background:#151b25}.capability-main{display:flex;align-items:flex-start;gap:9px;min-width:0}.capability-main h2{margin:0;color:#dae4f3;font:10px ui-monospace,monospace;overflow-wrap:anywhere}.capability-main p{margin:5px 0 0;color:#929eb0;font-size:9px;line-height:1.45}.state-badge{flex:none;padding:4px 6px;border-radius:3px;background:#252b34;color:#bbc5d4;font:8px ui-monospace,monospace;text-transform:uppercase}.state-badge.ready{background:#1c302d;color:#5fe0a7}.state-badge.unknown{background:#302b20;color:#f0c979}.state-badge.unavailable{background:#342326;color:#ffaaa9}.evidence{display:grid;gap:4px;color:#b5c2d5;font:9px ui-monospace,monospace}.evidence small{color:#8794a8;font-size:8px;overflow-wrap:anywhere}.setup-action{display:grid;grid-template-columns:1fr auto;gap:3px 7px;align-items:center;padding:8px;border:1px solid #3a4b64;border-radius:4px;background:#1a2534;color:#caddfa;text-decoration:none}.setup-action span{font-size:9px}.setup-action small{grid-column:1;color:#93a3bb;font-size:8px}.setup-action b{grid-column:2;grid-row:1/3;color:#9bbbe8}.setup-action:hover,.empty-map a:hover{border-color:#86a9db;color:#eff5ff}.setup-page button:focus-visible,.setup-page a:focus-visible{outline:2px solid #adc6ff;outline-offset:2px}@media(max-width:760px){.setup-page{padding:14px 11px}.capability-row{grid-template-columns:1fr;gap:8px}.evidence{grid-template-columns:1fr 1fr}.page-heading{align-items:flex-start}.read-only-note{align-items:flex-start;flex-wrap:wrap}.read-only-note small{width:100%;margin-left:27px}}@media(max-width:440px){.page-heading{flex-direction:column}.summary{gap:5px}.summary div{padding:8px}}
+    :host{display:block;color:var(--text,#e4e9f2)}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}.setup-page{max-width:1120px;margin:0 auto;padding:20px;display:grid;gap:12px}.page-heading{display:flex;align-items:center;justify-content:space-between;gap:14px;padding-bottom:12px;border-bottom:1px solid #2b3240}.eyebrow{color:#8793a8;font:9px ui-monospace,monospace;letter-spacing:.07em}.page-heading h1{margin:5px 0;font-size:23px}.page-heading p{margin:0;color:#98a3b5;font-size:11px;line-height:1.5}.page-heading button,.fallback button{padding:8px 10px;border:1px solid #3b4b63;border-radius:4px;background:#182334;color:#c8daf6;font-size:10px;cursor:pointer}.page-heading button:disabled,.fallback button:disabled{opacity:.55}.read-only-note{display:flex;align-items:center;gap:10px;padding:11px 12px;border:1px solid #304052;border-radius:5px;background:#141d29}.lock{color:#a6c7f6;font-size:17px}.read-only-note div{flex:1}.read-only-note b{color:#d6e4f8;font-size:10px}.read-only-note p{margin:4px 0 0;color:#9ba9bd;font-size:9px;line-height:1.5}.read-only-note code{color:#c6d7f2;font:9px ui-monospace,monospace}.read-only-note small{color:#8794a8;font:8px ui-monospace,monospace}.state-message{padding:12px;color:#a9b7cb;font-size:10px}.fallback,.empty-map{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:13px;border:1px solid #563c42;border-radius:5px;background:#241b20}.fallback b,.empty-map b{color:#f1d2d1;font-size:11px}.fallback p,.empty-map p{margin:5px 0;color:#bdafb2;font-size:10px;line-height:1.5}.fallback small{color:#de9da1;font-size:9px}.empty-map{display:block;border-color:#303b4b;background:#151b25}.empty-map b{color:#d8e2f1}.empty-map p{color:#9aa7ba}.empty-map nav{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}.empty-map a{padding:7px 9px;border:1px solid #3a4a61;border-radius:4px;color:#c3d6f6;background:#192435;font-size:9px;text-decoration:none}.summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.summary div{display:grid;gap:3px;padding:10px;border:1px solid #2b3544;border-radius:4px;background:#151b25}.summary b{color:#dce7f7;font:16px ui-monospace,monospace}.summary span{color:#939fb2;font-size:9px}.capability-list{display:grid;gap:7px}.capability-row{display:grid;grid-template-columns:minmax(190px,1.1fr) minmax(130px,.7fr) minmax(170px,.8fr);align-items:center;gap:14px;padding:11px;border:1px solid #2d3746;border-radius:5px;background:#151b25}.capability-main{display:flex;align-items:flex-start;gap:9px;min-width:0}.capability-main h2{margin:0;color:#dae4f3;font:10px ui-monospace,monospace;overflow-wrap:anywhere}.capability-main p{margin:5px 0 0;color:#929eb0;font-size:9px;line-height:1.45}.state-badge{flex:none;padding:4px 6px;border-radius:3px;background:#252b34;color:#bbc5d4;font:8px ui-monospace,monospace;text-transform:uppercase}.state-badge.ready{background:#1c302d;color:#5fe0a7}.state-badge.unknown{background:#302b20;color:#f0c979}.state-badge.unavailable{background:#342326;color:#ffaaa9}.evidence{display:grid;gap:4px;color:#b5c2d5;font:9px ui-monospace,monospace}.evidence small{color:#8794a8;font-size:8px;overflow-wrap:anywhere}.setup-action{display:grid;grid-template-columns:1fr auto;gap:3px 7px;align-items:center;padding:8px;border:1px solid #3a4b64;border-radius:4px;background:#1a2534;color:#caddfa;text-decoration:none}.setup-action span{font-size:9px}.setup-action small{grid-column:1;color:#93a3bb;font-size:8px}.setup-action b{grid-column:2;grid-row:1/3;color:#9bbbe8}.setup-action:hover,.empty-map a:hover{border-color:#86a9db;color:#eff5ff}.setup-page button:focus-visible,.setup-page a:focus-visible{outline:2px solid #adc6ff;outline-offset:2px}@media(max-width:760px){.setup-page{padding:14px 11px}.capability-row{grid-template-columns:1fr;gap:8px}.evidence{grid-template-columns:1fr 1fr}.page-heading{align-items:flex-start}.read-only-note{align-items:flex-start;flex-wrap:wrap}.read-only-note small{width:100%;margin-left:27px}}@media(max-width:440px){.page-heading{flex-direction:column}.summary{gap:5px}.summary div{padding:8px}}
   `],
 })
 export class SetupAssistantPage implements OnInit {
@@ -65,6 +71,7 @@ export class SetupAssistantPage implements OnInit {
   readonly checked = signal(false);
   readonly checkedAt = signal<Date | null>(null);
   readonly error = signal('');
+  readonly announcement = signal('');
   readonly sortedItems = computed(() => [...this.items()].sort((left, right) => left.id.localeCompare(right.id)));
 
   ngOnInit(): void { void this.load(); }
@@ -72,12 +79,17 @@ export class SetupAssistantPage implements OnInit {
   async load(): Promise<void> {
     this.loading.set(true);
     this.error.set('');
+    this.announcement.set('Checking the local capability map.');
     try {
       this.items.set(await this.capabilityService.getMap());
       this.checkedAt.set(new Date());
+      const count = this.items().length;
+      this.announcement.set(`Capability map updated. ${count} ${count === 1 ? 'capability' : 'capabilities'} reported.`);
     } catch (error) {
       this.items.set([]);
-      this.error.set(error instanceof Error ? error.message : 'The local capability API did not respond.');
+      const message = error instanceof Error ? error.message : 'The local capability API did not respond.';
+      this.error.set(message);
+      this.announcement.set('Capability map could not be updated. Readiness is unknown.');
     } finally {
       this.checked.set(true);
       this.loading.set(false);

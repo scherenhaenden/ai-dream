@@ -12,11 +12,40 @@ const browser = await chromium.launch({ headless: true, ...(executablePath ? { e
 const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
 const page = await context.newPage();
 const pageErrors = [];
+const runId = 'd'.repeat(32);
+const artifactId = 'art_preview';
+const artifact = {
+  schema_version: 1, id: artifactId, kind: 'document', media_type: 'text/html', name: 'report-preview.html',
+  storage: { type: 'run-local', key: 'report-preview.html' }, size_bytes: 59, lifetime: 'ephemeral',
+  owner: { type: 'run', id: runId }, metadata: {},
+};
+let previewAttempts = 0;
+const requestedOwner = [];
 page.on('pageerror', error => pageErrors.push(error.message));
 
 await page.route('**/*', async route => {
   const url = new URL(route.request().url());
   if (url.pathname.startsWith('/api/')) {
+    if (url.pathname === `/api/runs/${runId}`) {
+      return route.fulfill({ json: { data: { run: {
+        id: runId, skill_id: 'document.create-report', skill_version: '1.0.0', state: 'succeeded',
+        created_at: 1790800000, started_at: 1790800001, completed_at: 1790800002,
+        current_nodes: [], outputs: [
+          { kind: 'text', text: 'A report is ready.' },
+          { kind: 'json', value: { status: 'complete', rows: 3 } },
+          artifact,
+        ],
+      } } } });
+    }
+    if (url.pathname === `/api/artifacts/${artifactId}/content`) {
+      previewAttempts += 1;
+      requestedOwner.push({ type: url.searchParams.get('owner_type'), id: url.searchParams.get('owner_id') });
+      if (previewAttempts === 1) return route.fulfill({ status: 403, json: { error: { message: 'Artifact is not available to this run.' } } });
+      const html = '<!doctype html><title>Report</title><h1>Report preview</h1>';
+      assert.equal(Buffer.byteLength(html), artifact.size_bytes);
+      return route.fulfill({ status: 200, contentType: 'text/html', body: html });
+    }
+    if (url.pathname.endsWith('/events')) return route.fulfill({ status: 200, contentType: 'text/event-stream', body: '' });
     const fixtures = {
       '/api/health': { data: { status: 'ok', service: 'ai-dream' } },
       '/api/runs': { data: { runs: [
@@ -46,8 +75,26 @@ try {
   await expect(page.getByText('No runs match these filters.')).toBeVisible();
   await page.getByRole('button', { name: 'Clear filters' }).click();
   await expect(rows).toHaveCount(3);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`http://localhost:4200/runs/${runId}`);
+  await expect(page.getByRole('heading', { name: 'Run details' })).toBeVisible();
+  await expect(page.getByText('A report is ready.')).toBeVisible();
+  await expect(page.getByText('"status": "complete"')).toBeVisible();
+  const previewButton = page.getByRole('button', { name: 'Preview here' });
+  await previewButton.click();
+  await expect(page.locator('.preview-error')).toContainText('Artifact upload failed (HTTP 403).');
+  await expect(page.getByText(/Content is fetched using this artifact’s declared owner/)).toBeVisible();
+  await page.getByRole('button', { name: 'Retry preview' }).click();
+  await expect(page.getByTitle('Preview of report-preview.html')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Download report-preview.html' })).toHaveAttribute('download', 'report-preview.html');
+  assert.deepEqual(requestedOwner, [
+    { type: 'run', id: runId }, { type: 'run', id: runId },
+  ], 'artifact requests must carry the declared run owner on initial fetch and retry');
+  const mobileOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
+  assert.equal(mobileOverflow, false, 'run output preview should fit a narrow viewport');
   assert.deepEqual(pageErrors, [], 'Runs should render and filter without browser errors');
-  console.log('Runs list search and state-filter browser smoke passed.');
+  console.log('Runs list filters, typed outputs, owner-scoped preview failure/retry, download action and mobile layout browser smoke passed.');
 } finally {
   await context.close();
   await browser.close();

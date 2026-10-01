@@ -10,6 +10,12 @@ assert.match(page, /Declared by this skill · review before running/);
 assert.match(page, /permissionLabel\(permission\.key\)[\s\S]*?permission\.value/);
 assert.match(page, /loadSkillPermissions\(skillId\)/);
 assert.match(page, /permissionErrors\(\)\[skill\.id\]/);
+assert.match(page, /Retry permission check/,
+  'a failed permission fetch should have an explicit recovery action');
+assert.match(page, /permissionsReady\(skill\.id\)/,
+  'preview and run must wait until the local permission declaration has loaded');
+assert.match(page, /permissionsReady\(skillId: string\): boolean/,
+  'permission readiness should be explicit and shared by the run controls');
 assert.match(service, /`\/api\/skills\/\$\{encodeURIComponent\(skillId\)\}`/,
   'permission data should come from the existing local skill-detail endpoint');
 assert.match(service, /PERMISSION_OPTIONS/);

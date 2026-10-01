@@ -19,6 +19,12 @@ assert.match(page, /path: '\/models' \| '\/runtime' \| '\/resources' \| '\/skill
   'capabilities should link to concrete setup destinations');
 assert.match(page, /role="alert"[\s\S]*?Capability map unavailable[\s\S]*?Retry/,
   'API failures must have an explicit fallback and retry');
+assert.match(page, /role="status" aria-live="polite"[\s\S]*?announcement\(\)/,
+  'refresh results should be announced to screen readers');
+assert.match(page, /aria-controls="setup-results"[\s\S]*?aria-busy/,
+  'the refresh control should expose its busy state and result region');
+assert.match(page, /Capability map updated\.[\s\S]*?Capability map could not be updated\./,
+  'refresh success and failure should provide distinct accessible feedback');
 assert.match(page, /No capabilities reported[\s\S]*?No readiness is inferred/,
   'an empty successful response must not be presented as readiness');
 assert.match(page, /does not start services, load models, or infer readiness/,

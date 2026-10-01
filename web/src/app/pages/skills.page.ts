@@ -76,8 +76,9 @@ import type { SkillCatalogItem, SkillReadiness, SkillPort, SkillPermissionKey, S
                       <p class="composer-intro">Enter the inputs below. Plan preview checks the current local route; it does not load a model or start inference.</p>
                       <section class="permission-preview" aria-label="Permissions used by this skill before running"><header><b>Permissions for this run</b><span>Declared by this skill · review before running</span></header>
                         @if (permissionLoading()[skill.id]) { <p role="status">Loading the skill's permission declaration…</p> }
-                        @if (permissionErrors()[skill.id]) { <p class="permission-error" role="alert">{{ permissionErrors()[skill.id] }}</p> }
+                        @if (permissionErrors()[skill.id]) { <p class="permission-error" role="alert">{{ permissionErrors()[skill.id] }}</p><button type="button" class="prepare" (click)="loadSkillPermissions(skill.id)" [disabled]="permissionLoading()[skill.id]">Retry permission check</button> }
                         @if (permissionsFor(skill.id).length) { <ul>@for (permission of permissionsFor(skill.id); track permission.key) { <li><span>{{ permissionLabel(permission.key) }}</span><code>{{ permission.value }}</code></li> }</ul> }
+                        @if (!permissionLoading()[skill.id] && !permissionErrors()[skill.id] && !permissionsFor(skill.id).length) { <p role="status">Run actions unlock after the local API confirms this skill’s permission declaration.</p> }
                       </section>
                       @if (imageCapabilityFor(skill); as capability) {
                         <section class="image-route-choice" aria-label="Image model selection">
@@ -130,8 +131,8 @@ import type { SkillCatalogItem, SkillReadiness, SkillPort, SkillPermissionKey, S
                       }
                       @if (!skill.inputs.length) { <p class="unsupported-input">This skill declares no inputs. Planning will use its declared workflow only.</p> }
                       @if (composerError()) { <p class="composer-error" role="alert">{{ composerError() }}</p> }
-                      <div class="composer-actions"><button type="button" class="prepare" (click)="preview(skill)" [disabled]="planning() || running() || uploadInProgress()">{{ planning() ? 'Planning…' : 'Preview plan' }}</button>
-                        <button type="button" class="execute" (click)="execute(skill)" [disabled]="!canRun() || running()">{{ running() ? 'Starting…' : 'Run skill' }}</button></div>
+                      <div class="composer-actions"><button type="button" class="prepare" (click)="preview(skill)" [disabled]="planning() || running() || uploadInProgress() || !permissionsReady(skill.id)">{{ planning() ? 'Planning…' : 'Preview plan' }}</button>
+                        <button type="button" class="execute" (click)="execute(skill)" [disabled]="!canRun() || running() || !permissionsReady(skill.id)">{{ running() ? 'Starting…' : 'Run skill' }}</button></div>
                       @if (plan(); as preview) {
                         <section class="plan-preview" aria-label="Plan preview"><header><b>Plan preview</b><span>{{ planReady() ? 'Route available' : 'Needs attention' }}</span></header>
                           <p>Review the selected route before starting. The plan is based on current local capability evidence.</p>
@@ -384,6 +385,9 @@ export class SkillsPage implements OnInit {
     } finally { this.permissionLoading.update(state => ({ ...state, [skillId]: false })); }
   }
   permissionsFor(skillId: string): SkillPermissionRow[] { return this.skillPermissionRows()[skillId] ?? []; }
+  permissionsReady(skillId: string): boolean {
+    return this.permissionsFor(skillId).length > 0 && !this.permissionLoading()[skillId] && !this.permissionErrors()[skillId];
+  }
   permissionLabel(key: SkillPermissionKey): string {
     return ({ filesystem_read: 'File reading', filesystem_write: 'File writing', network: 'Network access', shell: 'Shell commands',
       browser_control: 'Browser control', computer_control: 'Computer control', desktop_control: 'Desktop control',

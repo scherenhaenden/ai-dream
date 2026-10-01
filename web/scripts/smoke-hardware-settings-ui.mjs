@@ -43,7 +43,14 @@ const runtimeResponse = { data: {
 const installationsResponse = { data: { installations: [
   { id: 'llama-cpp-1', name: 'llama.cpp v1.0', kind: 'executable', backend: 'vulkan', enabled: true, available: true }
 ] } };
-const residencyResponse = { data: { residency: { items: [], count: 0, status: 'observed' } } };
+let residentItems = [{ model_id: 'fixture/model.gguf', runtime_id: 'llama-cpp-1', profile_id: 'default',
+  state: 'idle', lease_count: 0, pinned: false, estimated_vram_bytes: 2147483648,
+  estimated_vram_status: 'observed', loaded_for_seconds: 120, idle_for_seconds: 30,
+  route_ids: ['route_fixture_model'] }];
+let evictionPolicy = 'lru';
+const residencyPayload = () => ({ data: { residency: {
+  items: residentItems, count: residentItems.length, active_lease_count: 0, status: 'observed', source: 'fixture'
+} } });
 const resourceResponse = { data: { resources: {
   ram: { total_bytes: 67364000000, available_bytes: 42000000000 },
   gpus: [{ id: 'gpu-0', index: 0, name: 'Radeon RX 7900 XTX', vendor: 'AMD', total_vram_bytes: 25752000000, free_vram_bytes: 23000000000 }],
@@ -127,13 +134,24 @@ async function runSmokeTests() {
     // RuntimeService.snapshot() calls /api/runtime (not /api/runtime/snapshot).
     await page.route('**/api/runtime', route => route.fulfill({ json: runtimeResponse }));
     await page.route('**/api/runtime/installations', route => route.fulfill({ json: installationsResponse }));
-    await page.route('**/api/models/residency', route => route.fulfill({ json: residencyResponse }));
+    await page.route('**/api/models/residency', route => route.fulfill({ json: residencyPayload() }));
     await page.route('**/api/resources', route => route.fulfill({ json: resourceResponse }));
+    await page.route('**/api/models/residency/actions', async route => {
+      const action = route.request().postDataJSON()?.action;
+      if (action === 'pin' || action === 'unpin') {
+        residentItems = residentItems.map(model => ({ ...model, pinned: action === 'pin' }));
+      } else if (action === 'unload') {
+        residentItems = [];
+      }
+      await route.fulfill({ json: residencyPayload() });
+    });
     await page.route('**/api/capability-preferences', async route => {
       if (route.request().method() === 'PATCH') {
-        selectionMode = route.request().postDataJSON()?.selection_defaults?.mode || selectionMode;
+        const defaults = route.request().postDataJSON()?.selection_defaults || {};
+        selectionMode = defaults.mode || selectionMode;
+        evictionPolicy = defaults.eviction_policy || evictionPolicy;
       }
-      await route.fulfill({ json: { data: { selection_defaults: { mode: selectionMode, eviction_policy: 'lru' } } } });
+      await route.fulfill({ json: { data: { selection_defaults: { mode: selectionMode, eviction_policy: evictionPolicy } } } });
     });
 
     console.log('Testing Hardware page...');
@@ -144,7 +162,7 @@ async function runSmokeTests() {
     const resourceChip = page.locator('.resource-chip');
     await expect(resourceChip).toContainText('GPU0');
     await expect(resourceChip).toContainText('RAM 39.1 GiB free');
-    await expect(resourceChip).toContainText('0 loaded');
+    await expect(resourceChip).toContainText('1 loaded');
     const modePicker = page.getByRole('combobox', { name: 'Global orchestration mode' });
     await expect(modePicker).toHaveValue('auto');
     await modePicker.selectOption('guided');
@@ -182,6 +200,26 @@ async function runSmokeTests() {
     await expect(runtime).toHaveValue('llama-cpp-1');
     await expect(page.getByText(/Context size, GPU placement, split mode, tensor split/)).toBeVisible();
     await page.screenshot({ path: path.join(SCREENSHOT_DIR, 'settings-page-runtime.png'), fullPage: true });
+
+    console.log('Testing Resources residency controls...');
+    await page.goto(`${server.url}/resources`);
+    await expect(page.getByRole('heading', { name: 'Resources', level: 1 })).toBeVisible();
+    const eviction = page.getByRole('combobox', { name: 'Default model eviction policy' });
+    await expect(eviction).toHaveValue('lru');
+    await eviction.selectOption('never');
+    await expect.poll(() => evictionPolicy).toBe('never');
+    await page.getByRole('button', { name: /fixture\/model\.gguf/ }).click();
+    await expect(page.getByRole('heading', { name: 'fixture/model.gguf' })).toBeVisible();
+    await page.getByRole('button', { name: 'Pin model' }).click();
+    const selectedModel = page.getByRole('complementary', { name: 'Selected model residency' });
+    await expect(selectedModel.getByText('Pinned', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Unpin model' }).click();
+    await expect(selectedModel.getByText('Not pinned', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Unload idle model' })).toBeEnabled();
+    await page.getByRole('button', { name: 'Unload idle model' }).click();
+    await expect(page.getByText('No loaded model residency records were reported.')).toBeVisible();
+    await expect(page.getByRole('combobox', { name: 'Default model eviction policy' })).toHaveValue('never');
+    await page.screenshot({ path: path.join(SCREENSHOT_DIR, 'resources-residency.png'), fullPage: true });
 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`${server.url}/hardware`);
