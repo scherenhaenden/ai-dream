@@ -21,7 +21,8 @@ For local development, run the Python API on port 8765 (`python3 -m aidream serv
 | `src/app/pages/chat.page.ts` | Conversation list, transcript, code canvas, generation controls and chat SSE stream. |
 | `src/app/pages/agent.page.ts` | Read-only agent conversations, SSE status/answer/audit and stop. |
 | `src/app/pages/hub.page.ts`, `downloads.page.ts` | Public GGUF search/file picker and transfer progress. |
-| `src/app/pages/models.page.ts` | Local model catalog and per-model runtime profiles. |
+| `src/app/pages/model-studio.page.ts` | Active `/models` screen: local GGUF catalog, folder registration/rescan, model metadata and inferred role/modality summary, per-model runtime configuration and presets, and load/unload/status actions. |
+| `src/app/pages/models.page.ts` | Legacy, currently unmounted model-library screen. It contains a folder-oriented catalog view, filtering/sorting, profile metadata and capability evidence presentation; some of these declarations or manifest-backed capabilities may still be awaiting integration into the active Model Studio. Preserve and assess these behaviors before considering removal or migration. |
 | `src/app/pages/runtime.page.ts` | Runtime selection, capability-gated placement/load settings and actions. |
 | `src/app/pages/local-api.page.ts`, `tools-permissions.page.ts` | Local HTTP API status and registered agent tool permissions. |
 | `src/app/pages/capability-unavailable.page.ts` | Explicit capability status for backend areas without an API yet. |
@@ -64,7 +65,9 @@ Hub sends the entered query to `GET /api/hub/search?q=...&limit=30`, displays pu
 
 ### Hardware, Models and Runtime (`/hardware`, `/models`, `/runtime`)
 
-Hardware, Models and Runtime display backend-reported inventory/configuration, with the Models page also supporting local source/catalog management and per-model profiles. Runtime options are shown only when the selected runtime advertises the capability, and device choices come from its reported device inventory. These controls do not install a runtime or delete model files.
+`/models` is mounted to `ModelStudioPage` in `pages/model-studio.page.ts`; it is the active model workflow. It lists the local catalog, supports adding folders and rescanning, shows GGUF metadata plus a role/input/output summary, and lets the user configure runtime/backend, placement and load options, save optional model-specific presets, and request load, unload or status refresh actions. Runtime options and devices depend on capabilities reported by the selected runtime. Loading can start actual model work, so this guide does not imply that such a workload has been run during validation.
+
+`pages/models.page.ts` is a separate legacy component and is not mounted by `/models` or another route. It has its own folder-oriented browsing, filtering/sorting, and richer presentation of profile verification/category and capability evidence. Do not treat its lack of a route as proof those capabilities are obsolete: determine which evidence, profile-manifest fields or other behaviors remain to be integrated into Model Studio before deleting or migrating the component. The active Model Studio's role/modality summary is partly inferred from model metadata/name and is not, by itself, proof that all legacy or manifest-backed capability declarations have been integrated. Catalog controls unregister folders without deleting the model files. Hardware and Runtime remain separate views for backend-reported inventory and runtime-wide settings/actions.
 
 ### Local API, Tools & Permissions, Knowledge and Logs
 

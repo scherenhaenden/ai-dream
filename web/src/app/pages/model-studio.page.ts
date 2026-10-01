@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, OnInit, signal } from '@angular/core';
+import { afterNextRender, ChangeDetectionStrategy, Component, Injector, OnInit, signal } from '@angular/core';
+import { ActivatedRoute, Router } from '@angular/router';
 import { ModelProfilesService } from '../core/model-profiles.service';
 import { ModelSourcesService } from '../core/model-sources.service';
 import {
@@ -57,16 +58,16 @@ type ModelCapabilitySummary = { role: string; inputs: string[]; outputs: string[
               <span class="model-main">
                 <span class="model-title">{{ modelName(model) }}</span>
                 <span class="model-path" [title]="'Local model path: ' + model.path">{{ model.path }}</span>
-                @let capabilities = modelCapabilities(model);
+                @let modelCaps = modelCapabilities(model);
                 <span class="tags">
                   <span [title]="'Format reported by the local catalog: ' + (model.format || 'GGUF')">{{ (model.format || 'GGUF').toUpperCase() }}</span>
                   <span [title]="'File size reported by the local catalog: ' + size(model.size)">{{ size(model.size) }}</span>
                   @if (model.metadata['general.architecture']; as architecture) { <span [title]="'Architecture read from GGUF metadata: ' + architecture">{{ architecture }}</span> }
                   @if (modelQuantization(model); as quantization) { <span [title]="'Quantization read from GGUF metadata or inferred from filename: ' + quantization">{{ quantization }}</span> }
                   @if (modelContextLength(model); as contextLength) { <span [title]="'Context length read from available GGUF metadata: ' + contextLength">{{ contextLength }} ctx</span> }
-                  <span class="capability-role" [title]="'Model role · ' + capabilities.source">ROLE {{ capabilities.role }}</span>
-                  @for (input of capabilities.inputs; track input) { <span class="capability-tag input" [title]="'Accepted input type · ' + capabilities.source">IN {{ input }}</span> }
-                  @for (output of capabilities.outputs; track output) { <span class="capability-tag output" [title]="'Produced output type · ' + capabilities.source">OUT {{ output }}</span> }
+                  <span class="capability-role" [title]="'Model role · ' + modelCaps.source">ROLE {{ modelCaps.role }}</span>
+                  @for (input of modelCaps.inputs; track input) { <span class="capability-tag input" [title]="'Accepted input type · ' + modelCaps.source">IN {{ input }}</span> }
+                  @for (output of modelCaps.outputs; track output) { <span class="capability-tag output" [title]="'Produced output type · ' + modelCaps.source">OUT {{ output }}</span> }
                   @if (isLoaded(model)) { <span class="loaded-tag" title="Loaded state inferred from the active runtime model path">● LOADED</span> }
                 </span>
               </span>
@@ -86,6 +87,7 @@ type ModelCapabilitySummary = { role: string; inputs: string[]; outputs: string[
                   </button>
                   <button class="secondary" (click)="unloadModel()" [disabled]="runtimeBusy() || !loadedModelPath()" title="Unload the model currently reported by the runtime">Unload current model</button>
                   <button class="secondary" (click)="refreshRuntimeStatus()" [disabled]="runtimeBusy()" title="Query the local API for current runtime status">Refresh status</button>
+                  <button class="secondary" type="button" (click)="openRuntime(model)" title="Open runtime configuration for this model and selected preset">Runtime settings</button>
                 </div>
 
                 <section class="preset-box">
@@ -227,6 +229,9 @@ export class ModelStudioPage implements OnInit {
   readonly profileName = signal('');
   readonly profileBusy = signal(false);
   readonly profileError = signal('');
+  private readonly requestedModelId: string;
+  private readonly requestedProfileId: string;
+  private restoredQuerySelection = false;
 
   readonly numberFields: { key: NumberLoadKey; label: string }[] = [
     { key: 'context_size', label: 'Context size' }, { key: 'threads', label: 'CPU threads' },
@@ -247,7 +252,13 @@ export class ModelStudioPage implements OnInit {
     private readonly library: ModelSourcesService,
     private readonly runtime: RuntimeService,
     private readonly profileApi: ModelProfilesService,
-  ) {}
+    private readonly route: ActivatedRoute,
+    private readonly router: Router,
+    private readonly injector: Injector,
+  ) {
+    this.requestedModelId = route.snapshot.queryParamMap.get('model_id') || '';
+    this.requestedProfileId = route.snapshot.queryParamMap.get('profile_id') || '';
+  }
 
   ngOnInit(): void { void this.refreshAll(); }
   logicalModelCount(): number { return this.sources().reduce((sum, source) => sum + source.model_count, 0); }
@@ -291,6 +302,7 @@ export class ModelStudioPage implements OnInit {
       this.sources.set(sources); this.models.set(models); this.backends.set(snapshot.runtime.backends);
       this.devices.set(snapshot.runtime.devices); this.installations.set(installations);
       this.captureStatus(snapshot.runtime.status);
+      this.restoreQuerySelection();
     } catch (error) { this.error.set(message(error)); }
     finally { this.loading.set(false); }
   }
@@ -301,12 +313,42 @@ export class ModelStudioPage implements OnInit {
     this.resetConfiguration();
     this.profiles.set([]); this.selectedProfileId.set(''); this.profileName.set(''); this.profileError.set('');
     const requestedModelId = model.id;
+    await this.loadProfiles(requestedModelId);
+  }
+
+  private async loadProfiles(requestedModelId: string): Promise<void> {
     try {
       const profiles = await this.profileApi.list(requestedModelId);
-      if (this.selectedModelId() === requestedModelId) this.profiles.set(profiles);
+      if (this.selectedModelId() === requestedModelId) {
+        this.profiles.set(profiles);
+        if (this.requestedModelId === requestedModelId && this.requestedProfileId) {
+          const profile = profiles.find(item => item.id === this.requestedProfileId && item.model_id === requestedModelId);
+          if (profile) afterNextRender(() => {
+            if (this.selectedModelId() === requestedModelId) this.applyProfile(profile.id);
+          }, { injector: this.injector });
+        }
+      }
     } catch (error) {
       if (this.selectedModelId() === requestedModelId) this.profileError.set(message(error));
     }
+  }
+
+  private restoreQuerySelection(): void {
+    if (this.restoredQuerySelection || !this.requestedModelId) return;
+    const model = this.models().find(item => item.id === this.requestedModelId);
+    if (!model) return;
+    this.restoredQuerySelection = true;
+    this.selectedModelId.set(model.id);
+    this.resetConfiguration();
+    this.profiles.set([]); this.profileError.set('');
+    void this.loadProfiles(model.id);
+  }
+
+  openRuntime(model: ModelRecord): void {
+    void this.router.navigate(['/runtime'], { queryParams: {
+      model_id: model.id,
+      profile_id: this.selectedProfileId() || null,
+    } });
   }
 
   capabilities(): RuntimeCapabilities | null {

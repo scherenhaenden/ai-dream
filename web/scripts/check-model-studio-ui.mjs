@@ -94,6 +94,24 @@ async function main() {
     await page.screenshot({ path: path.join(screenshotDir, 'model-studio.png'), fullPage: true });
 
     expect(profileRequests).toEqual(['alpha', 'beta']);
+
+    await page.goto('http://localhost:4200/models?model_id=beta&profile_id=beta-profile');
+    const linkedBeta = page.locator('.model-card').filter({ hasText: 'Beta model' });
+    await expect(linkedBeta.locator('.model-config')).toBeVisible();
+    await expect(linkedBeta.getByLabel('Saved preset')).toHaveValue('beta-profile');
+    await page.reload();
+    const reloadedBeta = page.locator('.model-card').filter({ hasText: 'Beta model' });
+    await expect(reloadedBeta.locator('.model-config')).toBeVisible();
+    await expect(reloadedBeta.getByLabel('Saved preset')).toHaveValue('beta-profile');
+    await reloadedBeta.getByRole('button', { name: 'Runtime settings' }).click();
+    await expect(page).toHaveURL(/\/runtime\?model_id=beta&profile_id=beta-profile/);
+    await expect(page.locator('.model-select-field select')).toHaveValue('beta');
+    await page.getByRole('button', { name: 'Back to Models' }).click();
+    await expect(page).toHaveURL(/\/models\?model_id=beta&profile_id=beta-profile/);
+    const returnedBeta = page.locator('.model-card').filter({ hasText: 'Beta model' });
+    await expect(returnedBeta.locator('.model-config')).toBeVisible();
+    await expect(returnedBeta.getByLabel('Saved preset')).toHaveValue('beta-profile');
+
     expect(unmatchedApiRequests).toEqual([]);
     expect(unexpectedMutatingApiRequests).toEqual([]);
     expect(pageErrors).toEqual([]);

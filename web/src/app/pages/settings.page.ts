@@ -1,14 +1,16 @@
 import { ChangeDetectionStrategy, Component, OnInit, signal } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { ApiService } from '../core/api.service';
 import { RuntimeCapabilities, RuntimeDevice, RuntimeInstallation, RuntimeLoadOptions, RuntimePlacement } from '../core/control-plane.types';
 import { RuntimeBackend, RuntimeService } from '../core/runtime.service';
 import { GlobalSettings, SettingsService } from '../core/settings.service';
 
-type SettingsTab = 'general' | 'runtime';
+type SettingsTab = 'general' | 'models-storage' | 'runtimes' | 'connections' | 'appearance' | 'advanced';
 type DefaultCapability = keyof RuntimeCapabilities;
 
 @Component({
   standalone: true,
+  imports: [RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="settings-page">
@@ -27,8 +29,12 @@ type DefaultCapability = keyof RuntimeCapabilities;
       </header>
 
       <nav class="settings-tabs" aria-label="Settings categories" role="tablist">
-        <button role="tab" title="Application connection, behavior, and local path settings" [attr.aria-selected]="tab() === 'general'" [class.active]="tab() === 'general'" (click)="tab.set('general')">Application</button>
-        <button role="tab" title="Default runtime and placement options reported as supported by installed backends" [attr.aria-selected]="tab() === 'runtime'" [class.active]="tab() === 'runtime'" (click)="tab.set('runtime')">Runtime defaults</button>
+        <button role="tab" id="settings-tab-general" aria-controls="settings-panel-general" [attr.aria-selected]="tab() === 'general'" [class.active]="tab() === 'general'" (click)="tab.set('general')">General</button>
+        <button role="tab" id="settings-tab-models-storage" aria-controls="settings-panel-models-storage" [attr.aria-selected]="tab() === 'models-storage'" [class.active]="tab() === 'models-storage'" (click)="tab.set('models-storage')">Models &amp; Storage</button>
+        <button role="tab" id="settings-tab-runtimes" aria-controls="settings-panel-runtimes" title="Global runtime defaults; per-model settings remain with the model" [attr.aria-selected]="tab() === 'runtimes'" [class.active]="tab() === 'runtimes'" (click)="tab.set('runtimes')">Runtimes</button>
+        <button role="tab" id="settings-tab-connections" aria-controls="settings-panel-connections" [attr.aria-selected]="tab() === 'connections'" [class.active]="tab() === 'connections'" (click)="tab.set('connections')">Connections</button>
+        <button role="tab" id="settings-tab-appearance" aria-controls="settings-panel-appearance" [attr.aria-selected]="tab() === 'appearance'" [class.active]="tab() === 'appearance'" (click)="tab.set('appearance')">Appearance</button>
+        <button role="tab" id="settings-tab-advanced" aria-controls="settings-panel-advanced" [attr.aria-selected]="tab() === 'advanced'" [class.active]="tab() === 'advanced'" (click)="tab.set('advanced')">Advanced</button>
       </nav>
 
       @if (loading()) { <p class="settings-message" role="status">Loading settings…</p> }
@@ -39,24 +45,47 @@ type DefaultCapability = keyof RuntimeCapabilities;
         </div>
       }
 
-      @if (settings(); as s) {
-        @if (tab() === 'general') {
-          <div class="settings-grid">
-            <section class="surface settings-card">
-              <div class="section-heading">
-                <div><h2>Local API</h2><p>Requests stay on this device.</p></div>
+      @if (tab() === 'connections') {
+        <div id="settings-panel-connections" role="tabpanel" aria-labelledby="settings-tab-connections" class="settings-grid">
+          <section class="surface settings-card">
+            <div class="section-heading">
+              <div><h2>Local AI Dream API</h2><p>Connection to the AI Dream service on this device.</p></div>
               <span class="status-tag" [class.ok]="api.connected()" [title]="'Reachability of ' + api.baseUrl() + '/api/health'">{{ api.connected() ? 'Connected' : api.connection() === 'checking' ? 'Checking' : 'Unavailable' }}</span>
-              </div>
-              <label class="field-label" for="api-url">Base URL</label>
-              <div class="input-row">
-                <input id="api-url" title="Loopback-only HTTP URL of the AI Dream API; saved in this browser" type="url" [value]="url" (input)="url = $any($event.target).value" spellcheck="false" placeholder="http://127.0.0.1:8765" (keydown.enter)="saveApiUrl()">
-                <button class="secondary-button" title="Validate the local URL, save it in this browser, and run GET /api/health" (click)="saveApiUrl()">Save &amp; check</button>
-              </div>
-              <p class="help">Health check: <code [title]="'Read-only health probe at ' + api.baseUrl() + '/api/health'">GET {{ api.baseUrl() }}/api/health</code>. The URL is stored in this browser.</p>
-              @if (urlError()) { <p class="error-line" role="alert">{{ urlError() }}</p> }
-              @else if (api.error()) { <p class="error-line">{{ api.error() }}</p> }
-            </section>
-
+            </div>
+            <label class="field-label" for="api-url">Base URL</label>
+            <div class="input-row">
+              <input id="api-url" title="Loopback-only HTTP URL of the AI Dream API; saved in this browser" type="url" [value]="url" (input)="url = $any($event.target).value" spellcheck="false" placeholder="http://127.0.0.1:8765" (keydown.enter)="saveApiUrl()">
+              <button class="secondary-button" title="Validate the local URL, save it in this browser, and run GET /api/health" (click)="saveApiUrl()">Save &amp; check</button>
+            </div>
+            <p class="help">Health check: <code [title]="'Read-only health probe at ' + api.baseUrl() + '/api/health'">GET {{ api.baseUrl() }}/api/health</code>. This URL is stored in this browser.</p>
+            @if (urlError()) { <p class="error-line" role="alert">{{ urlError() }}</p> }
+            @else if (api.error()) { <p class="error-line" role="alert">{{ api.error() }}</p> }
+            <a class="settings-context-link" routerLink="/local-api">Open local API diagnostics <span>→</span></a>
+          </section>
+          <section class="surface settings-card">
+            <div class="section-heading"><div><h2>External providers</h2><p>Remote API connections.</p></div></div>
+            <p class="category-note">External provider connections are not configurable in this installation yet.</p>
+          </section>
+        </div>
+      } @else if (tab() === 'appearance') {
+        <section id="settings-panel-appearance" role="tabpanel" aria-labelledby="settings-tab-appearance" class="surface settings-card">
+          <div class="section-heading"><div><h2>Appearance</h2><p>Display preferences for this application.</p></div></div>
+          <p class="category-note">Appearance preferences are not configurable yet. The current dark interface remains active.</p>
+        </section>
+      } @else if (tab() === 'advanced') {
+        <section id="settings-panel-advanced" role="tabpanel" aria-labelledby="settings-tab-advanced" class="settings-links" aria-label="Advanced tools and diagnostics">
+          <a class="surface settings-link" routerLink="/hardware"><b>Hardware</b><span>Device inventory and hardware diagnostics.</span><small>Open Hardware →</small></a>
+          <a class="surface settings-link" routerLink="/resources"><b>Resources</b><span>Runtime residency and measured system resources.</span><small>Open Resources →</small></a>
+          <a class="surface settings-link" routerLink="/capability-map"><b>Capability Map</b><span>Inspect declared capabilities, evidence and routes.</span><small>Open Capability Map →</small></a>
+          <a class="surface settings-link" routerLink="/runtime"><b>Runtime Manager</b><span>Installations, probes and runtime controls.</span><small>Open Runtime Manager →</small></a>
+          <a class="surface settings-link" routerLink="/local-api"><b>Local API diagnostics</b><span>Health details and local service information.</span><small>Open Local API →</small></a>
+          <a class="surface settings-link" routerLink="/tools-permissions"><b>Tools &amp; Permissions</b><span>Review available tools and their permission boundaries.</span><small>Open Tools &amp; Permissions →</small></a>
+          <a class="surface settings-link" routerLink="/logs"><b>Logs &amp; Traces</b><span>Inspect local diagnostics and execution traces.</span><small>Open Logs &amp; Traces →</small></a>
+          <a class="surface settings-link" routerLink="/setup-assistant"><b>Setup Assistant</b><span>Review installation readiness and setup guidance.</span><small>Open Setup Assistant →</small></a>
+        </section>
+      } @else if (settings(); as s) {
+        @if (tab() === 'general') {
+          <section id="settings-panel-general" role="tabpanel" aria-labelledby="settings-tab-general" class="settings-grid">
             <section class="surface settings-card">
               <div class="section-heading"><div><h2>Application behavior</h2><p>Choose how saved model profiles are applied.</p></div></div>
               <label class="setting-field" for="profile-behavior">
@@ -73,19 +102,25 @@ type DefaultCapability = keyof RuntimeCapabilities;
               </label>
               @if (saveError()) { <p class="error-line" role="alert">{{ saveError() }}</p> }
             </section>
-
+          </section>
+        } @else if (tab() === 'models-storage') {
+          <div id="settings-panel-models-storage" role="tabpanel" aria-labelledby="settings-tab-models-storage" class="settings-grid">
             <section class="surface settings-card paths-card">
-              <div class="section-heading"><div><h2>Local paths</h2><p>Read-only locations used by this installation.</p></div></div>
+              <div class="section-heading"><div><h2>Storage locations</h2><p>Read-only locations used by this installation.</p></div></div>
               <div class="path-grid">
                 <label title="AI Dream's managed destination for model downloads">Managed models directory<output [title]="s.managed_models_dir">{{ s.managed_models_dir }}</output></label>
                 <label title="AI Dream configuration and runtime defaults location">Configuration directory<output [title]="s.config_dir">{{ s.config_dir }}</output></label>
                 <label title="AI Dream local application data location">Data directory<output [title]="s.data_dir">{{ s.data_dir }}</output></label>
               </div>
             </section>
+            <section class="surface settings-card">
+              <div class="section-heading"><div><h2>Model library</h2><p>Manage local sources and discover models.</p></div></div>
+              <div class="settings-context-links"><a class="settings-context-link" routerLink="/models">Manage local models and sources <span>→</span></a><a class="settings-context-link" routerLink="/hub">Discover models in Model Hubs <span>→</span></a><a class="settings-context-link" routerLink="/downloads">View downloads <span>→</span></a></div>
+            </section>
           </div>
-        } @else {
-          <section class="surface settings-card runtime-card">
-            <div class="section-heading"><div><h2>Runtime defaults</h2><p>Choose the engine used when a model does not select one explicitly.</p></div></div>
+        } @else if (tab() === 'runtimes') {
+          <section id="settings-panel-runtimes" role="tabpanel" aria-labelledby="settings-tab-runtimes" class="surface settings-card runtime-card">
+            <div class="section-heading"><div><h2>Runtime defaults</h2><p>Choose the engine used when a model does not select one explicitly.</p></div><a class="settings-context-link" routerLink="/runtime">Manage runtime installations <span>→</span></a></div>
             @if (runtimeError()) { <p class="settings-alert inline-alert" role="alert">{{ runtimeError() }}</p> }
             <div class="runtime-fields">
               <label class="setting-field" for="default-backend">
@@ -125,11 +160,13 @@ type DefaultCapability = keyof RuntimeCapabilities;
             </div>
             <aside class="model-profile-note">
               <b>Model configuration lives with each model</b>
-              <p>Context size, GPU placement, split mode, tensor split, and other load options can vary by model. Configure them in the model profile from <a href="#/models" title="Open the local model catalog and its model-specific configuration">Models</a> or when loading from <a href="#/runtime" title="Open runtime installation, selection, and load controls">Runtime</a>.</p>
+              <p>Context size, GPU placement, split mode, tensor split, and other load options can vary by model. Configure them in the model profile from <a routerLink="/models" title="Open the local model catalog and its model-specific configuration">Models</a> or when loading from <a routerLink="/runtime" title="Open runtime installation, selection, and load controls">Runtime</a>.</p>
             </aside>
             @if (saveError()) { <p class="error-line" role="alert">{{ saveError() }}</p> }
           </section>
         }
+      } @else if (tab() === 'general' || tab() === 'models-storage' || tab() === 'runtimes') {
+        <p class="settings-message" role="status">Settings for this category are unavailable until the local API reconnects.</p>
       }
     </div>
   `,
@@ -141,8 +178,8 @@ type DefaultCapability = keyof RuntimeCapabilities;
     .settings-header p { margin:7px 0 0; color:#929aaa; font-size:12px; }
     .header-actions { display:flex; align-items:center; gap:12px; }
     .save-status { color:var(--green); font:10px ui-monospace,monospace; }
-    .settings-tabs { display:flex; gap:5px; border-bottom:1px solid #2e3541; margin-bottom:14px; }
-    .settings-tabs button { padding:10px 13px; border:0; border-bottom:2px solid transparent; background:transparent; color:#8991a2; font:inherit; font-size:11px; cursor:pointer; }
+    .settings-tabs { display:flex; gap:5px; overflow-x:auto; border-bottom:1px solid #2e3541; margin-bottom:14px; scrollbar-width:thin; }
+    .settings-tabs button { flex:none; padding:10px 13px; border:0; border-bottom:2px solid transparent; background:transparent; color:#8991a2; font:inherit; font-size:11px; white-space:nowrap; cursor:pointer; }
     .settings-tabs button:hover { color:#d7deeb; }
     .settings-tabs button.active { color:#c5d8ff; border-color:#80aaff; }
     .settings-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
@@ -186,7 +223,18 @@ type DefaultCapability = keyof RuntimeCapabilities;
     .model-profile-note p { margin:6px 0 0; color:#929aaa; font-size:10px; line-height:1.65; }
     .model-profile-note a { color:#a9c5ff; text-decoration:none; }
     .model-profile-note a:hover { text-decoration:underline; }
-    @media(max-width:720px) { .settings-grid { grid-template-columns:1fr; }.paths-card { grid-column:auto; }.path-grid { grid-template-columns:1fr; }.settings-header { align-items:flex-start; }.runtime-fields { grid-template-columns:1fr; } }
+    .settings-links { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; }
+    .settings-link { display:grid; gap:6px; min-width:0; padding:14px; border:1px solid #2e3541; border-radius:6px; color:inherit; text-decoration:none; transition:border-color .15s,background .15s; }
+    .settings-link:hover,.settings-link:focus-visible { border-color:#5473a7; background:#182232; outline:none; }
+    .settings-link b { color:#d4deee; font-size:11px; font-weight:550; }
+    .settings-link span { color:#8993a4; font-size:10px; line-height:1.45; }
+    .settings-link small,.settings-context-link { color:#a9c5ff; font-size:10px; text-decoration:none; }
+    .settings-link small { margin-top:3px; }
+    .settings-context-link { display:inline-flex; align-items:center; gap:7px; width:fit-content; padding:5px 0; }
+    .settings-context-link:hover { color:#d6e4ff; text-decoration:underline; }
+    .settings-context-links { display:grid; gap:5px; }
+    .category-note { margin:0; color:#9aa5b7; font-size:11px; line-height:1.6; }
+    @media(max-width:720px) { .settings-grid { grid-template-columns:1fr; }.paths-card { grid-column:auto; }.path-grid { grid-template-columns:1fr; }.settings-header { align-items:flex-start; }.runtime-fields { grid-template-columns:1fr; }.settings-links { grid-template-columns:1fr; } }
     @media(max-width:480px) { .settings-header { flex-direction:column; align-items:stretch; gap:14px; }.header-actions { justify-content:space-between; }.input-row { align-items:stretch; flex-direction:column; }.input-row .secondary-button { align-self:flex-start; }.settings-tabs button { padding:9px 10px; } }
   `, `
 .settings-page{max-width:none}.settings-header{padding:16px;background:#171c26;border:1px solid #2b3240;border-radius:6px;margin-bottom:14px}.settings-header h1{font-size:22px;font-weight:600}.settings-tabs{margin-bottom:10px}.settings-tabs button{font-size:10px}.settings-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.settings-grid>.settings-card:first-child{grid-column:1/-1}.settings-card{padding:15px;border-radius:6px}.section-heading{padding-bottom:10px;margin-bottom:12px}.input-row input,.setting-field select,.path-grid output{border-radius:4px}.toggle-row,.model-profile-note{border-radius:4px}.runtime-card{padding:16px}.runtime-fields{gap:12px}.paths-card{grid-column:1/-1}@media(max-width:720px){.settings-grid{grid-template-columns:1fr}}
