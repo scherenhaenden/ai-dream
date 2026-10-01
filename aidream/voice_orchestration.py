@@ -52,8 +52,9 @@ def local_voice_readiness(voice: LocalVoice, *, whisper_model: str | Path | None
         "audio.transcribe": {"available": stt_available, "model_configured": model is not None,
                              "reasons": stt_reasons},
         "audio.synthesize": {"available": tts_available, "provider": tts_provider,
-                             "voices": list(flite_voices),
-                             "selected_voice": ("kal" if "kal" in flite_voices else flite_voices[0]) if flite_voices else None,
+                             "voices": list(flite_voices) if tts_provider == "ffmpeg-flite" else [],
+                             "selected_voice": (("kal" if "kal" in flite_voices else flite_voices[0])
+                                                if tts_provider == "ffmpeg-flite" and flite_voices else None),
                              "reasons": [] if tts_available else [
                                  "No local TTS provider found. Install espeak-ng or FFmpeg built with libflite."]},
     }
@@ -122,17 +123,33 @@ def create_local_voice_callbacks(
                 "Local text-to-speech is unavailable; install espeak-ng or FFmpeg built with libflite.")
         text_artifact = inputs.get("text")
         text = text_artifact.get("text") if isinstance(text_artifact, Mapping) and text_artifact.get("kind") == "text" else None
+        voice_artifact = inputs.get("voice")
+        requested_voice = (voice_artifact.get("text") if isinstance(voice_artifact, Mapping)
+                           and voice_artifact.get("kind") == "text" else None)
+        if requested_voice == "auto":
+            requested_voice = None
+        if requested_voice is not None and (not isinstance(requested_voice, str)
+                                            or not re.fullmatch(r"[a-z0-9_-]{1,40}", requested_voice)):
+            raise VoiceOrchestrationError("Selected local Flite voice is invalid.")
         if not isinstance(text, str) or not text.strip() or len(text) > MAX_VOICE_TEXT_CHARS:
             raise VoiceOrchestrationError(f"Speech text must contain 1 to {MAX_VOICE_TEXT_CHARS} characters.")
         try:
             if render is not None:
+                if requested_voice is not None:
+                    raise VoiceOrchestrationError("Voice selection is unavailable with the injected speech renderer.")
                 audio = render(executable or ffmpeg or "", text.strip())
             elif executable:
+                if requested_voice is not None:
+                    raise VoiceOrchestrationError("The installed espeak route does not report selectable voices.")
                 audio = _render_espeak(executable, text.strip())
             else:
-                voice_name = "kal" if "kal" in voices else voices[0]
+                voice_name = requested_voice or ("kal" if "kal" in voices else voices[0])
+                if voice_name not in voices:
+                    raise VoiceOrchestrationError("Selected local Flite voice is not in the current discovered voice list.")
                 audio = _render_ffmpeg_flite(ffmpeg, text.strip(), voice_name)
         except Exception as exc:
+            if isinstance(exc, VoiceOrchestrationError):
+                raise
             raise VoiceOrchestrationError("Local speech synthesis failed.") from exc
         if not isinstance(audio, bytes) or not _is_wav(audio) or len(audio) > MAX_SYNTHESIZED_AUDIO_BYTES:
             raise VoiceOrchestrationError("Speech synthesizer returned invalid or oversized WAV audio.")

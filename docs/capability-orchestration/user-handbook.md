@@ -269,8 +269,11 @@ operations](local-provider-operations.md#comfyui-image-generation-and-unmasked-i
 
 On the audited host, **text-to-speech generation is available** through
 FFmpeg's Flite filter. The TTS skill can return a local PCM WAV artifact; the
-current workflow selects a default discovered voice and does not yet offer a
-voice picker. The host also has the `spd-say` binary, but AI Dream playback
+Skills shows the currently discovered Flite voices for `voice.respond` and
+`voice.conversation`. Select one for a run or keep **Automatic default**;
+existing API callers that omit this optional input continue to use the default.
+The selected voice is checked against the discovered local list before FFmpeg
+starts. The host also has the `spd-say` binary, but AI Dream playback
 integration has not been verified; WAV generation does not mean the app can
 play the result itself.
 

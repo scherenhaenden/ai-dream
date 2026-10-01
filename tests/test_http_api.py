@@ -74,19 +74,25 @@ class FakeHub:
 
 
 class FakeChatBackend(FakeBackend):
-    def __init__(self):
+    def __init__(self, *, fail_load=False):
         self.loaded = 0
         self.unloaded = 0
+        self.fail_load = fail_load
         self.history = []
         self.cancelled = threading.Event()
         self.started = threading.Event()
+        self.on_generate = None
     def can_load(self, model):
         return model.id in {"safe-model", "alt-model"}
     def load(self, model, placement=None, options=None):
+        if self.fail_load:
+            raise RuntimeError("fixture load failed")
         self.loaded += 1
     def restore_history(self, history):
         self.history = history
     def generate_stream(self, prompt, options=None, on_delta=None, cancel_event=None):
+        if self.on_generate is not None:
+            self.on_generate()
         if prompt == "slow":
             self.started.set()
             while not cancel_event.is_set():
@@ -107,7 +113,13 @@ class FakeAgentBackend(FakeChatBackend):
     def __init__(self):
         super().__init__()
         self.agent_turn = 0
+        self.on_agent_call = None
+        self.fail_agent = False
     def chat_with_tools(self, messages, tools, timeout):
+        if self.on_agent_call is not None:
+            self.on_agent_call()
+        if self.fail_agent:
+            raise RuntimeError("fixture agent failure")
         self.agent_turn += 1
         if self.agent_turn == 1:
             return {"role": "assistant", "content": "", "tool_calls": [{
@@ -178,6 +190,18 @@ class HTTPAPITests(unittest.TestCase):
         return self.request(path, method="POST", headers={
             "Origin": origin, "Content-Type": "application/json"},
             data=json.dumps(value).encode("utf-8"))
+
+    def report_skill_ready(self, skill_id):
+        """Mark a fixture skill ready when a test injects its own fake planner."""
+        api = self.server.services
+        original = api._capability_declarations
+        declarations = original()
+        declarations.append({
+            "id": "text.chat", "status": "supported",
+            "routes": [{"id": "fixture-chat-route", "model_id": "fixture-model"}],
+            "inputs": [{"kind": "text"}], "outputs": [{"kind": "text"}], "evidence": [],
+        })
+        api._capability_declarations = lambda: declarations
 
     def patch_json(self, path, value, *, origin="http://127.0.0.1:5173"):
         return self.request(path, method="PATCH", headers={
@@ -267,6 +291,7 @@ class HTTPAPITests(unittest.TestCase):
         api = self.server.services
         api.run_manager = manager
         api.run_planner = lambda **kwargs: {"plan": {"id": "plan-test", "nodes": []}}
+        self.report_skill_ready("chat.general")
         with self.post_json("/api/skills/chat.general/run", {
             "inputs": {"prompt": {"kind": "text", "text": "hello"}},
             "parameters": {}, "selection": {"mode": "auto"},
@@ -299,6 +324,7 @@ class HTTPAPITests(unittest.TestCase):
         self.addCleanup(manager.close)
         self.server.services.run_manager = manager
         self.server.services.run_planner = lambda **kwargs: {"plan": {"id": "plan-gap", "nodes": []}}
+        self.report_skill_ready("chat.general")
         with self.post_json("/api/skills/chat.general/run", {
             "inputs": {"prompt": {"kind": "text", "text": "hello"}},
             "parameters": {}, "selection": {"mode": "auto"},
@@ -310,12 +336,56 @@ class HTTPAPITests(unittest.TestCase):
         self.assertIn('"missing_from":1', stream)
         self.assertIn("event: run.succeeded", stream)
 
+    def test_runs_http_api_exposes_restart_recovery_from_the_private_journal(self):
+        from aidream.run_journal import RunJournalStore
+
+        run_id = "9" * 32
+        chat_id = "8" * 32
+        journal = RunJournalStore(Path(self.temp.name) / "runs.json")
+        journal.replace_all([{
+            "id": run_id, "skill_id": "document.answer-with-rag", "skill_version": "1.0.0",
+            "plan": {"plan_id": "recovered-plan"}, "state": "running",
+            "created_at": 1.0, "started_at": 2.0, "completed_at": None,
+            "current_nodes": ["retrieve-document"], "outputs": [], "error": None,
+            "events": [{"run_id": run_id, "sequence": 1, "timestamp": 2.0,
+                         "type": "run.started", "data": {}}],
+            "next_sequence": 2, "chat_id": chat_id,
+        }])
+        api = ReadOnlyAPI(
+            hardware=FakeHardware(), catalog=FakeCatalog(), runtimes=FakeRuntime(),
+            diagnostics_log=self.diagnostics, run_journal_store=RunJournalStore(journal.path))
+        self.addCleanup(api.close)
+        self.server.services = api
+
+        with self.request("/api/runs") as response:
+            listing = json.loads(response.read())["data"]["runs"]
+        self.assertEqual([item["id"] for item in listing], [run_id])
+        self.assertEqual(listing[0]["state"], "failed")
+        self.assertTrue(listing[0]["recovered"])
+        self.assertEqual(listing[0]["chat_id"], chat_id)
+        self.assertEqual(listing[0]["outputs"], [])
+        self.assertEqual(listing[0]["error"]["kind"], "process_restarted")
+
+        with self.request(f"/api/runs/{run_id}") as response:
+            detail = json.loads(response.read())["data"]["run"]
+        self.assertEqual(detail["state"], "failed")
+        self.assertTrue(detail["recovered"])
+        self.assertEqual(detail["current_nodes"], [])
+        self.assertEqual(detail["outputs"], [])
+        self.assertEqual(detail["chat_id"], chat_id)
+
+        with self.request(f"/api/runs/{run_id}/events?after=1") as response:
+            stream = response.read().decode()
+        self.assertIn("event: run.failed", stream)
+        self.assertIn('"kind":"process_restarted"', stream)
+
     def test_run_requires_the_exact_plan_id_after_explicit_review(self):
         from aidream.run_manager import RunManager
 
         manager = RunManager(executor=lambda **kwargs: [])
         self.addCleanup(manager.close)
         self.server.services.run_manager = manager
+        self.report_skill_ready("chat.general")
         expected = "a" * 24
         self.server.services.run_planner = lambda **kwargs: {"plan": {"plan_id": expected, "nodes": []}}
         request_body = {
@@ -449,14 +519,18 @@ class HTTPAPITests(unittest.TestCase):
         with self.request("/api/capability-preferences") as response:
             initial = json.loads(response.read())["data"]
         self.assertEqual(initial["selection_defaults"]["eviction_policy"], "lru")
+        self.assertEqual(initial["selection_defaults"]["unknown_resource_policy"], "allow")
         with self.patch_json("/api/capability-preferences", {
-            "selection_defaults": {"eviction_policy": "never"},
+            "selection_defaults": {"eviction_policy": "never", "unknown_resource_policy": "reject"},
         }) as response:
             updated = json.loads(response.read())["data"]
         self.assertEqual(updated["selection_defaults"]["eviction_policy"], "never")
+        self.assertEqual(updated["selection_defaults"]["unknown_resource_policy"], "reject")
         self.assertEqual(scheduler.eviction_policy, "never")
         with self.request("/api/capability-preferences") as response:
-            self.assertEqual(json.loads(response.read())["data"]["selection_defaults"]["eviction_policy"], "never")
+            defaults = json.loads(response.read())["data"]["selection_defaults"]
+        self.assertEqual(defaults["eviction_policy"], "never")
+        self.assertEqual(defaults["unknown_resource_policy"], "reject")
 
     def test_assisted_draft_endpoint_is_explicit_and_off_by_default(self):
         from aidream.capabilities.preferences import CapabilityPreferenceStore
@@ -819,6 +893,9 @@ class HTTPAPITests(unittest.TestCase):
             api = ReadOnlyAPI(hardware=FakeHardware(), catalog=FakeModelCatalog(),
                               runtimes=FakeRuntime(), chat_store=store)
             api.runtimes = SimpleNamespace(list_backends=lambda: [backend])
+            active_calls = []
+            backend.on_agent_call = lambda: active_calls.append(
+                api._orchestration_scheduler.residency()[0].active_calls)
             self.server.services = api
             chat_id = store.create()["id"]
             with self.post_json("/api/agent", {"chat_id": chat_id, "model_id": "safe-model",
@@ -837,6 +914,30 @@ class HTTPAPITests(unittest.TestCase):
             self.assertEqual(public["agent_audits"][-1]["tools"][0]["name"], "hardware.status")
             self.assertNotIn("AI_DREAM_AGENT_AUDIT", json.dumps(public))
             self.assertEqual(backend.loaded, 1)
+            self.assertEqual(active_calls, [1, 1])
+            self.assertEqual(api._orchestration_scheduler.active_leases(), ())
+            self.assertEqual(api._orchestration_scheduler.residency()[0].active_calls, 0)
+
+    def test_agent_failure_releases_active_call_lease_and_chat_lock(self):
+        with TemporaryDirectory() as temp:
+            store = ChatStore(Path(temp) / "chats")
+            backend = FakeAgentBackend()
+            backend.fail_agent = True
+            api = ReadOnlyAPI(hardware=FakeHardware(), catalog=FakeModelCatalog(),
+                              runtimes=FakeRuntime(), chat_store=store)
+            api.runtimes = SimpleNamespace(list_backends=lambda: [backend])
+            self.server.services = api
+            chat_id = store.create()["id"]
+            with self.post_json("/api/agent", {"chat_id": chat_id, "model_id": "safe-model",
+                                                 "prompt": "What hardware is here?"}) as response:
+                stream = response.read().decode("utf-8")
+            self.assertIn('event: error\ndata:', stream)
+            scheduler = api._orchestration_scheduler
+            self.assertEqual(scheduler.active_leases(), ())
+            self.assertEqual(scheduler.residency()[0].active_calls, 0)
+            self.assertTrue(api._chat_lock.acquire(blocking=False))
+            api._chat_lock.release()
+            api.close()
 
     def test_agent_rejects_model_path_and_cors_preflight_is_explicit(self):
         with TemporaryDirectory() as temp:
@@ -897,6 +998,9 @@ class HTTPAPITests(unittest.TestCase):
                 run.generate(lambda _delta: None, threading.Event())
                 run.close()
             self.assertEqual(backend.loaded, 1)
+            scheduler = api._orchestration_scheduler
+            self.assertEqual(scheduler.active_leases(), ())
+            self.assertEqual(len(scheduler.residency()), 1)
             run = api.prepare_chat(second, "safe-model", "other chat")
             run.generate(lambda _delta: None, threading.Event())
             run.close()
@@ -909,6 +1013,63 @@ class HTTPAPITests(unittest.TestCase):
             self.assertEqual(backend.unloaded, 2)
             api.close()
             self.assertEqual(backend.unloaded, 3)
+
+    def test_runtime_load_switch_and_unload_are_scheduler_owned(self):
+        with TemporaryDirectory() as temp:
+            backend = FakeChatBackend()
+            api = ReadOnlyAPI(hardware=FakeHardware(),
+                              catalog=FakeModelCatalog([
+                                  SimpleNamespace(id="safe-model", path="/private/a.gguf"),
+                                  SimpleNamespace(id="alt-model", path="/private/b.gguf")]),
+                              runtimes=FakeRuntime(), chat_store=ChatStore(Path(temp) / "chats"))
+            api.runtimes = SimpleNamespace(list_backends=lambda: [backend])
+            api.load_model({"model_id": "safe-model"})
+            scheduler = api._orchestration_scheduler
+            self.assertEqual(backend.loaded, 1)
+            self.assertEqual(len(scheduler.residency()), 1)
+            self.assertEqual(scheduler.active_leases(), ())
+
+            api.load_model({"model_id": "alt-model"})
+            self.assertEqual(backend.loaded, 2)
+            self.assertEqual(backend.unloaded, 1)
+            self.assertEqual([item.model_id for item in scheduler.residency()], ["alt-model"])
+
+            api.unload_model()
+            self.assertEqual(backend.unloaded, 2)
+            self.assertEqual(scheduler.residency(), ())
+            api.close()
+
+    def test_direct_chat_stream_is_accounted_as_an_active_scheduler_call(self):
+        with TemporaryDirectory() as temp:
+            backend = FakeChatBackend()
+            api = ReadOnlyAPI(hardware=FakeHardware(), catalog=FakeModelCatalog(),
+                              runtimes=FakeRuntime(), chat_store=ChatStore(Path(temp) / "chats"))
+            api.runtimes = SimpleNamespace(list_backends=lambda: [backend])
+            chat_id = api.chat_store.create()["id"]
+            run = api.prepare_chat(chat_id, "safe-model", "hello")
+            scheduler = api._orchestration_scheduler
+            during_call = []
+            backend.on_generate = lambda: during_call.append(scheduler.residency()[0].active_calls)
+            run.generate(lambda _delta: None, threading.Event())
+            run.close()
+            self.assertEqual(during_call, [1])
+            self.assertEqual(scheduler.residency()[0].active_calls, 0)
+            self.assertEqual(scheduler.active_leases(), ())
+            api.close()
+
+    def test_direct_chat_load_failure_leaves_no_lease_or_resident(self):
+        with TemporaryDirectory() as temp:
+            backend = FakeChatBackend(fail_load=True)
+            api = ReadOnlyAPI(hardware=FakeHardware(), catalog=FakeModelCatalog(),
+                              runtimes=FakeRuntime(), chat_store=ChatStore(Path(temp) / "chats"))
+            api.runtimes = SimpleNamespace(list_backends=lambda: [backend])
+            with self.assertRaisesRegex(Exception, "fixture load failed"):
+                api.load_model({"model_id": "safe-model"})
+            scheduler = api._orchestration_scheduler
+            self.assertIsNone(api._active_backend)
+            self.assertEqual(scheduler.active_leases(), ())
+            self.assertEqual(scheduler.residency(), ())
+            api.close()
 
     def test_chat_rehydrates_verified_local_attachment_refs_but_never_returns_paths(self):
         from aidream.conversation import make_attachment_reference

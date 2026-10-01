@@ -30,7 +30,7 @@ assert.match(backend, /if supplied != expected:/, 'draft components must match t
 assert.match(prefs, /"assisted_planner_enabled": False/, 'global assisted planner opt-in must default off');
 assert.match(api, /def draft_skill\([\s\S]*?defaults\["assisted_planner_enabled"\] is not True[\s\S]*?No local model is already loaded/, 'API must require opt-in and an already-loaded model');
 assert.match(api, /backend\.generate\(planner_prompt, \{"temperature": 0\.1, "max_tokens": 256\}\)/, 'planner generation must be bounded');
-assert.match(api, /plan = service\.resolve_assisted_draft\(draft, inputs, \*\*draft_options\)/, 'model output must pass strict deterministic draft validation with explicit selection options');
+assert.match(api, /if draft\.get\("skill_id"\) != skill_id:[\s\S]*?raise PlanDraftError\("planner draft skill_id must match the requested skill"\)[\s\S]*?plan = service\.resolve_assisted_draft\(draft, result\.get\("inputs", inputs\), \*\*draft_options\)/, 'model output must bind to the requested skill before strict deterministic validation with explicit selection options');
 assert.match(api, /planned\.get\("plan_id"\) != expected_plan_id[\s\S]*?The plan changed after review/, 'server must reject execution when the reviewed plan is stale');
 const service = await readFile(new URL('../src/app/core/skill.service.ts', import.meta.url), 'utf8');
 assert.match(service, /expected_plan_id: expectedPlanId/, 'Skills must send the reviewed resolved-plan ID at execution');

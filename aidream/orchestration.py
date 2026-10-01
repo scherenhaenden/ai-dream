@@ -294,6 +294,7 @@ class OrchestrationService:
                 prefer_verified=defaults["prefer_verified"],
                 prefer_loaded=defaults["prefer_loaded"],
                 resource_headroom_percent=defaults["resource_headroom_percent"],
+                unknown_resource_policy=defaults["unknown_resource_policy"],
             )
             capability_routes = tuple(route for route in self.routes if route.capability_id == capability_id)
             compatible_routes: list[RouteCandidate] = []

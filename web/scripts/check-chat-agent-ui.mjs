@@ -18,6 +18,7 @@ const SCREENSHOT_DIR = path.resolve(__dirname, '../../artifacts/ui-smoke/chat-ag
   let guidedPlanPayload = null;
   let guidedRunPayload = null;
   let guidedRunCount = 0;
+  let runSnapshotCount = 0;
   let forceManualMismatch = false;
   let chatMessages = [
     { role: 'user', content: 'Hello' },
@@ -158,25 +159,29 @@ const SCREENSHOT_DIR = path.resolve(__dirname, '../../artifacts/ui-smoke/chat-ag
       const planId = modelId === 'mock-model-2' ? 'b'.repeat(24) : 'a'.repeat(24);
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: { plan: {
         plan_id: planId, mode: guidedPlanPayload?.selection?.mode || 'auto',
+        input_kinds: { prompt: 'text' },
         resource_budget: { max_parallel_routes: 1 },
-        nodes: [{ node_id: 'reply', capability_id: 'text.chat',
-          selected: { id: `route-${modelId}`, model_id: modelId, runtime_id: 'llama.cpp' },
+        nodes: [{ node_id: 'reply', node_type: 'model', capability_id: 'text.chat',
+          selected: { id: `route-${modelId}`, model_id: modelId, profile_id: 'profile-chat', runtime_id: 'llama.cpp', estimated_vram_bytes: 2147483648, available_vram_bytes: 6442450944 },
           alternatives: [{ id: 'route-mock-model-2', capability_id: 'text.chat', model_id: 'mock-model-2', runtime_id: 'vllm' }],
           why: [{ route_id: `route-${modelId}`, eligible: true, selected: true, reasons: ['compatible'] }] }]
       } } }) });
     });
     await page.route('**/api/skills/chat.general/run', async route => {
       guidedRunCount += 1;
+      runSnapshotCount = 0;
       guidedRunPayload = route.request().postDataJSON();
       await route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ data: { run: {
         id: 'c'.repeat(32), state: 'succeeded'
       } } }) });
     });
-    await page.route(`**/api/runs/${'c'.repeat(32)}`, route => route.fulfill({
-      status: 200, contentType: 'application/json', body: JSON.stringify({ data: { run: {
-        id: 'c'.repeat(32), state: 'succeeded', current_nodes: [], outputs: [], last_sequence: 4
-      } } })
-    }));
+    await page.route(`**/api/runs/${'c'.repeat(32)}`, route => {
+      runSnapshotCount += 1;
+      const active = runSnapshotCount === 1;
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: { run: {
+        id: 'c'.repeat(32), state: active ? 'running' : 'succeeded', current_nodes: active ? ['reply'] : [], outputs: [], last_sequence: 4
+      } } }) });
+    });
 
     // Mock API for /api/chats
     await page.route(/\/api\/chats(?:\/[^/?#]+)?(?:[?#].*)?$/, async route => {
@@ -249,6 +254,9 @@ const SCREENSHOT_DIR = path.resolve(__dirname, '../../artifacts/ui-smoke/chat-ag
     await expect(page.locator('.chat-new-button')).toBeEnabled();
     await expect(page.getByText('Local API unavailable')).toHaveCount(0);
     await expect(page.locator('.code-canvas')).toHaveCount(0);
+    const executionPath = page.getByRole('group', { name: 'Chat execution path' });
+    await expect(executionPath.getByRole('button', { name: 'Plan + run' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(executionPath.getByRole('button', { name: 'Direct chat' })).toHaveAttribute('aria-pressed', 'false');
     const knowledgeToggle = page.getByRole('checkbox', { name: 'Use local Knowledge in this chat' });
     await expect(knowledgeToggle).toBeEnabled();
     await knowledgeToggle.check();
@@ -256,7 +264,9 @@ const SCREENSHOT_DIR = path.resolve(__dirname, '../../artifacts/ui-smoke/chat-ag
     await expect(page.getByText('Local full-text retrieval · no embeddings')).toBeVisible();
     await expect(page.locator('#chat-model')).toHaveValue('mock-model-2');
     await page.locator('#chat-model').selectOption('mock-model-1');
-    await page.getByRole('button', { name: 'Direct chat' }).click();
+    await executionPath.getByRole('button', { name: 'Direct chat' }).click();
+    await expect(executionPath.getByRole('button', { name: 'Direct chat' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(executionPath.getByRole('button', { name: 'Plan + run' })).toHaveAttribute('aria-pressed', 'false');
     await page.getByRole('textbox', { name: 'Message' }).fill('Test request contract');
     await page.getByRole('button', { name: 'Send message' }).click();
     await expect.poll(() => chatPayload?.model_id).toBe('mock-model-1');
@@ -276,11 +286,32 @@ const SCREENSHOT_DIR = path.resolve(__dirname, '../../artifacts/ui-smoke/chat-ag
     // Guided plans must remain read-only until the exact reviewed plan is confirmed.
     await page.goto('http://localhost:4200/chat');
     await page.waitForSelector('.chat-workspace', { state: 'visible', timeout: 30000 });
+    await page.setViewportSize({ width: 390, height: 844 });
+    const mobileExecutionPath = page.getByRole('group', { name: 'Chat execution path' });
+    await expect(mobileExecutionPath.getByRole('button', { name: 'Plan + run' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(mobileExecutionPath.getByRole('button', { name: 'Direct chat' })).toHaveAttribute('aria-pressed', 'false');
     await page.getByRole('combobox', { name: 'Global orchestration mode' }).selectOption('guided');
     await expect.poll(() => selectionMode).toBe('guided');
     await page.getByRole('textbox', { name: 'Message' }).fill('Review this route before running');
     await page.getByRole('button', { name: 'Preview plan' }).click();
     await expect(page.getByRole('button', { name: 'Confirm plan and run' })).toBeEnabled();
+    const planInspector = page.getByRole('region', { name: 'Resolved chat plan' });
+    await expect(planInspector).toBeVisible();
+    await expect(planInspector).toContainText('Component / model');
+    await expect(planInspector).toContainText('mock-model-1');
+    await expect(planInspector).toContainText('route-mock-model-1');
+    await expect(planInspector).toContainText('profile-chat');
+    await expect(planInspector).toContainText('llama.cpp');
+    await expect(planInspector).toContainText('Workflow inputs: prompt: text');
+    await expect(planInspector).toContainText('Outputs not reported by plan');
+    await expect(planInspector).toContainText('Plan resolved · run not started');
+    await expect(planInspector).toContainText('Not reported by plan');
+    await expect(planInspector).toContainText('Estimated VRAM 2.00 GiB');
+    await expect(planInspector).toContainText('Available at planning 6.00 GiB');
+    await expect(planInspector).toContainText('compatible');
+    await expect(planInspector).toContainText('ALTERNATIVES · SELECT TO PIN FOR THIS TURN');
+    const planInspectorOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
+    if (planInspectorOverflow) throw new Error('Resolved plan inspector should fit a 390 px viewport.');
     await expect.poll(() => guidedRunCount).toBe(0);
     await expect.poll(() => guidedPlanPayload?.selection?.mode).toBe('guided');
     await page.getByRole('button', { name: /Use mock-model-2/ }).click();
@@ -289,8 +320,10 @@ const SCREENSHOT_DIR = path.resolve(__dirname, '../../artifacts/ui-smoke/chat-ag
     await expect.poll(() => guidedRunCount).toBe(0);
     await page.getByRole('button', { name: 'Confirm plan and run' }).click();
     await expect.poll(() => guidedRunCount).toBe(1);
+    await expect(page.getByRole('status').filter({ hasText: 'Active steps' })).toContainText('reply');
     await expect.poll(() => guidedRunPayload?.expected_plan_id).toBe('b'.repeat(24));
     await expect.poll(() => guidedRunPayload?.selection?.capability_pins?.['text.chat']?.model_id).toBe('mock-model-2');
+    await page.setViewportSize({ width: 1320, height: 900 });
 
     // Auto executes the selected compatible plan directly; Manual keeps the
     // selected model as a hard pin and preserves the prompt if it cannot route.

@@ -21,6 +21,13 @@ _ANY_LEASE_OWNER = object()
 MAX_RESERVATION_BATCH = 8
 
 
+def _max_known(first: int | None, second: int | None) -> int | None:
+    """Return a duplicate route's safe estimate, preserving unknown values."""
+    if first is None or second is None:
+        return None
+    return max(first, second)
+
+
 class SchedulerErrorCode(str, Enum):
     RUNTIME_UNAVAILABLE = "runtime_unavailable"
     INCOMPATIBLE = "incompatible_model"
@@ -231,6 +238,11 @@ class ModelScheduler:
             raise TypeError("requests must contain LeaseRequest values")
         leases: list[ModelLease] = []
         with self._mutation_lock:
+            # Check the complete working set before loading the first model.
+            # Host resource probes may lag behind runtime load completion, so
+            # relying on one fresh probe per acquire can spend the same free
+            # VRAM/RAM more than once inside this serialized batch.
+            self._preflight_batch_resources(batch)
             initial_records = dict(self._records)
             initial_residents = set(initial_records)
             try:
@@ -272,6 +284,76 @@ class ModelScheduler:
                                          "Could not fully roll back a failed batch reservation") from rollback_errors[0]
                 raise
         return tuple(leases)
+
+    def _preflight_batch_resources(self, requests: Sequence[LeaseRequest]) -> None:
+        """Reject a known over-budget batch before causing any adapter loads.
+
+        Existing residents already consume the bytes reflected by the host's
+        available-memory snapshot. A resident requested by this batch adds no
+        new allocation. Idle, unpinned, non-target residents may be credited
+        as reclaimable under LRU because the regular acquisition path can
+        evict them before loading the batch.
+        """
+        by_key: dict[tuple[str, str, str | None], LeaseRequest] = {}
+        target_keys: set[tuple[str, str, str | None]] = set()
+        for request in requests:
+            for estimate_name in ("estimated_ram_bytes", "estimated_vram_bytes"):
+                estimate = getattr(request, estimate_name)
+                if estimate is not None:
+                    self._nonnegative(estimate, estimate_name)
+            key = (request.model_id, request.runtime_id, self._profile_id(request.profile))
+            target_keys.add(key)
+            if key not in self._records:
+                previous = by_key.get(key)
+                if previous is None:
+                    by_key[key] = request
+                else:
+                    # A duplicate route is loaded once; its largest declared
+                    # estimate is the safe amount to reserve.
+                    by_key[key] = LeaseRequest(
+                        request.model_id, request.runtime_id, request.manifest,
+                        request.profile,
+                        estimated_ram_bytes=_max_known(previous.estimated_ram_bytes,
+                                                       request.estimated_ram_bytes),
+                        estimated_vram_bytes=_max_known(previous.estimated_vram_bytes,
+                                                        request.estimated_vram_bytes),
+                    )
+        if not by_key:
+            return
+
+        try:
+            snapshot = self.resource_snapshot()
+        except Exception as exc:
+            raise SchedulerError(SchedulerErrorCode.LIFECYCLE_FAILED,
+                                 f"Could not read resource snapshot for parallel reservation: {exc}") from exc
+        for estimate_name, available_name, total_name, minimum_headroom, ratio in (
+            ("estimated_ram_bytes", "ram_available_bytes", "ram_total_bytes",
+             self.ram_headroom_bytes, self.ram_headroom_ratio),
+            ("estimated_vram_bytes", "vram_available_bytes", "vram_total_bytes",
+             self.vram_headroom_bytes, self.vram_headroom_ratio),
+        ):
+            estimates = [getattr(request, estimate_name) for request in by_key.values()]
+            available = getattr(snapshot, available_name)
+            if available is None or any(value is None for value in estimates):
+                continue
+            total = getattr(snapshot, total_name)
+            headroom = max(minimum_headroom, int(total * ratio)) if total is not None else minimum_headroom
+            reclaimable = 0
+            if self.eviction_policy == "lru":
+                candidates = [record for key, record in self._records.items()
+                              if key not in target_keys and not record.lease_ids and not record.pinned]
+                candidate_estimates = [getattr(record, estimate_name) for record in candidates]
+                if all(value is not None for value in candidate_estimates):
+                    reclaimable = sum(candidate_estimates)
+            required = sum(estimates)
+            capacity = max(0, available - headroom) + reclaimable
+            if required > capacity:
+                unit = "RAM" if estimate_name == "estimated_ram_bytes" else "VRAM"
+                raise SchedulerError(
+                    SchedulerErrorCode.RESOURCE_UNAVAILABLE,
+                    f"Parallel reservation exceeds measured {unit} headroom "
+                    f"(requires {required} bytes; at most {capacity} bytes available including idle eviction)",
+                )
 
     def _make_runtime_exclusive(self, runtime_id: str, model_id: str, *, multi_resident: bool) -> None:
         if multi_resident:

@@ -110,6 +110,33 @@ class SkillAPITests(unittest.TestCase):
         self.assertEqual(skills["image.describe"]["not_ready_reasons"], ["Missing capability route: vision.understand"])
         self.assertTrue(any("chat.general" in item for item in skills["image.describe"]["alternatives"]))
 
+    def test_skill_readiness_and_alternatives_account_for_known_vram_limits(self):
+        from aidream.skills import builtin_skill_manifests
+
+        service = api(builtin_skill_manifests(), [
+            {"id": "image.generate", "status": "supported", "preferred_route_id": "large-route",
+             "inputs": [{"kind": "text"}], "outputs": [{"kind": "image"}],
+             "evidence": [],
+             "routes": [{"id": "large-route", "estimated_vram_bytes": 8 * 1024 ** 3,
+                         "available_vram_bytes": 4 * 1024 ** 3}]},
+            {"id": "text.chat", "status": "supported", "preferred_route_id": "chat-route",
+             "inputs": [{"kind": "text"}], "outputs": [{"kind": "text"}],
+             "evidence": [],
+             "routes": [{"id": "chat-route"}]},
+        ])
+        skills = {item["id"]: item for item in service.get("/api/skills")[1]["data"]["skills"]}
+        generator = skills["image.generate"]
+        self.assertEqual(generator["status"], "not_ready")
+        self.assertIsNone(generator["preferred_route_id"])
+        self.assertIn("No configured image.generate route fits reported VRAM",
+                      generator["not_ready_reasons"][0])
+        self.assertTrue(any("lower-memory local model" in item for item in generator["alternatives"]))
+
+        map_skills = {item["id"]: item for item in
+                      next(item for item in service.get("/api/capability-map")[1]["data"]["capabilities"]
+                           if item["id"] == "image.generate")["skills"]}
+        self.assertEqual(map_skills["image.generate"]["status"], "not_ready")
+
     def test_image_skill_catalog_explains_absent_local_generator(self):
         detail = "No compatible local image generation runtime and model are configured."
         service = api(builtin_skill_manifests(), [

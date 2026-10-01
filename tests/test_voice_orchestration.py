@@ -80,11 +80,21 @@ class VoiceOrchestrationTests(unittest.TestCase):
         self.assertEqual(readiness["audio.synthesize"]["provider"], "ffmpeg-flite")
         self.assertEqual(readiness["audio.synthesize"]["selected_voice"], "kal")
 
+    def test_readiness_does_not_offer_flite_choices_when_espeak_is_the_selected_provider(self):
+        voice = FakeLocalVoice(self.model)
+        voice.capabilities.tts_executable = "/usr/bin/espeak-ng"
+        voice.capabilities.flite_executable = "/usr/bin/ffmpeg"
+        voice.capabilities.flite_voices = ("kal", "slt")
+        readiness = local_voice_readiness(voice)
+        self.assertEqual(readiness["audio.synthesize"]["provider"], "espeak")
+        self.assertEqual(readiness["audio.synthesize"]["voices"], [])
+        self.assertIsNone(readiness["audio.synthesize"]["selected_voice"])
+
     def test_ffmpeg_flite_synthesis_uses_private_text_file_and_emits_wav(self):
         voice = FakeLocalVoice(self.model)
         voice.capabilities.tts_executable = None
         voice.capabilities.flite_executable = "/usr/bin/ffmpeg"
-        voice.capabilities.flite_voices = ("kal",)
+        voice.capabilities.flite_voices = ("kal", "slt")
         observed = {}
 
         def fake_run(command, **kwargs):
@@ -95,15 +105,25 @@ class VoiceOrchestrationTests(unittest.TestCase):
             return SimpleNamespace(returncode=0, stdout=wav_fixture())
 
         callbacks = create_local_voice_callbacks(voice, read_artifact=lambda _artifact: b"")
-        with patch("aidream.voice_orchestration.subprocess.run", side_effect=fake_run):
-            result = callbacks["audio.synthesize"]({}, {"text": {"kind": "text", "text": "fixture speech"}})
+        with patch("aidream.voice_orchestration.subprocess.run", side_effect=fake_run) as run:
+            result = callbacks["audio.synthesize"]({}, {
+                "text": {"kind": "text", "text": "fixture speech"},
+                "voice": {"kind": "text", "text": "slt"},
+            })
+            with self.assertRaisesRegex(VoiceOrchestrationError, "not in the current discovered voice list"):
+                callbacks["audio.synthesize"]({}, {
+                    "text": {"kind": "text", "text": "fixture speech"},
+                    "voice": {"kind": "text", "text": "not-installed"},
+                })
+            self.assertEqual(run.call_count, 1, "unknown voice must be rejected before FFmpeg runs")
         self.assertEqual(observed["text"], "fixture speech")
         self.assertEqual(observed["mode"], 0o600)
-        self.assertIn("voice=kal", " ".join(observed["command"]))
+        self.assertIn("voice=slt", " ".join(observed["command"]))
         self.assertFalse(observed["kwargs"].get("shell", False))
         audio = result["audio"]
         self.assertEqual(audio["content_bytes"], wav_fixture())
         self.assertEqual(audio["metadata"]["generator"], "local-ffmpeg-flite")
+        self.assertEqual(audio["metadata"]["voice"], "slt")
 
     def test_transcribe_uses_selected_artifact_and_private_temp_file(self):
         reads = []

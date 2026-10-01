@@ -4,13 +4,15 @@ import { ApiService } from '../core/api.service';
 import { RuntimeCapabilities, RuntimeDevice, RuntimeInstallation, RuntimeLoadOptions, RuntimePlacement } from '../core/control-plane.types';
 import { RuntimeBackend, RuntimeService } from '../core/runtime.service';
 import { GlobalSettings, SettingsService } from '../core/settings.service';
+import { InterfaceModeService } from '../core/interface-mode.service';
+import { ProviderConnectionsPanelComponent } from './provider-connections-panel.component';
 
 type SettingsTab = 'general' | 'models-storage' | 'runtimes' | 'connections' | 'appearance' | 'advanced';
 type DefaultCapability = keyof RuntimeCapabilities;
 
 @Component({
   standalone: true,
-  imports: [RouterLink],
+  imports: [RouterLink, ProviderConnectionsPanelComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="settings-page">
@@ -62,15 +64,19 @@ type DefaultCapability = keyof RuntimeCapabilities;
             @else if (api.error()) { <p class="error-line" role="alert">{{ api.error() }}</p> }
             <a class="settings-context-link" routerLink="/local-api">Open local API diagnostics <span>→</span></a>
           </section>
-          <section class="surface settings-card">
-            <div class="section-heading"><div><h2>External providers</h2><p>Remote API connections.</p></div></div>
-            <p class="category-note">External provider connections are not configurable in this installation yet.</p>
-          </section>
+          <app-provider-connections-panel></app-provider-connections-panel>
         </div>
       } @else if (tab() === 'appearance') {
         <section id="settings-panel-appearance" role="tabpanel" aria-labelledby="settings-tab-appearance" class="surface settings-card">
           <div class="section-heading"><div><h2>Appearance</h2><p>Display preferences for this application.</p></div></div>
-          <p class="category-note">Appearance preferences are not configurable yet. The current dark interface remains active.</p>
+          <label class="setting-field interface-mode-field" for="interface-mode">
+            <span>Interface visibility</span>
+            <select id="interface-mode" aria-label="Interface visibility" [value]="interfaceMode.mode()" (change)="interfaceMode.setMode($any($event.target).value)">
+              <option value="standard">Standard</option>
+              <option value="advanced">Advanced</option>
+            </select>
+            <small>Standard keeps workstation tools in Settings and search. Advanced also shows selected workstation destinations in the sidebar. This only changes navigation visibility.</small>
+          </label>
         </section>
       } @else if (tab() === 'advanced') {
         <section id="settings-panel-advanced" role="tabpanel" aria-labelledby="settings-tab-advanced" class="settings-links" aria-label="Advanced tools and diagnostics">
@@ -234,6 +240,7 @@ type DefaultCapability = keyof RuntimeCapabilities;
     .settings-context-link:hover { color:#d6e4ff; text-decoration:underline; }
     .settings-context-links { display:grid; gap:5px; }
     .category-note { margin:0; color:#9aa5b7; font-size:11px; line-height:1.6; }
+    .interface-mode-field { max-width:520px; }
     @media(max-width:720px) { .settings-grid { grid-template-columns:1fr; }.paths-card { grid-column:auto; }.path-grid { grid-template-columns:1fr; }.settings-header { align-items:flex-start; }.runtime-fields { grid-template-columns:1fr; }.settings-links { grid-template-columns:1fr; } }
     @media(max-width:480px) { .settings-header { flex-direction:column; align-items:stretch; gap:14px; }.header-actions { justify-content:space-between; }.input-row { align-items:stretch; flex-direction:column; }.input-row .secondary-button { align-self:flex-start; }.settings-tabs button { padding:9px 10px; } }
   `, `
@@ -274,7 +281,8 @@ export class SettingsPage implements OnInit {
   constructor(
     readonly api: ApiService,
     private readonly settingsApi: SettingsService,
-    private readonly runtime: RuntimeService
+    private readonly runtime: RuntimeService,
+    readonly interfaceMode: InterfaceModeService
   ) {}
 
   ngOnInit() {

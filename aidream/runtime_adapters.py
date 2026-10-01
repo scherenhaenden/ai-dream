@@ -135,7 +135,7 @@ class BackendRuntimeAdapter:
     def probe(self) -> RuntimeDescriptor:
         caps = self.backend.capabilities()
         return RuntimeDescriptor(self.runtime_id, self.kind, bool(caps.available),
-                                 self._features(), str(caps.details or ""))
+                                 self._features(), str(getattr(caps, "details", "") or ""))
 
     def supports(self, manifest: Any, profile: Any = None) -> CompatibilityResult:
         descriptor = self.probe()

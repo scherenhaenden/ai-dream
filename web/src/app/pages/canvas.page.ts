@@ -21,7 +21,7 @@ import { parseJsonTableData, renderSafeMarkdown } from '../core/canvas-renderers
                 [title]="tab.title" (click)="workspace.activate(tab.id)" (keydown)="onTabKeydown(tab, $event)">
                 <span>{{ kindLabel(tab) }}</span><b>{{ tab.title }}</b>
               </button>
-              <button type="button" class="close-tab" [attr.aria-label]="'Close ' + tab.title" (click)="workspace.close(tab.id)">×</button>
+              <button type="button" class="close-tab" [attr.aria-label]="'Close ' + tab.title" (click)="closeTab(tab.id)">×</button>
             </div>
           }
         </nav>
@@ -76,7 +76,7 @@ import { parseJsonTableData, renderSafeMarkdown } from '../core/canvas-renderers
           @else { <pre class="text-preview">{{ content() }}</pre> }
         </section>
       } @else {
-        <section class="canvas-empty"><span aria-hidden="true">▤</span><h2>No outputs open</h2><p>Use <b>Open in Canvas</b> from Chat or Runs. New results are added as background tabs and leave your current view selected.</p></section>
+        <section class="canvas-empty"><span aria-hidden="true">▤</span><h2 id="canvas-empty-heading" tabindex="-1">No outputs open</h2><p>Use <b>Open in Canvas</b> from Chat or Runs. New results are added as background tabs and leave your current view selected.</p></section>
       }
     </main>
   `,
@@ -130,6 +130,22 @@ export class CanvasPage implements OnDestroy {
     event.preventDefault();
     this.workspace.activate(tabs[next].id);
     document.getElementById(`canvas-tab-${tabs[next].id}`)?.focus();
+  }
+  closeTab(id: string): void {
+    const tabs = this.workspace.tabs();
+    const currentIndex = tabs.findIndex(tab => tab.id === id);
+    if (currentIndex < 0) return;
+    const activeId = this.workspace.activeTabId();
+    const wasActive = activeId === id;
+    const next = tabs.filter(tab => tab.id !== id);
+    const focusId = wasActive
+      ? next[Math.min(currentIndex, next.length - 1)]?.id ?? null
+      : activeId && next.some(tab => tab.id === activeId) ? activeId : next[0]?.id ?? null;
+    this.workspace.close(id);
+    requestAnimationFrame(() => {
+      if (focusId) document.getElementById(`canvas-tab-${focusId}`)?.focus();
+      else document.getElementById('canvas-empty-heading')?.focus();
+    });
   }
   previewUrl(tab: CanvasTab): string | null { return this.previewUrls()[tab.id] ?? null; }
   trustedUrl(url: string) { return this.sanitizer.bypassSecurityTrustResourceUrl(url); }

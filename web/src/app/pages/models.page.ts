@@ -400,7 +400,7 @@ export class ModelsPage implements OnInit {
     } finally { this.verificationBusy.set(false); }
   }
   evidenceStatus(evidence: { status?: string } | null | undefined): string { return evidence?.status || 'unknown'; }
-  modelRoutes(capability: { routes?: { id: string; model_id?: string; runtime_id?: string | null }[] }, modelId: string) {
+  modelRoutes(capability: { routes?: { id: string; model_id?: string | null; runtime_id?: string | null }[] }, modelId: string) {
     return (capability.routes || []).filter(route => route.model_id === modelId);
   }
   modelInputKinds(): string[] {

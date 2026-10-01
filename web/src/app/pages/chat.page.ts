@@ -8,6 +8,7 @@ import { SkillService } from '../core/skill.service';
 import type { SkillCatalogItem } from '../core/skill.types';
 import { CanvasWorkspaceService } from '../core/canvas-workspace.service';
 import { SelectionModeService } from '../core/selection-mode.service';
+import { ProviderConnectionsService } from '../core/provider-connections.service';
 
 type Model = { id: string; path?: string; format?: string };
 type ChatSummary = { id: string; title?: string; created_at?: string; updated_at?: string };
@@ -30,9 +31,9 @@ type ChatGeneration = { temperature: number; top_p: number | null; top_k: number
         <div class="chat-heading"><span class="chat-heading-icon">◫</span><div><h1>Chat workspace</h1><p>Local inference · {{ chats().length }} conversations · {{ models().length }} models</p></div></div>
         <div class="chat-controls">
           <label class="model-picker"><span>{{ activeLoadedModel() ? 'LOADED MODEL' : 'MODEL' }}</span><select id="chat-model" [value]="selectedModelId()" (change)="selectModel($any($event.target).value)" [disabled]="modelsLoading() || models().length === 0 || busy()">
-            <option value="" [selected]="!selectedModelId()">{{ modelsLoading() ? 'Loading models…' : models().length ? 'Select a model' : 'No local models' }}</option>@for (model of models(); track model.id) {<option [value]="model.id" [selected]="model.id === selectedModelId()">{{ modelLabel(model) }}{{ activeLoadedModel()?.id === model.id ? ' · LOADED' : '' }}</option>}
+            <option value="" [selected]="!selectedModelId()">{{ modelsLoading() ? 'Loading models…' : models().length ? 'Select a local model' : 'No local models' }}</option>@for (model of models(); track model.id) {<option [value]="model.id" [selected]="model.id === selectedModelId()">{{ modelLabel(model) }}{{ activeLoadedModel()?.id === model.id ? ' · LOADED' : '' }}</option>}@if (providerConnections.discoveredModels().length) {<optgroup label="Remote models · discovery only">@for (model of providerConnections.discoveredModels(); track model.id) {<option [value]="model.id" disabled>{{ model.name }} · unavailable for chat</option>}</optgroup>}
           </select></label>
-          @if (selectedModelId()) {<label class="model-picker profile-picker"><span>PROFILE</span><select [value]="selectedProfileId()" (change)="selectedProfileId.set($any($event.target).value)" [disabled]="busy() || profilesLoading()"><option value="">Automatic profile</option>@for (profile of profiles(); track profile.id) {<option [value]="profile.id">{{ profile.name }}</option>}</select></label>}
+          @if (selectedModelId()) {<label class="model-picker profile-picker"><span>PROFILE</span><select [value]="selectedProfileId()" (change)="selectedProfileId.set($any($event.target).value)" [disabled]="busy() || profilesLoading()"><option value="">Automatic profile</option>@for (profile of profiles(); track profile.id) {<option [value]="profile.id" [selected]="profile.id === selectedProfileId()">{{ profile.name }}</option>}</select></label>}
           <button class="chat-new-button" (click)="createChat()" [disabled]="busy() || !api.connected()" title="Start a new conversation">＋ <span>New thread</span></button>
         </div>
       </header>
@@ -85,7 +86,7 @@ type ChatGeneration = { temperature: number; top_p: number | null; top_k: number
         }
         <div class="composer surface">
           <div class="orchestration-strip" aria-label="Chat execution plan">
-            <div class="orchestration-strip-heading"><span class="eyebrow">EXECUTION</span><div class="execution-mode"><button [class.active]="chatExecutionMode() === 'orchestrated'" (click)="setChatExecutionMode('orchestrated')" [disabled]="busy()">Plan + run</button><button [class.active]="chatExecutionMode() === 'legacy'" (click)="setChatExecutionMode('legacy')" [disabled]="busy()">Direct chat</button></div></div>
+            <div class="orchestration-strip-heading"><span class="eyebrow">EXECUTION</span><div class="execution-mode" role="group" aria-label="Chat execution path"><button [class.active]="chatExecutionMode() === 'orchestrated'" [attr.aria-pressed]="chatExecutionMode() === 'orchestrated'" (click)="setChatExecutionMode('orchestrated')" [disabled]="busy()">Plan + run</button><button [class.active]="chatExecutionMode() === 'legacy'" [attr.aria-pressed]="chatExecutionMode() === 'legacy'" (click)="setChatExecutionMode('legacy')" [disabled]="busy()">Direct chat</button></div></div>
             @if (chatExecutionMode() === 'orchestrated') {
               <div class="plan-notice selection-mode-note" role="status">Global mode: <b>{{ selectionModeService.mode() }}</b>@if (selectionModeService.mode() === 'guided') { · Send resolves a plan for review; it runs only after confirmation. }@else if (selectionModeService.mode() === 'manual') { · Selected model and profile are hard pins; incompatible routes fail without substitution. }@else { · AI Dream resolves and runs the local route automatically. }</div>
               <div class="orchestration-route">@if (orchestrationPlan()) {<span class="route-ready">PLAN READY</span><span>{{ orchestrationRouteLabel() }}</span>} @else if (planningChat()) {<span>Resolving a local route…</span>} @else {<span>Preview route for {{ selectedModel()?.id || 'the selected model' }}</span>}</div>
@@ -93,6 +94,7 @@ type ChatGeneration = { temperature: number; top_p: number | null; top_k: number
               @if (planNotice()) {<div class="plan-notice" role="status">{{ planNotice() }}</div>}
               @if (orchestrationPlan()) {<button class="plan-preview-button inspector-toggle" (click)="togglePlanInspector()" [attr.aria-expanded]="planInspectorOpen()">{{ planInspectorOpen() ? 'Close plan' : 'Inspect plan' }}</button>}
               @if (chatRunId()) {<div class="orchestration-route"><span class="run-state">{{ chatRunState() }}</span><span>Run {{ chatRunId().slice(0, 8) }}</span></div>}
+              @if (streaming() && chatRunId()) {<div class="orchestration-route run-progress" role="status" aria-live="polite"><span>Active steps</span><span>{{ chatRunCurrentNodes().length ? chatRunCurrentNodes().join(', ') : 'Current step not reported by API' }}</span></div>}
               <button class="plan-preview-button" (click)="previewChatPlan()" [disabled]="!prompt().trim() || !selectedModelId() || planningChat() || busy()">{{ planningChat() ? 'Resolving…' : 'Preview plan' }}</button>
               @if (selectionModeService.mode() === 'guided' && orchestrationPlan()) {<button class="plan-preview-button guided-confirm" (click)="confirmGuidedPlan()" [disabled]="!guidedPlanCurrent() || busy()">Confirm plan and run</button>}
               @if (planInspectorOpen() && orchestrationPlan(); as plan) {
@@ -101,8 +103,8 @@ type ChatGeneration = { temperature: number; top_p: number | null; top_k: number
                   @for (node of orchestrationNodes(); track node.node_id) {
                     <article class="plan-node">
                       <div class="plan-node-heading"><b>{{ node.node_id }}</b><span>RESOLVED</span></div>
-                      <dl><div><dt>Capability</dt><dd>{{ node.capability_id }}</dd></div><div><dt>Model</dt><dd>{{ node.selected?.model_id || 'Not reported' }}</dd></div><div><dt>Profile</dt><dd>{{ profileNameFor(node.selected?.profile_id) }}</dd></div><div><dt>Runtime</dt><dd>{{ node.selected?.runtime_id || 'Not reported' }}</dd></div><div><dt>Types</dt><dd>{{ node.capability_id === 'text.chat' ? 'Prompt · Text → Response · Text' : 'Not reported by plan' }}</dd></div><div><dt>Timing</dt><dd>Not started</dd></div><div><dt>Resources</dt><dd>Not estimated by this plan</dd></div></dl>
-                      @if (selectedRouteWhy(node); as why) {<p class="route-why"><b>Selection reason:</b> {{ why.reasons?.join(', ') || 'No reason details reported' }}@if (why.ranking?.length) { · ranking: {{ why.ranking.join(' → ') }}}</p>}
+                      <dl><div><dt>Capability</dt><dd>{{ node.capability_id || 'Not reported by plan' }}</dd></div><div><dt>Component / model</dt><dd>{{ planNodeComponent(node) }}</dd></div><div><dt>Route</dt><dd>{{ planNodeRoute(node) }}</dd></div><div><dt>Profile</dt><dd>{{ planNodeProfile(node) }}</dd></div><div><dt>Runtime</dt><dd>{{ planNodeRuntime(node) }}</dd></div><div><dt>Inputs / outputs</dt><dd>{{ planNodeIo(node, plan) }}</dd></div><div><dt>Status</dt><dd>{{ planNodeStatus(node) }}</dd></div><div><dt>Timing</dt><dd>{{ planNodeTiming(node) }}</dd></div><div><dt>Resources</dt><dd>{{ planNodeResources(node) }}</dd></div></dl>
+                      @if (selectedRouteWhy(node); as why) {<p class="route-why"><b>Selection reason:</b> {{ why.reasons?.join(', ') || 'No reason details reported' }}@if (why.ranking?.length) { · ranking: {{ why.ranking.join(' → ') }}}</p>} @else {<p class="route-why"><b>Selection reason:</b> Not reported by plan.</p>}
                       @if (node.alternatives?.length) {<div class="plan-alternatives"><span>ALTERNATIVES · SELECT TO PIN FOR THIS TURN</span>@for (route of node.alternatives; track route.id) {<div><button type="button" (click)="replacePlanRoute(route)" [disabled]="busy()">Use {{ route.model_id }} · {{ route.runtime_id }}{{ route.profile_id ? ' · ' + profileNameFor(route.profile_id) : '' }}</button><small>{{ alternativeReason(node, route.id) }}</small></div>}</div>}
                       @else {<small class="no-alternatives">No compatible alternatives reported.</small>}
                     </article>
@@ -162,9 +164,9 @@ type ChatGeneration = { temperature: number; top_p: number | null; top_k: number
           </section>
           <section class="inspector-section generation-section"><div class="inspector-heading"><span>SAMPLING & GENERATION</span><span>{{ generationLoading() ? 'LOADING' : savingGeneration() ? 'SAVING' : selectedChatId() ? 'PER THREAD' : 'NO THREAD' }}</span></div>
             <label class="generation-control"><span>Temperature <b>{{ generationSettings().temperature.toFixed(2) }}</b></span><input type="range" min="0" max="2" step="0.01" [value]="generationSettings().temperature" [disabled]="!canEditGeneration()" (change)="setGeneration('temperature', $event)" aria-label="Temperature"></label>
-            <label class="generation-control"><span>Top P <b>{{ generationSettings().top_p == null ? 'SERVER DEFAULT' : generationSettings().top_p.toFixed(2) }}</b><button type="button" (click)="resetGeneration('top_p')" [disabled]="!canEditGeneration()" title="Omit Top P and use the runtime default">Default</button></span><input type="range" min="0" max="1" step="0.01" [value]="generationSettings().top_p ?? 0.95" [disabled]="!canEditGeneration()" (change)="setGeneration('top_p', $event)" aria-label="Top P"></label>
-            <div class="generation-pair"><label class="generation-control"><span>Top K</span><input type="number" min="1" max="2048" step="1" placeholder="Server default" [value]="generationSettings().top_k ?? ''" [disabled]="!canEditGeneration()" (change)="setGeneration('top_k', $event)" aria-label="Top K"></label><label class="generation-control"><span>Min P <b>{{ generationSettings().min_p == null ? 'SERVER DEFAULT' : generationSettings().min_p.toFixed(2) }}</b><button type="button" (click)="resetGeneration('min_p')" [disabled]="!canEditGeneration()" title="Omit Min P and use the runtime default">Default</button></span><input type="range" min="0" max="1" step="0.01" [value]="generationSettings().min_p ?? 0" [disabled]="!canEditGeneration()" (change)="setGeneration('min_p', $event)" aria-label="Min P"></label></div>
-            <div class="generation-pair"><label class="generation-control"><span>Repeat penalty <b>{{ generationSettings().repeat_penalty == null ? 'SERVER DEFAULT' : generationSettings().repeat_penalty.toFixed(2) }}</b><button type="button" (click)="resetGeneration('repeat_penalty')" [disabled]="!canEditGeneration()" title="Omit repeat penalty and use the runtime default">Default</button></span><input type="range" min="0" max="2" step="0.01" [value]="generationSettings().repeat_penalty ?? 1" [disabled]="!canEditGeneration()" (change)="setGeneration('repeat_penalty', $event)" aria-label="Repeat penalty"></label><label class="generation-control"><span>Max tokens</span><input type="number" min="0" max="1000000" step="1" placeholder="Auto" [value]="generationSettings().max_tokens ?? ''" [disabled]="!canEditGeneration()" (change)="setGeneration('max_tokens', $event)" aria-label="Maximum output tokens"></label></div>
+            <label class="generation-control"><span>Top P <b>{{ generationSettings().top_p?.toFixed(2) ?? 'SERVER DEFAULT' }}</b><button type="button" (click)="resetGeneration('top_p')" [disabled]="!canEditGeneration()" title="Omit Top P and use the runtime default">Default</button></span><input type="range" min="0" max="1" step="0.01" [value]="generationSettings().top_p ?? 0.95" [disabled]="!canEditGeneration()" (change)="setGeneration('top_p', $event)" aria-label="Top P"></label>
+            <div class="generation-pair"><label class="generation-control"><span>Top K</span><input type="number" min="1" max="2048" step="1" placeholder="Server default" [value]="generationSettings().top_k ?? ''" [disabled]="!canEditGeneration()" (change)="setGeneration('top_k', $event)" aria-label="Top K"></label><label class="generation-control"><span>Min P <b>{{ generationSettings().min_p?.toFixed(2) ?? 'SERVER DEFAULT' }}</b><button type="button" (click)="resetGeneration('min_p')" [disabled]="!canEditGeneration()" title="Omit Min P and use the runtime default">Default</button></span><input type="range" min="0" max="1" step="0.01" [value]="generationSettings().min_p ?? 0" [disabled]="!canEditGeneration()" (change)="setGeneration('min_p', $event)" aria-label="Min P"></label></div>
+            <div class="generation-pair"><label class="generation-control"><span>Repeat penalty <b>{{ generationSettings().repeat_penalty?.toFixed(2) ?? 'SERVER DEFAULT' }}</b><button type="button" (click)="resetGeneration('repeat_penalty')" [disabled]="!canEditGeneration()" title="Omit repeat penalty and use the runtime default">Default</button></span><input type="range" min="0" max="2" step="0.01" [value]="generationSettings().repeat_penalty ?? 1" [disabled]="!canEditGeneration()" (change)="setGeneration('repeat_penalty', $event)" aria-label="Repeat penalty"></label><label class="generation-control"><span>Max tokens</span><input type="number" min="0" max="1000000" step="1" placeholder="Auto" [value]="generationSettings().max_tokens ?? ''" [disabled]="!canEditGeneration()" (change)="setGeneration('max_tokens', $event)" aria-label="Maximum output tokens"></label></div>
             @if (generationError()) {<p class="generation-error" role="alert">{{ generationError() }}</p>}
           </section>
           <section class="inspector-section knowledge-control" aria-label="Local knowledge retrieval">
@@ -244,6 +246,7 @@ type ChatGeneration = { temperature: number; top_p: number | null; top_k: number
 })
 export class ChatPage implements OnInit {
   readonly selectionModeService = inject(SelectionModeService);
+  readonly providerConnections = inject(ProviderConnectionsService);
   private readonly artifactService = inject(ArtifactService);
   private readonly canvasWorkspace = inject(CanvasWorkspaceService);
   private readonly router = inject(Router);
@@ -265,6 +268,7 @@ export class ChatPage implements OnInit {
   readonly planningChat = signal(false);
   readonly chatRunId = signal('');
   readonly chatRunState = signal('');
+  readonly chatRunCurrentNodes = signal<string[]>([]);
   readonly chatAttachments = signal<ChatAttachment[]>([]);
   readonly skills = signal<SkillCatalogItem[]>([]);
   readonly uploadingAttachments = signal(false);
@@ -325,6 +329,8 @@ export class ChatPage implements OnInit {
   };
   private selectionVersion = 0;
   private modelSelectionTouched = false;
+  private requestedModelId = '';
+  private requestedProfileId = '';
   private generationLoadVersion = 0;
   private aborter: AbortController | null = null;
   private streamCompleted = false;
@@ -332,6 +338,8 @@ export class ChatPage implements OnInit {
   private readonly scrollAnchor = viewChild<ElementRef<HTMLElement>>('scrollAnchor');
 
   constructor(readonly api: ApiService) {
+    this.requestedModelId = this.route.snapshot.queryParamMap.get('model_id') || '';
+    this.requestedProfileId = this.route.snapshot.queryParamMap.get('profile_id') || '';
     effect(() => { this.streaming(); this.messages(); this.scrollAnchor()?.nativeElement.scrollIntoView({ block: 'end' }); });
     effect(() => {
       const messages = this.messages();
@@ -484,7 +492,12 @@ export class ChatPage implements OnInit {
         const data = unwrap(response) as any;
         const models = Array.isArray(data) ? data : Array.isArray(data?.models) ? data.models : [];
         this.models.set(models.filter((model: any) => typeof model?.id === 'string' && model.id.length > 0));
-        this.selectLoadedModelWhenUntouched();
+        if (this.requestedModelId && this.models().some(model => model.id === this.requestedModelId)) {
+          this.modelSelectionTouched = true;
+          this.selectedModelId.set(this.requestedModelId);
+        } else {
+          this.selectLoadedModelWhenUntouched();
+        }
         if (!this.selectedModelId() && this.models().length) this.selectedModelId.set(this.models()[0].id);
         if (this.selectedModelId()) this.loadProfiles(this.selectedModelId());
         this.modelsLoading.set(false);
@@ -548,7 +561,15 @@ export class ChatPage implements OnInit {
   private loadProfiles(modelId: string): void {
     this.profilesLoading.set(true);
     this.api.get<unknown>(`/api/model-profiles?model_id=${encodeURIComponent(modelId)}`).subscribe({
-      next: value => { const data = unwrap(value) as any; this.profiles.set(Array.isArray(data?.profiles) ? data.profiles.filter((p: any) => p?.model_id === modelId && typeof p.id === 'string') : []); this.profilesLoading.set(false); },
+      next: value => {
+        const data = unwrap(value) as any;
+        const profiles = Array.isArray(data?.profiles) ? data.profiles.filter((p: any) => p?.model_id === modelId && typeof p.id === 'string') : [];
+        this.profiles.set(profiles);
+        if (modelId === this.requestedModelId && this.requestedProfileId && profiles.some((profile: ChatProfile) => profile.id === this.requestedProfileId)) {
+          this.selectedProfileId.set(this.requestedProfileId);
+        }
+        this.profilesLoading.set(false);
+      },
       error: () => { this.profiles.set([]); this.profilesLoading.set(false); }
     });
   }
@@ -571,6 +592,89 @@ export class ChatPage implements OnInit {
   selectedRouteWhy(node: any): any | null {
     const rows = Array.isArray(node?.why) ? node.why : [];
     return rows.find((row: any) => row?.route_id === node?.selected?.id && row?.selected === true) ?? null;
+  }
+
+  planNodeComponent(node: any): string {
+    const selected = node?.selected;
+    if (typeof selected?.component_id === 'string' && selected.component_id) return selected.component_id;
+    if (typeof selected?.component?.id === 'string' && selected.component.id) return selected.component.id;
+    return typeof selected?.model_id === 'string' && selected.model_id ? selected.model_id : 'Not reported by plan';
+  }
+
+  planNodeRoute(node: any): string {
+    const id = node?.selected?.id;
+    return typeof id === 'string' && id ? id : 'Not reported by plan';
+  }
+
+  planNodeProfile(node: any): string {
+    const id = node?.selected?.profile_id;
+    return typeof id === 'string' && id ? this.profileNameFor(id) : 'Not reported by plan';
+  }
+
+  planNodeRuntime(node: any): string {
+    const id = node?.selected?.runtime_id;
+    return typeof id === 'string' && id ? id : 'Not reported by plan';
+  }
+
+  planNodeIo(node: any, plan: any): string {
+    const nodeInputs = this.planTypeEvidence(node?.input_types);
+    const workflowInputs = this.planTypeEvidence(plan?.input_kinds);
+    const inputs = nodeInputs || (workflowInputs ? `Workflow inputs: ${workflowInputs}` : 'Inputs not reported by plan');
+    const outputs = this.planTypeEvidence(node?.output_types) || 'Outputs not reported by plan';
+    return `${inputs} · ${outputs}`;
+  }
+
+  planNodeStatus(node: any): string {
+    const reported = typeof node?.status === 'string' ? node.status : typeof node?.state === 'string' ? node.state : '';
+    if (reported) return reported;
+    return this.chatRunState() ? `Run ${this.chatRunState()} · node status not reported` : 'Plan resolved · run not started';
+  }
+
+  planNodeTiming(node: any): string {
+    const value = node?.timing ?? node?.duration_ms ?? node?.elapsed_ms;
+    if (typeof value === 'number' && Number.isFinite(value) && value >= 0) return `${value} ms (reported)`;
+    if (value && typeof value === 'object' && !Array.isArray(value)) return JSON.stringify(value);
+    return 'Not reported by plan';
+  }
+
+  planNodeResources(node: any): string {
+    const selected = node?.selected;
+    const evidence: string[] = [];
+    if (typeof selected?.estimated_vram_bytes === 'number' && Number.isFinite(selected.estimated_vram_bytes) && selected.estimated_vram_bytes >= 0) {
+      evidence.push(`Estimated VRAM ${this.formatResourceBytes(selected.estimated_vram_bytes)}`);
+    }
+    if (typeof selected?.available_vram_bytes === 'number' && Number.isFinite(selected.available_vram_bytes) && selected.available_vram_bytes >= 0) {
+      evidence.push(`Available at planning ${this.formatResourceBytes(selected.available_vram_bytes)}`);
+    }
+    if (typeof selected?.estimated_ram_bytes === 'number' && Number.isFinite(selected.estimated_ram_bytes) && selected.estimated_ram_bytes >= 0) {
+      evidence.push(`Estimated RAM ${this.formatResourceBytes(selected.estimated_ram_bytes)}`);
+    }
+    if (typeof selected?.available_ram_bytes === 'number' && Number.isFinite(selected.available_ram_bytes) && selected.available_ram_bytes >= 0) {
+      evidence.push(`Available RAM at planning ${this.formatResourceBytes(selected.available_ram_bytes)}`);
+    }
+    return evidence.join(' · ') || 'No estimate or observation reported';
+  }
+
+  private planTypeEvidence(value: unknown): string {
+    if (typeof value === 'string') return value;
+    if (Array.isArray(value)) return value.map(item => this.planTypeEvidence(item)).filter(Boolean).join(', ');
+    if (!value || typeof value !== 'object') return '';
+    const record = value as Record<string, unknown>;
+    if (typeof record['kind'] === 'string') {
+      const mediaTypes = Array.isArray(record['media_types'])
+        ? record['media_types'].filter((item): item is string => typeof item === 'string')
+        : [];
+      return `${record['kind']}${mediaTypes.length ? ` (${mediaTypes.join(', ')})` : ''}`;
+    }
+    return Object.entries(record).map(([name, type]) => {
+      const evidence = this.planTypeEvidence(type);
+      return evidence ? `${name}: ${evidence}` : '';
+    }).filter(Boolean).join(', ');
+  }
+
+  private formatResourceBytes(value: number): string {
+    const gib = value / (1024 ** 3);
+    return `${gib.toFixed(2)} GiB`;
   }
 
   alternativeReason(node: any, routeId: string): string {
@@ -930,6 +1034,7 @@ export class ChatPage implements OnInit {
     this.turnError.set('');
     this.orchestrationError.set('');
     this.chatRunId.set('');
+    this.chatRunCurrentNodes.set([]);
     this.chatRunState.set('Planning');
     this.sending.set(true);
     this.planningChat.set(true);
@@ -947,6 +1052,7 @@ export class ChatPage implements OnInit {
       if (!run || typeof run.id !== 'string') throw new Error('The local API did not create a chat run.');
       this.chatRunId.set(run.id);
       this.chatRunState.set(run.state || 'queued');
+      this.chatRunCurrentNodes.set(this.currentRunNodes(run.current_nodes));
       this.sending.set(false);
       this.streaming.set(true);
       const deadline = Date.now() + 300_000;
@@ -955,6 +1061,7 @@ export class ChatPage implements OnInit {
         const snapshot = (unwrap(snapshotResponse) as any)?.run;
         if (!snapshot || snapshot.id !== run.id) throw new Error('The local API returned an invalid run status.');
         this.chatRunState.set(snapshot.state);
+        this.chatRunCurrentNodes.set(this.currentRunNodes(snapshot.current_nodes));
         if (snapshot.state === 'succeeded') {
           this.streaming.set(false);
           this.aborter = null;
@@ -988,6 +1095,7 @@ export class ChatPage implements OnInit {
     this.turnError.set('');
     this.orchestrationError.set('');
     this.chatRunId.set('');
+    this.chatRunCurrentNodes.set([]);
     this.chatRunState.set('Planning');
     this.sending.set(true);
     this.messages.update(messages => [...messages, temporaryUser]);
@@ -1000,6 +1108,7 @@ export class ChatPage implements OnInit {
       if (!run || typeof run.id !== 'string') throw new Error('The local API did not create a chat run.');
       this.chatRunId.set(run.id);
       this.chatRunState.set(run.state || 'queued');
+      this.chatRunCurrentNodes.set(this.currentRunNodes(run.current_nodes));
       this.sending.set(false);
       this.streaming.set(true);
       const deadline = Date.now() + 300_000;
@@ -1007,6 +1116,7 @@ export class ChatPage implements OnInit {
         const snapshot = (unwrap(await firstValueFrom(this.api.get<unknown>(`/api/runs/${encodeURIComponent(run.id)}`))) as any)?.run;
         if (!snapshot || snapshot.id !== run.id) throw new Error('The local API returned an invalid run status.');
         this.chatRunState.set(snapshot.state);
+        this.chatRunCurrentNodes.set(this.currentRunNodes(snapshot.current_nodes));
         if (snapshot.state === 'succeeded') {
           this.streaming.set(false);
           await this.refreshTranscript(chatId, temporaryUser);
@@ -1026,6 +1136,10 @@ export class ChatPage implements OnInit {
       this.orchestrationError.set(message);
       this.turnError.set(message);
     }
+  }
+
+  private currentRunNodes(value: unknown): string[] {
+    return Array.isArray(value) ? value.filter((node): node is string => typeof node === 'string' && node.trim().length > 0) : [];
   }
 
   private selectionForResolvedPlan(plan: any, mode: 'guided', text: string): Record<string, unknown> {
@@ -1173,7 +1287,7 @@ function attachmentKind(file: File): UploadArtifactKind | null {
 function suggestedSkillIds(kind: UploadArtifactKind): string[] {
   if (kind === 'image') return ['image.describe', 'image.edit-from-instruction'];
   if (kind === 'audio') return ['voice.transcribe', 'voice.conversation'];
-  return ['document.summarize', 'document.extract-text'];
+  return ['document.summarize', 'document.answer-with-rag', 'document.extract-text'];
 }
 async function responseMessage(response: Response): Promise<string> {
   try { const body = await response.json(); return body?.error || body?.message || `Local API returned HTTP ${response.status}`; }

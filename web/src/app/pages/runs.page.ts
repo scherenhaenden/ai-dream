@@ -47,7 +47,7 @@ import type { RunEvent, RunSnapshot, RunState } from '../core/run.types';
       @if (runId() && service.run(); as run) {
         <section class="run-summary" aria-labelledby="run-title">
           <header><div><div class="eyebrow">{{ run.skill_id }} · {{ run.skill_version }}</div><h2 id="run-title">Run details</h2><code>{{ run.id }}</code></div><span class="state-badge large" [class]="'state-badge large ' + run.state">{{ stateLabel(run.state) }}</span></header>
-          <dl class="run-facts"><div><dt>Created</dt><dd>{{ timestamp(run.created_at) }}</dd></div><div><dt>Started</dt><dd>{{ timestamp(run.started_at) }}</dd></div><div><dt>Completed</dt><dd>{{ timestamp(run.completed_at) }}</dd></div><div><dt>Current nodes</dt><dd>{{ run.current_nodes?.length ? run.current_nodes.join(', ') : 'None reported' }}</dd></div><div><dt>Events received</dt><dd>{{ lastSequence() }}</dd></div><div><dt>Event stream</dt><dd class="stream-state" [class]="'stream-state ' + service.streamState()">{{ streamLabel() }}</dd></div>
+          <dl class="run-facts"><div><dt>Created</dt><dd>{{ timestamp(run.created_at) }}</dd></div><div><dt>Started</dt><dd>{{ timestamp(run.started_at) }}</dd></div><div><dt>Completed</dt><dd>{{ timestamp(run.completed_at) }}</dd></div><div><dt>Current nodes</dt><dd>{{ (run.current_nodes ?? []).join(', ') || 'None reported' }}</dd></div><div><dt>Events received</dt><dd>{{ lastSequence() }}</dd></div><div><dt>Event stream</dt><dd class="stream-state" [class]="'stream-state ' + service.streamState()">{{ streamLabel() }}</dd></div>
             @if (run.chat_id) { <div><dt>Conversation</dt><dd><a class="chat-association-link" [routerLink]="['/chat']" [queryParams]="{ chat_id: run.chat_id }">Open associated conversation</a><code class="chat-association-id">{{ run.chat_id }}</code></dd></div> }
             <div><dt>Record durability</dt><dd>{{ run.durable === undefined ? 'Not reported' : run.durable ? 'Saved across restarts' : 'Not saved across restarts' }}</dd></div>
           </dl>
@@ -211,7 +211,7 @@ export class RunsPage implements OnInit, OnDestroy {
   }
   stateLabel(state: string): string { return state === 'succeeded' ? 'Completed' : state === 'failed' ? 'Failed' : state === 'cancelled' ? 'Cancelled' : state === 'running' ? 'Running' : state === 'queued' ? 'Queued' : state; }
   streamLabel(): string { return ({ idle: 'Idle', connecting: 'Connecting', live: 'Live', reconnecting: 'Reconnecting', closed: 'Closed', error: 'Unavailable' } as const)[this.service.streamState()]; }
-  timestamp(value: RunSnapshot['created_at']): string {
+  timestamp(value: RunSnapshot['created_at'] | null): string {
     if (value === null || value === undefined || value === '') return 'Not reported';
     const date = typeof value === 'number' ? new Date(value * 1000) : new Date(value);
     return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();

@@ -33,6 +33,7 @@ class CapabilityPreferenceStoreTests(unittest.TestCase):
                     "prefer_verified": True,
                     "prefer_loaded": True,
                     "resource_headroom_percent": 10,
+                    "unknown_resource_policy": "allow",
                     "eviction_policy": "lru",
                     "assisted_planner_enabled": False,
                 },
@@ -76,7 +77,8 @@ class CapabilityPreferenceStoreTests(unittest.TestCase):
             })
             self.assertEqual(updated["selection_defaults"], {
                 "mode": "guided", "prefer_verified": True, "prefer_loaded": True,
-                "resource_headroom_percent": 25, "eviction_policy": "lru",
+                "resource_headroom_percent": 25, "unknown_resource_policy": "allow",
+                "eviction_policy": "lru",
                 "assisted_planner_enabled": False,
             })
 
@@ -153,6 +155,8 @@ class CapabilityPreferenceStoreTests(unittest.TestCase):
                 {"resource_headroom_percent": 101},
                 {"eviction_policy": "aggressive"},
                 {"assisted_planner_enabled": 1},
+                {"unknown_resource_policy": "guess"},
+                {"unknown_resource_policy": True},
             )
             for value in invalid:
                 with self.subTest(value=value):

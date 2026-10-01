@@ -96,6 +96,61 @@ class ModelSchedulerTest(unittest.TestCase):
         for lease in reversed(leases):
             scheduler.release(lease)
 
+    def test_acquire_many_preflights_aggregate_estimates_before_any_load(self):
+        for dimension in ("ram", "vram"):
+            with self.subTest(dimension=dimension):
+                first = FakeAdapter("first")
+                second = FakeAdapter("second")
+                scheduler = ModelScheduler(
+                    {"first": first, "second": second},
+                    # Deliberately static: this emulates a host probe that has
+                    # not observed the memory consumed by the first load.
+                    resource_snapshot=lambda: ResourceSnapshot(
+                        ram_total_bytes=1000, ram_available_bytes=500,
+                        vram_total_bytes=1000, vram_available_bytes=500),
+                    ram_headroom_bytes=0, ram_headroom_ratio=0,
+                    vram_headroom_bytes=0, vram_headroom_ratio=0,
+                )
+                estimate = {f"estimated_{dimension}_bytes": 300}
+                with self.assertRaises(SchedulerError) as raised:
+                    scheduler.acquire_many((
+                        LeaseRequest("model-a", "first", {"model": "a"}, **estimate),
+                        LeaseRequest("model-b", "second", {"model": "b"}, **estimate),
+                    ))
+                self.assertEqual(SchedulerErrorCode.RESOURCE_UNAVAILABLE, raised.exception.code)
+                self.assertIn(f"Parallel reservation exceeds measured {dimension.upper()} headroom",
+                              str(raised.exception))
+                self.assertEqual([], first.calls)
+                self.assertEqual([], second.calls)
+                self.assertEqual((), scheduler.active_leases())
+                self.assertEqual((), scheduler.residency())
+
+    def test_acquire_many_does_not_reserve_memory_twice_for_an_idle_resident(self):
+        resident_adapter, new_adapter = FakeAdapter("resident"), FakeAdapter("new")
+        resources = {"available": 1000}
+        scheduler = ModelScheduler(
+            {"resident": resident_adapter, "new": new_adapter},
+            resource_snapshot=lambda: ResourceSnapshot(vram_total_bytes=1000,
+                                                       vram_available_bytes=resources["available"]),
+            vram_headroom_bytes=0, vram_headroom_ratio=0,
+        )
+        original = scheduler.acquire(LeaseRequest("existing", "resident", {"model": "existing"},
+                                                  estimated_vram_bytes=500))
+        scheduler.release(original)
+        resources["available"] = 200
+
+        leases = scheduler.acquire_many((
+            LeaseRequest("existing", "resident", {"model": "existing"},
+                         estimated_vram_bytes=500),
+            LeaseRequest("new-model", "new", {"model": "new"},
+                         estimated_vram_bytes=200),
+        ))
+        self.assertEqual(1, [call[0] for call in resident_adapter.calls].count("load"))
+        self.assertEqual([("load", {"model": "new"})], new_adapter.calls)
+        self.assertEqual(2, len(leases))
+        for lease in reversed(leases):
+            scheduler.release(lease)
+
     def test_acquire_many_rejects_oversized_batch_before_adapter_work(self):
         adapter = FakeAdapter()
         scheduler = ModelScheduler({"fake": adapter})

@@ -10,6 +10,8 @@ assert.match(chat, /if \(kind === 'audio'\) return \['voice\.transcribe', 'voice
   'audio uploads should offer existing transcript-only and voice-conversation workflows');
 assert.match(chat, /if \(kind === 'image'\) return \['image\.describe', 'image\.edit-from-instruction'\]/,
   'image uploads should offer both image understanding and source-image editing workflows');
+assert.match(chat, /return \['document\.summarize', 'document\.answer-with-rag', 'document\.extract-text'\]/,
+  'document uploads should offer explicit question answering from a selected document when that workflow is installed');
 assert.match(chat, /this\.router\.navigate\(\['\/skills'\], \{ queryParams: \{ skill: skill\.id, artifact: item\.artifact\.id \} \}\)/,
   'explicit selection must carry only skill and opaque artifact IDs');
 assert.match(chat, /Attachments are staged for the suggested skills; sending a chat message remains text-only\./,
@@ -19,6 +21,8 @@ assert.match(skills, /listSessionArtifacts\(\)/, 'handoff must resolve against c
 assert.match(skills, /this\.sessionArtifacts\(\)\.find\(candidate => candidate\.id === artifactId\)/,
   'only an artifact returned by the owner-scoped session API may be attached');
 assert.match(skills, /candidate\.artifact === artifact\.kind/, 'handoff must require an exact declared input kind');
+assert.match(skills, /imageCapabilityForSkill\(skill\)/, 'the skill composer image-route selector must call its declared capability helper');
+assert.doesNotMatch(skills, /imageCapabilityFor\(skill\)/, 'the composer must not retain the stale helper name that breaks its Angular template');
 assert.match(skills, /The attachment was not converted\./, 'unsupported attachments must not be silently transformed');
 assert.match(skills, /multiple \$\{artifact\.kind\} inputs/, 'ambiguous routes require user selection of the intended input');
 assert.match(artifactService, /value\.owner\.id === ownerId/, 'session listing must be scoped to the local session owner');

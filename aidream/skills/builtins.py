@@ -206,7 +206,8 @@ _BUILTINS: tuple[dict[str, Any], ...] = (
         "name": "Voice conversation",
         "version": "1.0.0",
         "description": "Transcribe audio, generate a text reply, and synthesize spoken audio when compatible routes are available.",
-        "inputs": [{"name": "audio", "artifact": "audio", "required": True}],
+        "inputs": [{"name": "audio", "artifact": "audio", "required": True},
+                   {"name": "voice", "artifact": "text", "required": False}],
         "outputs": [
             {"name": "response", "artifact": "text", "required": True},
             {"name": "reply_audio", "artifact": "audio", "required": True},
@@ -223,7 +224,7 @@ _BUILTINS: tuple[dict[str, Any], ...] = (
              "in": {"prompt": "$transcribe.transcript"}, "accepts": {"prompt": "text"},
              "out": {"response": "text"}},
             {"id": "speak", "type": "tool", "tool_id": "audio.synthesize",
-             "in": {"text": "$reply.response"}, "accepts": {"text": "text"},
+             "in": {"text": "$reply.response", "voice": "$input.voice"}, "accepts": {"text": "text", "voice": "text"},
              "out": {"audio": "audio"}},
             {"id": "result", "type": "output", "in": {
                 "response": "$reply.response", "reply_audio": "$speak.audio",
@@ -236,7 +237,8 @@ _BUILTINS: tuple[dict[str, Any], ...] = (
         "name": "Respond to reviewed transcript",
         "version": "1.0.0",
         "description": "Generate a local text reply and spoken audio from an explicitly supplied, user-reviewed transcript. It does not transcribe or auto-submit audio.",
-        "inputs": [{"name": "transcript", "artifact": "text", "required": True}],
+        "inputs": [{"name": "transcript", "artifact": "text", "required": True},
+                   {"name": "voice", "artifact": "text", "required": False}],
         "outputs": [
             {"name": "response", "artifact": "text", "required": True},
             {"name": "reply_audio", "artifact": "audio", "required": True},
@@ -250,7 +252,7 @@ _BUILTINS: tuple[dict[str, Any], ...] = (
              "in": {"prompt": "$input.transcript"}, "accepts": {"prompt": "text"},
              "out": {"response": "text"}},
             {"id": "speak", "type": "tool", "tool_id": "audio.synthesize",
-             "in": {"text": "$reply.response"}, "accepts": {"text": "text"},
+             "in": {"text": "$reply.response", "voice": "$input.voice"}, "accepts": {"text": "text", "voice": "text"},
              "out": {"audio": "audio"}},
             {"id": "result", "type": "output", "in": {
                 "response": "$reply.response", "reply_audio": "$speak.audio",

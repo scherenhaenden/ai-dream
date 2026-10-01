@@ -91,6 +91,19 @@ class RuntimeAdapterContractTest(unittest.TestCase):
             fake.load(fake.prepare({}))
         self.assertTrue(fake.health(fake_handle).loaded)
 
+    def test_backend_probe_tolerates_missing_optional_details(self):
+        class MinimalCapabilitiesEngine(FakeEngine):
+            def capabilities(self):
+                return SimpleNamespace(available=True, chat_completions=True,
+                                       reasoning=False, continuous_batching=False,
+                                       device_selection=False, tensor_split=False,
+                                       context_size=False)
+
+        descriptor = LlamaCppRuntimeAdapter(MinimalCapabilitiesEngine()).probe()
+        self.assertTrue(descriptor.available)
+        self.assertEqual(descriptor.details, "")
+        self.assertIn("text.chat", descriptor.features)
+
     def test_global_cancel_is_scoped_to_one_serialized_active_request(self):
         engine = FakeEngine()
         entered_generate = Event()

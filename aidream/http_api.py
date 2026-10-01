@@ -150,21 +150,29 @@ class ChatRun:
     """Owns one serialized runtime generation and releases its backend/lock."""
 
     def __init__(self, api, backend, session_id: str, prompt: str, generation=None,
-                 stored_prompt: str | None = None):
+                 stored_prompt: str | None = None, lease=None):
         self.api = api
         self.backend = backend
         self.session_id = session_id
         self.prompt = prompt
         self.stored_prompt = prompt if stored_prompt is None else stored_prompt
         self.generation = generation or {}
+        self.lease = lease
         self._closed = False
 
     def generate(self, on_delta, cancel_event: threading.Event):
         if cancel_event.is_set():
             from aidream.runtime import GenerationCancelled
             raise GenerationCancelled("generation was cancelled")
-        response = self.backend.generate_stream(
-            self.prompt, self.generation, on_delta=on_delta, cancel_event=cancel_event)
+        scheduler = getattr(self.api, "_orchestration_scheduler", None)
+        if scheduler is not None and self.lease is not None:
+            scheduler.begin_call(self.lease)
+        try:
+            response = self.backend.generate_stream(
+                self.prompt, self.generation, on_delta=on_delta, cancel_event=cancel_event)
+        finally:
+            if scheduler is not None and self.lease is not None:
+                scheduler.end_call(self.lease)
         self.api.chat_store.append(self.session_id, "user", self.stored_prompt)
         session = self.api.chat_store.append(self.session_id, "assistant", response)
         return {"chat_id": self.session_id, "assistant": response,
@@ -173,7 +181,15 @@ class ChatRun:
     def close(self):
         if not self._closed:
             self._closed = True
-            self.api._chat_lock.release()
+            try:
+                if self.lease is not None:
+                    scheduler = getattr(self.api, "_orchestration_scheduler", None)
+                    if scheduler is not None:
+                        scheduler.release(self.lease)
+                    if getattr(self.api, "_direct_chat_lease", None) == self.lease:
+                        self.api._direct_chat_lease = None
+            finally:
+                self.api._chat_lock.release()
 
 
 class ReadOnlyAPI:
@@ -186,7 +202,8 @@ class ReadOnlyAPI:
                  manifest_verifier=None, manifest_verification_store=None,
                  capability_preference_store=None, skill_registry=None, run_manager=None, run_planner=None,
                  resource_snapshot_service=None, artifact_api=None, local_voice=None,
-                 voice_render_speech=None, image_backends=None, run_journal_store=None):
+                 voice_render_speech=None, image_backends=None, run_journal_store=None,
+                 provider_connections=None):
         if hardware is None:
             from aidream.hardware import HardwareService
             hardware = HardwareService()
@@ -210,6 +227,10 @@ class ReadOnlyAPI:
         self.runtime_installations = runtime_installations or RuntimeInstallationRegistry()
         self.profile_store = profile_store or ModelProfileStore()
         self.settings_store = settings_store or AppSettingsStore()
+        if provider_connections is None:
+            from aidream.provider_connections import ProviderConnections
+            provider_connections = ProviderConnections()
+        self.provider_connections = provider_connections
         # Keep an injectable registry for tests/alternate hosts, with an empty
         # default that the read-only API augments from observed local routes.
         if capability_registry is None:
@@ -272,6 +293,7 @@ class ReadOnlyAPI:
         self._chat_lock = threading.Lock()
         self._active_backend = None
         self._active_binding = None
+        self._direct_chat_lease = None
         self._orchestration_route_allowlist = {}
         self._closed = False
         if resource_snapshot_service is None:
@@ -737,13 +759,22 @@ class ReadOnlyAPI:
                 raise APIError("No available local streaming runtime can load this model")
             from aidream.model_profiles import load_fingerprint
             fingerprint = load_fingerprint(effective)
-            binding = (id(backend), model_id, chat_id, fingerprint)
+            selected_profile_id = ((request_settings or {}).get("profile_id")
+                                   or (session.get("settings", {}) or {}).get("profile_id"))
+            scheduler_profile = self._direct_chat_profile(effective, selected_profile_id)
+            profile_id = scheduler_profile.get("profile_id")
+            binding = (id(backend), model_id, chat_id, fingerprint, profile_id)
             active_healthy = self._active_binding == binding
             process = getattr(backend, "_process", None)
             if hasattr(backend, "_process"):
                 active_healthy = (active_healthy and process is not None and process.poll() is None
                                   and getattr(backend, "_loaded_model", None) is not None)
-            if not active_healthy:
+            scheduler = self._direct_chat_scheduler(backend)
+            resident = any((record.model_id, record.runtime_id, record.profile_id) ==
+                           (model_id, getattr(backend, "runtime_id", None) or backend.name,
+                            scheduler_profile.get("profile_id"))
+                           for record in scheduler.residency())
+            if not active_healthy or not resident:
                 self._unload_active()
                 history = []
                 total = 0
@@ -765,14 +796,24 @@ class ReadOnlyAPI:
                     history.append(history_item)
                     total += cost
                 history.reverse()
-                backend.load(model, effective.get("placement"), effective.get("load"))
+                lease = self._acquire_direct_chat_lease(
+                    scheduler, backend, model, scheduler_profile, chat_id)
                 try:
                     backend.restore_history(history)
                 except Exception:
-                    backend.unload()
+                    scheduler.release(lease)
+                    scheduler.unload(model_id, getattr(backend, "runtime_id", None) or backend.name,
+                                     scheduler_profile.get("profile_id"))
                     raise
                 self._active_backend = backend
                 self._active_binding = binding
+                self._direct_chat_lease = lease
+            else:
+                # A prior turn released its lease but retained this resident
+                # binding. Reacquire it before exposing the backend to chat.
+                lease = self._acquire_direct_chat_lease(
+                    scheduler, backend, model, scheduler_profile, chat_id)
+                self._direct_chat_lease = lease
             generation = {key: value for key, value in effective.get("generation", {}).items()
                           if value is not None}
             allowed_generation = {key: generation[key] for key in
@@ -785,7 +826,7 @@ class ReadOnlyAPI:
             if session.get("settings", {}).get("knowledge", {}).get("enabled", False):
                 effective_prompt = self._knowledge_context(user_prompt)
             return ChatRun(self, backend, chat_id, effective_prompt, allowed_generation,
-                           stored_prompt=user_prompt)
+                           stored_prompt=user_prompt, lease=lease)
         except APIError:
             self._chat_lock.release()
             raise
@@ -800,10 +841,89 @@ class ReadOnlyAPI:
 
     def _unload_active(self):
         backend = self._active_backend
+        binding = self._active_binding
+        lease = getattr(self, "_direct_chat_lease", None)
+        scheduler = getattr(self, "_orchestration_scheduler", None)
+        if lease is not None and scheduler is not None:
+            try:
+                scheduler.release(lease)
+            except Exception as exc:
+                from aidream.model_scheduler import SchedulerError
+                if isinstance(exc, SchedulerError):
+                    raise APIError(f"Could not release the active model lease: {exc}") from exc
+                raise
+            self._direct_chat_lease = None
+        if backend is not None and binding is not None and scheduler is not None:
+            runtime_id = getattr(backend, "runtime_id", None) or backend.name
+            profile_id = binding[4] if len(binding) > 4 else None
+            resident = any((record.model_id, record.runtime_id, record.profile_id) ==
+                           (binding[1], runtime_id, profile_id)
+                           for record in scheduler.residency())
+            try:
+                if resident:
+                    scheduler.unload(binding[1], runtime_id, profile_id)
+                else:
+                    # Compatibility for an adapter loaded before scheduler
+                    # ownership was established or injected by a legacy caller.
+                    backend.unload()
+            except Exception as exc:
+                from aidream.model_scheduler import SchedulerError
+                if isinstance(exc, SchedulerError):
+                    raise APIError(f"Could not unload the active model: {exc}") from exc
+                raise
+        elif backend is not None:
+            backend.unload()
         self._active_backend = None
         self._active_binding = None
-        if backend is not None:
-            backend.unload()
+
+    def _direct_chat_scheduler(self, backend):
+        """Return the shared scheduler with the normalized adapter for backend."""
+        from aidream.model_scheduler import ModelScheduler
+        from aidream.runtime_adapters import BackendRuntimeAdapter, LlamaCppRuntimeAdapter, VLLMRuntimeAdapter
+
+        scheduler = getattr(self, "_orchestration_scheduler", None)
+        if scheduler is None:
+            scheduler = ModelScheduler({})
+            self._orchestration_scheduler = scheduler
+        runtime_id = str(getattr(backend, "runtime_id", None) or backend.name)
+        adapter = getattr(self, "_orchestration_adapters", {}).get(runtime_id)
+        if adapter is None:
+            candidate = getattr(scheduler, "adapters", {}).get(runtime_id)
+            if getattr(candidate, "backend", None) is backend:
+                adapter = candidate
+        if adapter is None or getattr(adapter, "backend", None) is not backend:
+            runtime_name = f"{runtime_id} {getattr(backend, 'name', '')}".casefold()
+            if "vllm" in runtime_name:
+                adapter_type = VLLMRuntimeAdapter
+            elif "llama" in runtime_name:
+                adapter_type = LlamaCppRuntimeAdapter
+            else:
+                adapter_type = BackendRuntimeAdapter
+            adapter = adapter_type(backend, runtime_id=runtime_id)
+            if not hasattr(self, "_orchestration_adapters"):
+                self._orchestration_adapters = {}
+        if not hasattr(self, "_orchestration_adapters"):
+            self._orchestration_adapters = {}
+        self._orchestration_adapters[runtime_id] = adapter
+        scheduler.adapters[runtime_id] = adapter
+        return scheduler
+
+    @staticmethod
+    def _direct_chat_profile(effective, profile_id=None):
+        return {"profile_id": profile_id,
+                "placement": effective.get("placement"),
+                "load_options": effective.get("load", {})}
+
+    def _acquire_direct_chat_lease(self, scheduler, backend, model, profile, chat_id):
+        from aidream.model_scheduler import LeaseRequest, SchedulerError
+        runtime_id = str(getattr(backend, "runtime_id", None) or backend.name)
+        try:
+            return scheduler.acquire(LeaseRequest(
+                model_id=model.id, runtime_id=runtime_id,
+                manifest={"model": model, "required_features": []},
+                profile=profile, owner_id=f"direct-chat:{chat_id}"))
+        except SchedulerError as exc:
+            raise APIError(f"Local model could not be loaded: {exc}") from exc
 
     def runtime_status(self):
         backend = self._active_backend
@@ -841,10 +961,14 @@ class ReadOnlyAPI:
             if backend is None:
                 raise APIError("No available backend can load this model")
             self._unload_active()
-            backend.load(model, effective.get("placement", {}), effective.get("load", {}))
+            scheduler = self._direct_chat_scheduler(backend)
+            profile = self._direct_chat_profile(effective, body.get("profile_id"))
+            lease = self._acquire_direct_chat_lease(scheduler, backend, model, profile, "runtime-load")
+            scheduler.release(lease)
             self._active_backend = backend
             from aidream.model_profiles import load_fingerprint
-            self._active_binding = (id(backend), model_id, None, load_fingerprint(effective))
+            self._active_binding = (id(backend), model_id, None, load_fingerprint(effective),
+                                    profile.get("profile_id"))
             return {"data": {"status": self.runtime_status()}}
         except (ValueError, RuntimeError, OSError) as exc:
             raise APIError(str(exc)) from exc
@@ -887,7 +1011,23 @@ class ReadOnlyAPI:
             backend = self._active_backend
             if backend is None or getattr(backend, "_loaded_model", None) is None:
                 raise APIError("No model is loaded")
-            return {"data": {"response": backend.generate(prompt.strip())}}
+            binding = self._active_binding
+            scheduler = self._direct_chat_scheduler(backend)
+            model = next((item for item in self.catalog.list_models()
+                          if getattr(item, "id", None) == binding[1]), None)
+            if model is None:
+                raise APIError("Loaded model is no longer in the local catalog")
+            lease = self._acquire_direct_chat_lease(
+                scheduler, backend, model,
+                {"profile_id": binding[4], "placement": None, "load_options": {}},
+                "runtime-chat")
+            scheduler.begin_call(lease)
+            try:
+                response = backend.generate(prompt.strip())
+            finally:
+                scheduler.end_call(lease)
+                scheduler.release(lease)
+            return {"data": {"response": response}}
         except (ValueError, RuntimeError, OSError) as exc:
             raise APIError(str(exc)) from exc
         finally:
@@ -1185,6 +1325,29 @@ class ReadOnlyAPI:
             if len(records) > MAX_MODELS:
                 return 413, {"error": f"Model catalog exceeds the {MAX_MODELS} item API limit"}
             return 200, {"data": {"models": [_jsonable(model) for model in records]}}
+        if path == "/api/provider-connections":
+            if query:
+                raise APIError("Query strings are not supported for provider connections")
+            return 200, {"data": self.provider_connections.list()}
+        if path == "/api/provider-models":
+            if query:
+                raise APIError("Query strings are not supported for provider models")
+            try:
+                return 200, {"data": self.provider_connections.models()}
+            except ValueError as exc:
+                return getattr(exc, "status", 400), {"error": str(exc)}
+        provider_models_match = re.fullmatch(r"/api/provider-connections/([a-f0-9]{32})/models", path)
+        if provider_models_match:
+            try:
+                return 200, {"data": self.provider_connections.models(provider_models_match.group(1))}
+            except ValueError as exc:
+                return getattr(exc, "status", 400), {"error": str(exc)}
+        provider_connection_match = re.fullmatch(r"/api/provider-connections/([a-f0-9]{32})", path)
+        if provider_connection_match:
+            try:
+                return 200, {"data": {"connection": self.provider_connections.get(provider_connection_match.group(1))}}
+            except ValueError as exc:
+                return getattr(exc, "status", 400), {"error": str(exc)}
         if path == "/api/chats":
             return 200, self.list_chats()
         match = re.fullmatch(r"/api/chats/([a-f0-9]{32})/settings", path)
@@ -1358,7 +1521,7 @@ class ReadOnlyAPI:
             draft_options = {"mode": selection.get("mode")}
             if selection.get("capability_pins") is not None:
                 draft_options["capability_pins"] = selection["capability_pins"]
-            plan = service.resolve_assisted_draft(draft, inputs, **draft_options)
+            plan = service.resolve_assisted_draft(draft, result.get("inputs", inputs), **draft_options)
             binding = getattr(self, "_active_binding", None)
             return {"data": {
                 "draft": dict(draft), "plan": _jsonable(plan.to_dict()),
@@ -1466,10 +1629,7 @@ class ReadOnlyAPI:
             "image.edit": ((ArtifactType(ArtifactKind.IMAGE), ArtifactType(ArtifactKind.TEXT)),
                            (ArtifactType(ArtifactKind.IMAGE),)),
         }
-        try:
-            image_resources = self._scheduler_resource_snapshot()
-        except Exception:
-            image_resources = None
+        image_available_vram = self._route_available_vram_bytes()
         for adapter in self._local_image_adapters():
             runtime_id = adapter.runtime_id
             descriptor = adapter.probe()
@@ -1494,8 +1654,7 @@ class ReadOnlyAPI:
                         runtime_id=runtime_id, inputs=inputs, outputs=outputs,
                         evidence_status=EvidenceStatus.SUPPORTED.value,
                         required_memory_bytes=estimated_vram,
-                        available_memory_bytes=(getattr(image_resources, "vram_available_bytes", None)
-                                                if image_resources is not None else None),
+                        available_memory_bytes=image_available_vram,
                         metadata={"manifest": {"model": model,
                                                 "required_capability": capability_id},
                                   "profile": None,
@@ -1829,6 +1988,26 @@ class ReadOnlyAPI:
         except Exception:
             return ResourceSnapshot()
 
+    def _route_available_vram_bytes(self):
+        """Return route-usable VRAM only when GPU placement is unambiguous.
+
+        Free VRAM on separate devices is not one shared pool. Until a runtime
+        reports its GPU mapping, a multi-GPU host has unknown per-route
+        capacity; summing those devices can claim a model fits when no one GPU
+        has enough space.
+        """
+        try:
+            host = self.hardware.detect()
+            gpus = getattr(host, "gpus", ()) or ()
+            if len(gpus) != 1:
+                return None
+            available = getattr(gpus[0], "memory_free_bytes", None)
+            if isinstance(available, bool) or not isinstance(available, int) or available < 0:
+                return None
+            return available
+        except Exception:
+            return None
+
     def _execute_orchestration_run(self, *, plan, cancel_event, emit, context=None, run_id=None):
         if context is None:
             raise RuntimeError("planned run context expired or is unavailable")
@@ -1903,6 +2082,13 @@ class ReadOnlyAPI:
         try:
             planner_request = dict(request)
             planner_request.pop("expected_plan_id", None)
+            declared_voice = any(port.get("name") == "voice" and port.get("artifact") == "text"
+                                 and port.get("required") is False for port in skill.get("inputs", ()))
+            if declared_voice:
+                skill_inputs = planner_request.get("inputs", {})
+                if isinstance(skill_inputs, Mapping) and "voice" not in skill_inputs:
+                    # Backward-compatible default for existing voice workflow clients.
+                    planner_request["inputs"] = {**skill_inputs, "voice": {"kind": "text", "text": "auto"}}
             result = planner(skill=skill, request=planner_request)
         except APIError:
             raise
@@ -1958,6 +2144,13 @@ class ReadOnlyAPI:
             except (AttributeError, RuntimeError, TypeError, ValueError):
                 capability_declarations = []
         capabilities = {item["id"]: item for item in capability_declarations}
+        try:
+            selection_defaults = self.capability_preference_store.get()["selection_defaults"]
+            resource_headroom = selection_defaults.get("resource_headroom_percent", 10)
+        except (AttributeError, KeyError, RuntimeError, TypeError, ValueError):
+            resource_headroom = 10
+        if isinstance(resource_headroom, bool) or not isinstance(resource_headroom, int) or not 0 <= resource_headroom <= 100:
+            resource_headroom = 10
         summaries = []
         for skill in skills:
             requirements = skill.get("requirements", {})
@@ -1966,6 +2159,7 @@ class ReadOnlyAPI:
             unknown = []
             preferred = None
             unavailable_details: dict[str, str] = {}
+            resource_blocked: dict[str, str] = {}
             for capability_id in required:
                 declaration = capabilities.get(capability_id)
                 if declaration is None:
@@ -1982,8 +2176,34 @@ class ReadOnlyAPI:
                                    and item.get("details").strip()]
                         if details:
                             unavailable_details[capability_id] = "; ".join(sorted(set(details)))
-                elif preferred is None:
-                    preferred = declaration.get("preferred_route_id")
+                else:
+                    routes = declaration.get("routes", ())
+                    measured_routes = []
+                    all_routes_measured = isinstance(routes, (list, tuple)) and bool(routes)
+                    for route in routes if isinstance(routes, (list, tuple)) else ():
+                        required_vram = route.get("estimated_vram_bytes") if isinstance(route, Mapping) else None
+                        available_vram = route.get("available_vram_bytes") if isinstance(route, Mapping) else None
+                        if (isinstance(required_vram, bool) or not isinstance(required_vram, int) or required_vram < 0
+                                or isinstance(available_vram, bool) or not isinstance(available_vram, int)
+                                or available_vram < 0):
+                            all_routes_measured = False
+                            continue
+                        needed = (required_vram * (100 + resource_headroom) + 99) // 100
+                        measured_routes.append((needed, available_vram))
+                    if (all_routes_measured and measured_routes
+                            and not any(needed <= available for needed, available in measured_routes)):
+                        best_needed, best_available = min(
+                            measured_routes, key=lambda pair: pair[0] - pair[1])
+                        explanation = (
+                            f"No configured {capability_id} route fits reported VRAM with "
+                            f"{resource_headroom}% headroom; the closest route needs "
+                            f"{best_needed / (1024 ** 3):.1f} GiB and {best_available / (1024 ** 3):.1f} GiB is available."
+                        )
+                        missing.append(capability_id)
+                        resource_blocked[capability_id] = explanation
+                        unavailable_details[capability_id] = explanation
+                    elif preferred is None:
+                        preferred = declaration.get("preferred_route_id")
             status = "not_ready" if missing else ("unknown" if unknown else "ready")
             reasons = [
                 unavailable_details.get(capability_id, f"Missing capability route: {capability_id}")
@@ -2001,6 +2221,10 @@ class ReadOnlyAPI:
             }
             alternatives = sorted({fallback_by_capability[item] for item in missing + unknown
                                    if item in fallback_by_capability})
+            if resource_blocked:
+                alternatives = sorted(set(alternatives) | {
+                    "Free reported GPU memory, select a lower-memory local model, or configure another compatible route, then preview again."
+                })
             ui = skill.get("ui", {}) if isinstance(skill.get("ui", {}), dict) else {}
             summaries.append({
                 "id": skill["id"],
@@ -2090,10 +2314,7 @@ class ReadOnlyAPI:
                     comfyui_diagnostics.append(descriptor.details[:500])
                 if not descriptor.available:
                     continue
-                try:
-                    observed_image_vram = self._scheduler_resource_snapshot().vram_available_bytes
-                except Exception:
-                    observed_image_vram = None
+                observed_image_vram = self._route_available_vram_bytes()
                 for model in adapter.list_models():
                     estimated_ram, estimated_vram = adapter.resource_estimates(model)
                     for capability_id in ("image.generate", "image.edit"):
@@ -2131,6 +2352,8 @@ class ReadOnlyAPI:
                         "model_id": model_id,
                         "runtime_id": "local-voice",
                         "preferred": True,
+                        **({"voices": list(capability_ready.get("voices", ())) }
+                           if capability_id == "audio.synthesize" else {}),
                     })
         except (AttributeError, OSError, RuntimeError, TypeError, ValueError):
             voice_readiness = {}
@@ -2282,6 +2505,10 @@ class ReadOnlyAPI:
             serialized_routes = []
             for route in capability_routes:
                 summary = {key: route[key] for key in ("id", "model_id", "runtime_id")}
+                voices = route.get("voices")
+                if capability_id == "audio.synthesize" and isinstance(voices, (list, tuple)):
+                    summary["voices"] = [voice for voice in voices
+                                         if isinstance(voice, str) and re.fullmatch(r"[a-z0-9_-]{1,40}", voice)]
                 for key in ("estimated_vram_bytes", "available_vram_bytes"):
                     value = route.get(key)
                     if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
@@ -3221,6 +3448,25 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
             if parsed.query or parsed.fragment or parsed.path != self.path:
                 self._send_json(400, {"error": "Query strings and encoded paths are not supported"})
                 return
+            if self.path == "/api/provider-connections":
+                try:
+                    connection = self.server.services.provider_connections.create(self._read_json_body())
+                    self._send_json(201, {"data": {"connection": connection}})
+                except (APIError, ValueError) as exc:
+                    self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
+                except OSError:
+                    self._send_json(503, {"error": "Provider connection could not be saved"})
+                return
+            provider_test = re.fullmatch(r"/api/provider-connections/([a-f0-9]{32})/test", self.path)
+            if provider_test:
+                try:
+                    if self._read_json_body():
+                        raise APIError("provider test accepts an empty object")
+                    result = self.server.services.provider_connections.test(provider_test.group(1))
+                    self._send_json(200, {"data": result})
+                except (APIError, ValueError) as exc:
+                    self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
+                return
             manifest_verify = re.fullmatch(
                 r"/api/model-manifests/([a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+)/verify",
                 self.path)
@@ -3429,6 +3675,17 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
                 except (APIError, ValueError) as exc:
                     self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
                 return
+            provider_connection = re.fullmatch(r"/api/provider-connections/([a-f0-9]{32})", self.path)
+            if provider_connection:
+                try:
+                    result = self.server.services.provider_connections.update(
+                        provider_connection.group(1), self._read_json_body())
+                    self._send_json(200, {"data": {"connection": result}})
+                except (APIError, ValueError) as exc:
+                    self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
+                except OSError:
+                    self._send_json(503, {"error": "Provider connection could not be saved"})
+                return
             if self.path == "/api/capability-preferences":
                 try:
                     preferences = self.server.services.capability_preference_store.patch(self._read_json_body())
@@ -3498,6 +3755,16 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
                 self._send_json(403, {"error": "A permitted Origin is required"})
                 return
             parsed = urlsplit(self.path)
+            provider_connection = re.fullmatch(r"/api/provider-connections/([a-f0-9]{32})", self.path)
+            if provider_connection:
+                try:
+                    result = self.server.services.provider_connections.delete(provider_connection.group(1))
+                    self._send_json(200, {"data": result})
+                except (APIError, ValueError) as exc:
+                    self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
+                except OSError:
+                    self._send_json(503, {"error": "Provider connection could not be removed"})
+                return
             artifact_match = re.fullmatch(r"/api/artifacts/(art_[A-Za-z0-9_-]{1,75})", parsed.path)
             if artifact_match:
                 try:
@@ -3849,7 +4116,7 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
             if not self._write_origin_ok():
                 self._send_json(403, {"error": "A permitted Origin is required"})
                 return
-            if self.path not in {"/api/chat", "/api/agent", "/api/chats", "/api/downloads", "/api/diagnostics", "/api/knowledge/documents", "/api/model-sources", "/api/models/rescan", "/api/models/residency/actions", "/api/runtime/load", "/api/runtime/unload", "/api/runtime/chat", "/api/runtime/command", "/api/runtime/installations", "/api/model-profiles", "/api/settings", "/api/capability-preferences", "/api/runs", "/api/artifacts"} and not re.fullmatch(r"/api/runtime/installations/[a-f0-9]{32}(/probe)?", self.path) and not re.fullmatch(r"/api/model-profiles/[a-f0-9]{32}", self.path) and not re.fullmatch(r"/api/model-manifests/[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+/(preferences|verify)", self.path) and not re.fullmatch(r"/api/chats/[a-f0-9]{32}(/settings)?", self.path) and not re.fullmatch(r"/api/downloads/[a-f0-9]{32}/cancel", self.path) and not re.fullmatch(r"/api/runs/[a-f0-9]{32}/cancel", self.path) and not re.fullmatch(r"/api/skills/[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*/(plan|run|draft)", self.path) and not re.fullmatch(r"/api/artifacts/art_[A-Za-z0-9_-]{1,75}", self.path):
+            if self.path not in {"/api/chat", "/api/agent", "/api/chats", "/api/downloads", "/api/diagnostics", "/api/knowledge/documents", "/api/model-sources", "/api/models/rescan", "/api/models/residency/actions", "/api/runtime/load", "/api/runtime/unload", "/api/runtime/chat", "/api/runtime/command", "/api/runtime/installations", "/api/model-profiles", "/api/settings", "/api/capability-preferences", "/api/runs", "/api/artifacts", "/api/provider-connections"} and not re.fullmatch(r"/api/runtime/installations/[a-f0-9]{32}(/probe)?", self.path) and not re.fullmatch(r"/api/model-profiles/[a-f0-9]{32}", self.path) and not re.fullmatch(r"/api/model-manifests/[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+/(preferences|verify)", self.path) and not re.fullmatch(r"/api/chats/[a-f0-9]{32}(/settings)?", self.path) and not re.fullmatch(r"/api/downloads/[a-f0-9]{32}/cancel", self.path) and not re.fullmatch(r"/api/runs/[a-f0-9]{32}/cancel", self.path) and not re.fullmatch(r"/api/skills/[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*/(plan|run|draft)", self.path) and not re.fullmatch(r"/api/artifacts/art_[A-Za-z0-9_-]{1,75}", self.path) and not re.fullmatch(r"/api/provider-connections/[a-f0-9]{32}(/test)?", self.path):
                 self._send_json(404, {"error": "Not found"})
                 return
             self.send_response(204)

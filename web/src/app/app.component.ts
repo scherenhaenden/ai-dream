@@ -4,6 +4,7 @@ import { filter } from 'rxjs';
 import { ApiService } from './core/api.service';
 import { ResourcesService } from './core/resources.service';
 import { SelectionModeService } from './core/selection-mode.service';
+import { InterfaceModeService } from './core/interface-mode.service';
 
 const NAV_GROUPS = [
   { label: 'WORK', items: [
@@ -53,6 +54,17 @@ const PALETTE_NAV_GROUPS = [
 ];
 const PALETTE_NAV = PALETTE_NAV_GROUPS.flatMap(group => group.items);
 
+const ADVANCED_NAV_GROUP = { label: 'ADVANCED', items: [
+  { label: 'Hardware', path: '/hardware', icon: '▦' },
+  { label: 'Resources', path: '/resources', icon: '▦' },
+  { label: 'Capability Map', path: '/capability-map', icon: '⌘' },
+  { label: 'Runtime Manager', path: '/runtime', icon: '⌘' },
+  { label: 'Local API', path: '/local-api', icon: '⌘' },
+  { label: 'Tools & Permissions', path: '/tools-permissions', icon: '⛨' },
+  { label: 'Logs & Traces', path: '/logs', icon: '≋' },
+  { label: 'Setup Assistant', path: '/setup-assistant', icon: '◇' },
+] };
+
 @Component({
   selector: 'ai-root', standalone: true, imports: [RouterOutlet, RouterLink, RouterLinkActive],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -60,8 +72,11 @@ const PALETTE_NAV = PALETTE_NAV_GROUPS.flatMap(group => group.items);
     :host{--sidebar:340px}
     .mode-picker{display:flex;align-items:center;gap:5px;padding:4px 6px;border:1px solid #303744;border-radius:4px;color:#8994a7;font:8px ui-monospace,monospace}.mode-picker select{max-width:115px;border:0;background:transparent;color:#cbd7eb;font:9px ui-monospace,monospace}.mode-picker select:disabled{opacity:.6}.mode-error{flex:0 1 180px;max-width:180px;overflow:hidden;color:#ffb4ab;font-size:8px;white-space:nowrap;text-overflow:ellipsis}
     .resource-chip{display:flex;align-items:center;gap:5px;max-width:320px;padding:5px 7px;border:1px solid #303744;border-radius:4px;color:#aebbd0;font:8px ui-monospace,monospace;text-decoration:none;white-space:nowrap}.resource-chip:hover{border-color:#637797;color:#d9e5f8}.resource-chip span{overflow:hidden;text-overflow:ellipsis}@media(max-width:1400px){.resource-chip{max-width:300px}.search-trigger{width:190px}}
+    .resource-chip.resource-alert{border-color:#8f514a;color:#ffb4ab}.resource-chip.resource-alert:hover{border-color:#ffb4ab}
+    .connection-chip{display:flex;align-items:center;gap:6px;color:#9ba2b0;font:9px ui-monospace,monospace;white-space:nowrap;text-decoration:none}.connection-chip.connected{color:var(--green)}.connection-chip:not(.connected){color:#ffb4ab;border:1px solid #8f514a;border-radius:4px;padding:5px 7px}.connection-chip:hover{text-decoration:underline}
+    @media(max-width:540px){.connection-chip:not(.connected){display:flex;max-width:102px;overflow:hidden}.connection-chip:not(.connected) .connection-label{overflow:hidden;text-overflow:ellipsis}}
     .nav-group{margin:8px 0 13px}
-    .nav-group-title{padding:7px 8px 4px;color:#788397;font:500 9px/1.4 ui-monospace,monospace;letter-spacing:0}
+    .nav-group-title{margin:0;padding:7px 8px 4px;color:#788397;font:500 9px/1.4 ui-monospace,monospace;letter-spacing:0}
     @media(max-width:1500px){:host{--sidebar:300px}}
     @media(max-width:800px){:host{--sidebar:256px}}
   `],
@@ -71,38 +86,33 @@ const PALETTE_NAV = PALETTE_NAV_GROUPS.flatMap(group => group.items);
         <a routerLink="/chat" class="brand" (click)="mobileNav.set(false)">
           <span class="brand-lights" aria-hidden="true"><i></i><i></i><i></i></span><span class="brand-copy"><b>Local AI Studio</b><small>Workstation Local Node</small></span>
         </a>
-        <nav class="nav-list" aria-label="Main navigation">
-          @for (group of navGroups; track group.label) {
-            <section class="nav-group"><div class="nav-group-title">{{ group.label }}</div>
+        <nav id="main-navigation" class="nav-list" aria-label="Main navigation">
+          @for (group of navGroups(); track group.label) {
+            <section class="nav-group" [attr.aria-label]="group.label + ' navigation'"><h2 class="nav-group-title">{{ group.label }}</h2>
               @for (item of group.items; track item.path) {
                 <a [routerLink]="item.path" routerLinkActive="active" class="nav-item" (click)="mobileNav.set(false)"><span class="nav-icon">{{ item.icon }}</span><span class="nav-label">{{ item.label }}</span></a>
               }
             </section>
           }
         </nav>
-        <div class="sidebar-bottom"><div class="backend-card">
-          <div class="backend-heading"><span class="pulse" [class.online]="api.connected()"></span><b>LOCAL API</b><span class="backend-state" [class.offline]="!api.connected()">{{ api.connected() ? 'ONLINE' : api.connection() === 'checking' ? 'CHECKING' : 'OFFLINE' }}</span></div>
-          <small>{{ api.baseUrl() }}</small><button title="Check connection" aria-label="Check API connection" (click)="api.check()">↻</button>
-          <a routerLink="/settings" class="api-settings">Connection settings <span>→</span></a>
-        </div></div>
       </aside>
       <div class="scrim" [class.visible]="mobileNav()" (click)="mobileNav.set(false)"></div>
       <section class="main-column">
         <header class="topbar">
-          <button class="mobile-menu icon-button" (click)="mobileNav.set(!mobileNav())" aria-label="Toggle navigation">☰</button>
+          <button class="mobile-menu icon-button" (click)="mobileNav.set(!mobileNav())" aria-label="Toggle navigation" aria-controls="main-navigation" [attr.aria-expanded]="mobileNav()">☰</button>
           <div class="breadcrumbs"><span>Studio</span><i>›</i><b>{{ title() }}</b></div>
           <div class="top-actions">
             <button class="search-trigger" (click)="openPalette()"><span>⌕</span><span>Search pages</span><kbd>Ctrl+K</kbd></button>
             <label class="mode-picker" [title]="modeDescription()"><span>MODE</span><select aria-label="Global orchestration mode" [value]="selectionMode()" [disabled]="modeLoading() || !api.connected()" (change)="setSelectionMode($any($event.target).value)"><option value="auto">Auto</option><option value="guided">Guided</option><option value="manual">Manual / pinned</option></select></label>
-            <a class="resource-chip" routerLink="/resources" [attr.aria-label]="'Open Resources · ' + resourceIndicator()" [title]="'Measured free/total values · ' + resourceIndicator()"><span aria-hidden="true">▦</span><span>{{ resourceIndicator() }}</span></a>
+            <a class="resource-chip" [class.resource-alert]="resourceError()" routerLink="/resources" [attr.aria-label]="'Open Resources · ' + (resourceError() || resourceIndicator())" [title]="resourceError() || ('Measured free/total values · ' + resourceIndicator())"><span aria-hidden="true">▦</span><span>{{ resourceError() ? 'Resources need attention' : resourceIndicator() }}</span></a>
             <a class="load-model-action" routerLink="/models"><span>＋</span><span>Models</span></a>
-            <span class="connection-chip" [class.connected]="api.connected()" [title]="api.connected() ? 'Local API online' : api.connection() === 'checking' ? 'Checking local API' : 'Local API offline'"><span class="pulse" [class.online]="api.connected()"></span><span class="connection-label">{{ api.connected() ? 'API Online' : api.connection() === 'checking' ? 'API Checking' : 'API Offline' }}</span></span>
+            <a class="connection-chip" [class.connected]="api.connected()" routerLink="/settings" [attr.aria-label]="api.connected() ? 'Local API online' : 'Local API needs attention. Open connection settings'" [title]="api.connected() ? 'Local API online' : (api.error() || 'Local API unavailable · Open connection settings')"><span class="pulse" [class.online]="api.connected()"></span><span class="connection-label">{{ api.connected() ? 'API Online' : api.connection() === 'checking' ? 'API Checking' : 'API Offline · Settings' }}</span></a>
             @if (modeError()) { <span class="mode-error" role="alert" [title]="modeError()">Mode: {{ modeError() }}</span> }
           </div>
         </header>
         <main class="content"><router-outlet /></main>
       </section>
-      <footer class="statusbar"><div><span class="status-key">LOCAL API</span><span class="pulse" [class.online]="api.connected()"></span><span>{{ api.connected() ? 'Connected' : api.connection() === 'checking' ? 'Connecting' : 'Unavailable' }}</span><span class="divider">|</span><span>LOCAL ONLY</span></div><div><span>ENDPOINT</span> <code>{{ api.baseUrl() }}</code><span class="divider">|</span><span>AI DREAM</span></div></footer>
+      <footer class="statusbar"><div><span class="status-key">LOCAL ONLY</span><span class="divider">|</span><span>AI DREAM</span></div></footer>
       @if (paletteOpen()) {
         <div class="palette-backdrop" (click)="paletteOpen.set(false)" (keydown.escape)="paletteOpen.set(false)">
           <section class="palette" role="dialog" aria-label="Navigate to a page" (click)="$event.stopPropagation()" (keydown)="onPaletteKeydown($event)"><label class="palette-search"><span aria-hidden="true">⌕</span><input autofocus role="combobox" aria-expanded="true" aria-autocomplete="list" aria-label="Search all pages" aria-controls="palette-results" [attr.aria-activedescendant]="activePaletteItemId()" placeholder="Jump to any page..." [value]="query()" (input)="setPaletteQuery($any($event.target).value)" (keydown.escape)="paletteOpen.set(false)" (keydown.enter)="goActive()" /></label>
@@ -116,9 +126,12 @@ export class AppComponent {
   readonly api = inject(ApiService);
   private readonly resourceService = inject(ResourcesService);
   private readonly selectionModeService = inject(SelectionModeService);
+  private readonly interfaceModeService = inject(InterfaceModeService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);
-  readonly navGroups = NAV_GROUPS;
+  readonly navGroups = computed(() => this.interfaceModeService.mode() === 'advanced'
+    ? [...NAV_GROUPS, ADVANCED_NAV_GROUP]
+    : NAV_GROUPS);
   readonly mobileNav = signal(false);
   readonly paletteOpen = signal(false);
   readonly query = signal('');
@@ -149,6 +162,7 @@ export class AppComponent {
       : 'GPU Unknown';
     return `${gpuLabel} · ${ramLabel} · ${modelLabel}`;
   });
+  readonly resourceError = computed(() => this.resourceService.resourcesError() || this.resourceService.residencyError());
   constructor() {
     void this.selectionModeService.refresh();
     void this.resourceService.refresh();

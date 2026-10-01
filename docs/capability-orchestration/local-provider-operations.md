@@ -94,8 +94,13 @@ file becomes stale.
   speech. Flite is available only when the FFmpeg build includes that filter.
 - For orchestration TTS, an installed `espeak-ng`/`espeak` route is preferred.
   Otherwise AI Dream uses discovered FFmpeg Flite voices. The current callback
-  selects `kal` when available, or the first discovered voice; it does not yet
-  expose voice selection in the workflow UI.
+  selects `kal` when available, or the first discovered voice by default. The
+  Skills composer exposes an optional per-run picker for discovered Flite voices
+  in `voice.respond` and `voice.conversation`; choosing Automatic leaves the
+  provider default in control. The selected value is checked against the current
+  API-discovered list before synthesis. Existing API callers that omit the new
+  optional voice input are normalized to Automatic. `espeak` currently has no
+  voice picker.
 - Explicit `audio.synthesize` accepts 1–4,000 characters. The Flite route
   writes text to a private temporary directory/file, asks FFmpeg to generate
   at most 30 seconds of mono 22,050 Hz PCM signed-16 WAV, has a 30-second

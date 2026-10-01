@@ -92,6 +92,17 @@ class OrchestrationServiceTests(unittest.TestCase):
         self.assertEqual("model-b", first.resolved_nodes[0].route.model_id)
         self.assertTrue(first.resolved_nodes[0].why)
 
+    def test_unknown_resource_policy_is_applied_during_normal_plan_resolution(self):
+        service = self.service(routes=[candidate("route-a", "model-a")])
+        allowed = service.build_plan("chat.general", self.inputs)
+        self.assertEqual("route-a", allowed.resolved_nodes[0].route.id)
+        self.preferences.patch({"selection_defaults": {"unknown_resource_policy": "reject"}})
+
+        with self.assertRaises(PlanResolutionError) as raised:
+            service.build_plan("chat.general", self.inputs)
+        reasons = raised.exception.why[0]["routes"][0]["reasons"]
+        self.assertIn("resource_estimate_unknown", reasons)
+
     def test_image_model_pins_are_independent_per_capability(self):
         image_skill = {
             "schema_version": 1, "id": "image.pipeline", "name": "Image pipeline",

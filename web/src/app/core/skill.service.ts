@@ -98,6 +98,16 @@ export class SkillService {
     return { 'image.generate': rows('image.generate'), 'image.edit': rows('image.edit') };
   }
 
+  async fliteVoices(): Promise<string[]> {
+    const response = await firstValueFrom(this.api.get<{
+      data?: { capabilities?: Array<{ id?: string; routes?: Array<{ model_id?: string | null; voices?: unknown }> }> }
+    }>('/api/capabilities'));
+    const capability = response?.data?.capabilities?.find(item => item?.id === 'audio.synthesize');
+    if (!Array.isArray(capability?.routes)) throw new Error('The local API did not report audio synthesis routes.');
+    const voices = capability.routes.flatMap(route => Array.isArray(route.voices) ? route.voices : []);
+    return [...new Set(voices.filter((voice): voice is string => typeof voice === 'string' && /^[a-z0-9_-]{1,40}$/.test(voice)))];
+  }
+
   async imageModelPins(): Promise<Partial<Record<ImageCapabilityId, string>>> {
     const response = await firstValueFrom(this.api.get<{
       data?: { capability_preferences?: Record<string, { model_id?: unknown } | null> }

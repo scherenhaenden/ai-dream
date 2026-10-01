@@ -7,7 +7,7 @@ name = "ai-dream"
 version = "0.1.0"
 description = "Local model catalog and inference manager"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = ["keyring>=25.7,<26"]
 
 [project.scripts]
 aidream = "aidream.cli:main"

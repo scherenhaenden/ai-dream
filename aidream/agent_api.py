@@ -22,11 +22,12 @@ AGENT_MAX_OUTPUT_CHARS = 12_000
 class AgentRun:
     """A serialized agent turn that releases the shared model lock on close."""
 
-    def __init__(self, api: Any, backend: Any, chat_id: str, prompt: str):
+    def __init__(self, api: Any, backend: Any, chat_id: str, prompt: str, lease: Any):
         self.api = api
         self.backend = backend
         self.chat_id = chat_id
         self.prompt = prompt
+        self.lease = lease
         self._closed = False
 
     def run(self, cancel_event: threading.Event | None = None) -> dict[str, Any]:
@@ -46,14 +47,21 @@ class AgentRun:
             history.append({"role": role, "content": content})
             total += cost
         history.reverse()
-        result = LocalAgent(
-            self.backend,
-            AgentToolRegistry(hardware=self.api.hardware, models=self.api.catalog,
-                              runtime=self.api.runtimes,
-                              runtime_manager=getattr(self.api, "runtime_manager", None)),
-            max_tool_calls=AGENT_MAX_TOOL_CALLS, max_seconds=AGENT_MAX_SECONDS,
-            max_output_chars=AGENT_MAX_OUTPUT_CHARS,
-        ).run(self.prompt, history, cancel_event)
+        scheduler = getattr(self.api, "_orchestration_scheduler", None)
+        if scheduler is not None:
+            scheduler.begin_call(self.lease)
+        try:
+            result = LocalAgent(
+                self.backend,
+                AgentToolRegistry(hardware=self.api.hardware, models=self.api.catalog,
+                                  runtime=self.api.runtimes,
+                                  runtime_manager=getattr(self.api, "runtime_manager", None)),
+                max_tool_calls=AGENT_MAX_TOOL_CALLS, max_seconds=AGENT_MAX_SECONDS,
+                max_output_chars=AGENT_MAX_OUTPUT_CHARS,
+            ).run(self.prompt, history, cancel_event)
+        finally:
+            if scheduler is not None:
+                scheduler.end_call(self.lease)
         # Don't persist an incomplete/cancelled turn. Other bounded stop reasons
         # (time/output/tool-call limit) return useful text and remain auditable.
         if result.stop_reason != "cancelled":
@@ -73,7 +81,14 @@ class AgentRun:
     def close(self):
         if not self._closed:
             self._closed = True
-            self.api._chat_lock.release()
+            try:
+                scheduler = getattr(self.api, "_orchestration_scheduler", None)
+                if scheduler is not None:
+                    scheduler.release(self.lease)
+                if getattr(self.api, "_direct_chat_lease", None) == self.lease:
+                    self.api._direct_chat_lease = None
+            finally:
+                self.api._chat_lock.release()
 
 
 def prepare_agent(api: Any, chat_id: str, model_id: str, prompt: str) -> AgentRun:
@@ -109,18 +124,29 @@ def prepare_agent(api: Any, chat_id: str, model_id: str, prompt: str) -> AgentRu
         if backend is None:
             raise APIError("No available local runtime supports read-only agent tool calls for this model")
         from aidream.model_profiles import load_fingerprint
-        binding = (id(backend), model_id, chat_id, load_fingerprint(settings))
+        chat_settings = api.chat_store.get_session_settings(chat_id)
+        profile_id = (chat_settings or {}).get("profile_id")
+        profile = api._direct_chat_profile(settings, profile_id)
+        # Agent tool-call state is distinct from the streamed Direct Chat
+        # session even when both use the same model and chat history.
+        binding = (id(backend), model_id, chat_id, load_fingerprint(settings), profile_id, "agent")
         healthy = api._active_binding == binding
         process = getattr(backend, "_process", None)
         if hasattr(backend, "_process"):
             healthy = (healthy and process is not None and process.poll() is None
                        and getattr(backend, "_loaded_model", None) is not None)
-        if not healthy:
+        scheduler = api._direct_chat_scheduler(backend)
+        resident = any((record.model_id, record.runtime_id, record.profile_id) ==
+                       (model_id, getattr(backend, "runtime_id", None) or backend.name, profile_id)
+                       for record in scheduler.residency())
+        if not healthy or not resident:
             api._unload_active()
-            backend.load(model, settings.get("placement"), settings.get("load"))
+        lease = api._acquire_direct_chat_lease(scheduler, backend, model, profile, chat_id)
+        if not healthy or not resident:
             api._active_backend = backend
             api._active_binding = binding
-        return AgentRun(api, backend, chat_id, prompt.strip())
+        api._direct_chat_lease = lease
+        return AgentRun(api, backend, chat_id, prompt.strip(), lease)
     except APIError:
         api._chat_lock.release()
         raise

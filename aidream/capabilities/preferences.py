@@ -19,7 +19,7 @@ _MODEL_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,255}\Z")
 _PROFILE_ID_RE = re.compile(r"[a-f0-9]{32}\Z")
 _PREFERENCE_KEYS = {"model_id", "profile_id"}
 _SELECTION_KEYS = {"mode", "prefer_verified", "prefer_loaded", "resource_headroom_percent",
-                   "eviction_policy", "assisted_planner_enabled"}
+                   "unknown_resource_policy", "eviction_policy", "assisted_planner_enabled"}
 _DEFAULTS: dict[str, Any] = {
     "capability_preferences": {},
     "selection_defaults": {
@@ -27,6 +27,7 @@ _DEFAULTS: dict[str, Any] = {
         "prefer_verified": True,
         "prefer_loaded": True,
         "resource_headroom_percent": 10,
+        "unknown_resource_policy": "allow",
         "eviction_policy": "lru",
         "assisted_planner_enabled": False,
     },
@@ -105,6 +106,9 @@ def _validate_selection_defaults(value: Any) -> dict[str, Any]:
         raise ValueError("selection_defaults.eviction_policy must be 'lru' or 'never'")
     if not isinstance(defaults["assisted_planner_enabled"], bool):
         raise ValueError("selection_defaults.assisted_planner_enabled must be a boolean")
+    unknown_resource_policy = defaults["unknown_resource_policy"]
+    if not isinstance(unknown_resource_policy, str) or unknown_resource_policy not in {"allow", "reject"}:
+        raise ValueError("selection_defaults.unknown_resource_policy must be 'allow' or 'reject'")
     for key in ("prefer_verified", "prefer_loaded"):
         if not isinstance(defaults[key], bool):
             raise ValueError(f"selection_defaults.{key} must be a boolean")

@@ -232,6 +232,15 @@ Reservations are short-lived and released on failure/cancellation.
 
 The first implementation can use conservative estimates from manifests/profiles and observed post-load usage when available.
 
+For bounded parallel layers, the scheduler preflights the aggregate estimates
+for all new residents against one resource snapshot before loading the first
+member. This avoids counting the same free memory more than once when host
+measurements lag behind a completed load. Idle, unpinned, non-target residents
+can be credited as reclaimable under LRU. Dimensions with unknown estimates or
+unknown available memory remain unenforced rather than being treated as zero;
+the normal per-resident checks and eviction rules still apply during each
+acquisition.
+
 ## 10. Hardware-specific learning
 
 After a successful load, record observations:

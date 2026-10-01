@@ -177,8 +177,12 @@ For transcript review, run `voice.transcribe` first, inspect and edit the text
 output, then pass the reviewed transcript as the required `transcript` input to
 `voice.respond`. That workflow contains only text chat followed by local TTS;
 it does not accept audio or automatically reuse an unreviewed transcription.
-Its plan is rejected when the local TTS route is unavailable, while the catalog
-offers ordinary text chat as the text-only alternative.
+Its optional `voice` text input can select one of the local Flite voices exposed
+by the capability API; `auto` or an omitted input preserves the provider
+default, including for legacy API callers. The local callback checks explicit
+choices against the current discovered list before synthesis. Its plan is
+rejected when the local TTS route is unavailable, while the catalog offers
+ordinary text chat as the text-only alternative.
 
 ## 5. Graph example: image editing with interpretation
 

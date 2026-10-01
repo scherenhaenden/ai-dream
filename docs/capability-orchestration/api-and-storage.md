@@ -111,6 +111,12 @@ Planning response:
 
 A plan request does not perform expensive model inference. Runtime metadata probes may be reused if already available.
 
+Skill catalog readiness is resource-aware when every declared route reports an
+estimated and available VRAM value: if none fits the configured headroom, the
+skill is `not_ready`, its preferred route is unset, and the reason includes the
+closest reported VRAM requirement. A missing VRAM observation remains
+unreported and does not by itself mark a skill unavailable.
+
 The current deterministic planner returns a stable `plan_id` (24 lowercase
 hexadecimal characters) with the resolved routes. When the user explicitly
 confirms a Guided plan, `POST /api/skills/<skill-id>/run` may include that
@@ -248,15 +254,22 @@ Semantic preferences should have their own store:
     "prefer_verified": true,
     "prefer_loaded": true,
     "resource_headroom_percent": 10,
+    "unknown_resource_policy": "allow",
     "eviction_policy": "lru",
     "assisted_planner_enabled": false
   }
 }
 ```
 
+`unknown_resource_policy` is `allow` or `reject` and controls deterministic
+route planning when either the model estimate or available-memory observation
+is unknown. `allow` preserves the existing default; `reject` excludes those
+routes and explains `resource_estimate_unknown` in the plan's `why` data.
+Older preference files receive `allow` when read.
+
 `eviction_policy` is `lru` (unload the oldest idle, unpinned resident under memory pressure) or `never` (preserve residents and fail a load that needs implicit eviction). Busy leases and user pins are protected under either policy. A version 1 preferences file without this key reads as `lru` and gains the key on its next write.
 
-`assisted_planner_enabled` is a global explicit opt-in and defaults to `false`. The `/api/skills/{id}/draft` action requires an already loaded local model and generates only after a user request. Its JSON is bounded and validated against the installed skill contract; execution still requires review of the returned draft and resolved plan.
+`assisted_planner_enabled` is a global explicit opt-in and defaults to `false`. The `/api/skills/{id}/draft` action requires an already loaded local model and generates only after a user request. Its JSON is bounded and validated against the installed skill contract, and the generated `draft.skill_id` must equal the `{id}` requested in the endpoint path; a mismatch is rejected before deterministic plan resolution. Execution still requires review of the returned draft and resolved plan.
 
 This is separate from low-level runtime defaults.
 

@@ -27,6 +27,10 @@ assert.match(page, /Capability map updated\.[\s\S]*?Capability map could not be 
   'refresh success and failure should provide distinct accessible feedback');
 assert.match(page, /No capabilities reported[\s\S]*?No readiness is inferred/,
   'an empty successful response must not be presented as readiness');
+assert.match(page, /Needs attention[\s\S]*?Capabilities needing attention[\s\S]*?Ready capabilities/,
+  'first-run review should prioritize unresolved capabilities and separate ready ones');
+assert.match(page, /preferredRouteSummary\(item: CapabilityMapItem\)[\s\S]*?item\.preferred_route_id[\s\S]*?No preferred route reported/,
+  'only the API-reported preferred route should be displayed');
 assert.match(page, /does not start services, load models, or infer readiness/,
   'first-run setup should be explicitly read-only');
 assert.doesNotMatch(page, /\.post\(|\.patch\(|\.delete\(|startRuntime|loadModel|startService/,

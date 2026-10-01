@@ -64,6 +64,12 @@ assert.match(canvasPage, /onTabKeydown\(tab, \$event\)[\s\S]*?role="tabpanel"[\s
   'Canvas tabs should expose a linked tab panel and keyboard navigation handler');
 assert.match(canvasPage, /event\.key === 'ArrowRight'[\s\S]*?event\.key === 'ArrowLeft'[\s\S]*?event\.key === 'Home'[\s\S]*?event\.key === 'End'/,
   'Canvas tab keyboard navigation should support arrows, Home, and End');
+assert.match(canvasPage, /class="close-tab"[\s\S]*?closeTab\(tab\.id\)/,
+  'closing a tab should use the focus-managed action');
+assert.match(canvasPage, /closeTab\(id: string\)[\s\S]*?this\.workspace\.close\(id\)[\s\S]*?requestAnimationFrame\([\s\S]*?canvas-tab-\$\{focusId\}[\s\S]*?canvas-empty-heading/,
+  'keyboard tab close should focus the remaining selected tab or the empty-state heading');
+assert.match(canvasPage, /id="canvas-empty-heading" tabindex="-1"/,
+  'the empty Canvas state should be programmatically focusable after closing the last tab');
 assert.match(routes, /path: 'canvas'.*canvas\.page/, 'Canvas should have a stable route');
 assert.match(runsPage, /Open in Canvas[\s\S]*?openArtifactInCanvas\(artifact\)/,
   'Run artifact outputs should expose an explicit Canvas action');

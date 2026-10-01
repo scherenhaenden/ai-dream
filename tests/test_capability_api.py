@@ -183,6 +183,7 @@ class CapabilityAPITests(unittest.TestCase):
         full = {item["id"]: item for item in api.get("/api/capabilities")[1]["data"]["capabilities"]}
         self.assertEqual(full["audio.synthesize"]["status"], "supported")
         self.assertEqual(full["audio.synthesize"]["routes"][0]["model_id"], "ffmpeg-flite:kal")
+        self.assertEqual(full["audio.synthesize"]["routes"][0]["voices"], ["kal", "slt"])
         self.assertEqual(full["audio.transcribe"]["status"], "unavailable")
         self.assertIn("whisper.cpp", full["audio.transcribe"]["evidence"][0]["details"])
 
@@ -278,6 +279,40 @@ class CapabilityAPITests(unittest.TestCase):
         api.image_backends[0].network_access = True
         unavailable = {item["id"]: item for item in api.get("/api/capabilities")[1]["data"]["capabilities"]}
         self.assertEqual(unavailable["image.generate"]["status"], "unavailable")
+
+    def test_image_route_does_not_pool_free_vram_across_unmapped_gpus(self):
+        class LocalImageBackend:
+            runtime_id = "fixture-image"
+            local_only = True
+            network_access = False
+
+            def capabilities(self):
+                return {"available": True, "image_generation": True, "image_editing": False}
+
+            def list_models(self):
+                return [{"id": "large-image-model", "estimated_vram_bytes": 3 * 1024 ** 3}]
+
+            def can_load(self, _model):
+                return True
+
+        gpu_free = 2 * 1024 ** 3
+        api = _api()
+        api.image_backends = [LocalImageBackend()]
+        api.hardware = SimpleNamespace(detect=lambda: SimpleNamespace(gpus=[
+            SimpleNamespace(memory_free_bytes=gpu_free),
+            SimpleNamespace(memory_free_bytes=gpu_free),
+        ]))
+        # The host-wide resource snapshot sums the two devices, but a route
+        # cannot spend that aggregate unless runtime placement is known.
+        api._scheduler_resource_snapshot = lambda: SimpleNamespace(
+            vram_available_bytes=2 * gpu_free)
+
+        capabilities = {item["id"]: item for item in api.get("/api/capabilities")[1]["data"]["capabilities"]}
+        route = capabilities["image.generate"]["routes"][0]
+        self.assertEqual(capabilities["image.generate"]["status"], "supported")
+        self.assertEqual(route["estimated_vram_bytes"], 3 * 1024 ** 3)
+        self.assertNotIn("available_vram_bytes", route,
+                         "unmapped devices must remain unknown instead of being summed")
 
     def test_advanced_audio_and_music_capabilities_are_unavailable_with_typed_contracts(self):
         api = _api()

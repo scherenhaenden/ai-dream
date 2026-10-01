@@ -28,8 +28,11 @@ await page.route('**/*', async route => {
       ] } },
       '/api/capabilities': { data: { capabilities: [{
         id: 'text.chat', status: 'ready', inputs: [{ kind: 'text' }], outputs: [{ kind: 'text' }],
-        evidence: [], preferred_route_id: 'route-chat',
-        routes: [{ id: 'route-chat', model_id: 'chat-model', runtime_id: 'llama.cpp' }],
+        evidence: [{ source: 'fixture-catalog', status: 'verified', confidence: 'high', verified_at: '2026-09-01', details: 'Fixture verification record.' }], preferred_route_id: 'route-chat',
+        routes: [
+          { id: 'route-chat', model_id: 'chat-model', runtime_id: 'llama.cpp', estimated_vram_bytes: 2147483648, available_vram_bytes: 4294967296 },
+          { id: 'route-chat-unknown-memory', model_id: 'chat-fallback', runtime_id: 'vllm' },
+        ],
       }, {
         id: 'image.generate', status: 'unavailable', inputs: [{ kind: 'text' }], outputs: [{ kind: 'image' }],
         evidence: [], routes: [],
@@ -52,10 +55,22 @@ await page.route('**/*', async route => {
 try {
   await page.goto('http://localhost:4200/capability-map');
   const capability = page.locator('.capability-card').filter({ hasText: 'text.chat' });
+  const capabilityDetails = capability.locator('details.capability-details');
+  const capabilitySummary = capabilityDetails.locator(':scope > summary');
+  await capabilitySummary.focus();
+  await page.keyboard.press('Enter');
+  await expect(capabilityDetails).toHaveAttribute('open', '');
   await expect(capability.getByRole('region', { name: 'Skills using this capability' })).toBeVisible();
   await expect(capability.getByText('General chat', { exact: true })).toBeVisible();
   await expect(capability.getByText('Summarize document', { exact: true })).toBeVisible();
   await expect(capability.getByText('Documents · Not ready', { exact: true })).toBeVisible();
+  await expect(capability.getByText(/Route route-chat · llama\.cpp · VRAM estimate 2\.00 GiB · available VRAM reported 4\.00 GiB/)).toBeVisible();
+  await expect(capability.getByText(/Route route-chat-unknown-memory · vllm · VRAM estimate Not reported · available VRAM reported Not reported/)).toBeVisible();
+  const evidenceDetails = capability.locator('details.evidence-details');
+  await evidenceDetails.locator(':scope > summary').focus();
+  await page.keyboard.press('Enter');
+  await expect(evidenceDetails).toHaveAttribute('open', '');
+  await expect(evidenceDetails.getByText('Fixture verification record.', { exact: true })).toBeVisible();
   const filters = page.locator('.filter-row');
   await expect(filters).toHaveAttribute('role', 'group');
   await expect(filters).toHaveAttribute('aria-label', 'Filter capabilities by status');
@@ -66,14 +81,17 @@ try {
   await expect(page.getByText('1 of 2 shown')).toBeVisible();
   const unavailable = page.locator('.capability-card').filter({ hasText: 'image.generate' });
   await expect(unavailable).toBeVisible();
+  const unavailableDetails = unavailable.locator('details.capability-details');
+  await unavailableDetails.locator(':scope > summary').click();
   await expect(unavailable.getByText('No compatible runtime route is currently reported for this capability.')).toBeVisible();
   await expect(unavailable.getByText('No installed skill declares this capability as a requirement.')).toBeVisible();
+  await expect(unavailable.getByText('This capability API does not report dependency records; missing dependencies cannot be confirmed here.')).toBeVisible();
   await page.setViewportSize({ width: 360, height: 800 });
   await expect(page.getByRole('heading', { name: 'Capability Map' })).toBeVisible();
   const widths = await page.evaluate(() => ({ viewport: document.documentElement.clientWidth, document: document.documentElement.scrollWidth }));
   assert.ok(widths.document <= widths.viewport, `mobile layout overflows horizontally: ${JSON.stringify(widths)}`);
   assert.deepEqual(errors, [], 'capability map should render without browser errors');
-  console.log('Capability map keyboard filter, skill relationships, unavailable state, and mobile layout smoke passed.');
+  console.log('Capability Map disclosure keyboard interaction, evidence records, skill relationships, reported and unavailable dependencies, route VRAM, status filtering, and mobile layout smoke passed.');
 } finally {
   await context.close();
   await browser.close();
