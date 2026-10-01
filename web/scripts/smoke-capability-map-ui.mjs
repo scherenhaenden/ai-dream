@@ -24,11 +24,15 @@ await page.route('**/*', async route => {
           { id: 'chat.general', name: 'General chat', version: '1.0.0', category: 'Chat', status: 'ready' },
           { id: 'document.summarize', name: 'Summarize document', version: '1.0.0', category: 'Documents', status: 'not_ready' },
         ] },
+        { id: 'image.generate', status: 'unavailable', routes: 0, preferred_route_id: null, inputs: ['text'], outputs: ['image'], skills: [] },
       ] } },
       '/api/capabilities': { data: { capabilities: [{
         id: 'text.chat', status: 'ready', inputs: [{ kind: 'text' }], outputs: [{ kind: 'text' }],
         evidence: [], preferred_route_id: 'route-chat',
         routes: [{ id: 'route-chat', model_id: 'chat-model', runtime_id: 'llama.cpp' }],
+      }, {
+        id: 'image.generate', status: 'unavailable', inputs: [{ kind: 'text' }], outputs: [{ kind: 'image' }],
+        evidence: [], routes: [],
       }] } },
     };
     return route.fulfill({ json: fixtures[url.pathname] || { data: {} } });
@@ -52,8 +56,24 @@ try {
   await expect(capability.getByText('General chat', { exact: true })).toBeVisible();
   await expect(capability.getByText('Summarize document', { exact: true })).toBeVisible();
   await expect(capability.getByText('Documents · Not ready', { exact: true })).toBeVisible();
+  const filters = page.locator('.filter-row');
+  await expect(filters).toHaveAttribute('role', 'group');
+  await expect(filters).toHaveAttribute('aria-label', 'Filter capabilities by status');
+  const unavailableFilter = filters.getByRole('button', { name: /^Unavailable\b/ });
+  await unavailableFilter.focus();
+  await page.keyboard.press('Enter');
+  await expect(unavailableFilter).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByText('1 of 2 shown')).toBeVisible();
+  const unavailable = page.locator('.capability-card').filter({ hasText: 'image.generate' });
+  await expect(unavailable).toBeVisible();
+  await expect(unavailable.getByText('No compatible runtime route is currently reported for this capability.')).toBeVisible();
+  await expect(unavailable.getByText('No installed skill declares this capability as a requirement.')).toBeVisible();
+  await page.setViewportSize({ width: 360, height: 800 });
+  await expect(page.getByRole('heading', { name: 'Capability Map' })).toBeVisible();
+  const widths = await page.evaluate(() => ({ viewport: document.documentElement.clientWidth, document: document.documentElement.scrollWidth }));
+  assert.ok(widths.document <= widths.viewport, `mobile layout overflows horizontally: ${JSON.stringify(widths)}`);
   assert.deepEqual(errors, [], 'capability map should render without browser errors');
-  console.log('Capability map skill relationship browser smoke passed.');
+  console.log('Capability map keyboard filter, skill relationships, unavailable state, and mobile layout smoke passed.');
 } finally {
   await context.close();
   await browser.close();

@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, OnDestroy, computed, effect, inject, signal } from '@angular/core';
 import { DomSanitizer } from '@angular/platform-browser';
 import { ArtifactService } from '../core/artifact.service';
+import type { ArtifactLifetime } from '../core/artifact.types';
 import { CanvasWorkspaceService, type CanvasTab } from '../core/canvas-workspace.service';
 import { parseJsonTableData, renderSafeMarkdown } from '../core/canvas-renderers';
 
@@ -15,7 +16,9 @@ import { parseJsonTableData, renderSafeMarkdown } from '../core/canvas-renderers
         <nav class="canvas-tabs" role="tablist" aria-label="Open Canvas outputs">
           @for (tab of workspace.tabs(); track tab.id) {
             <div class="canvas-tab" [class.active]="workspace.activeTabId() === tab.id">
-              <button type="button" role="tab" [attr.aria-selected]="workspace.activeTabId() === tab.id" [title]="tab.title" (click)="workspace.activate(tab.id)">
+              <button type="button" role="tab" [id]="'canvas-tab-' + tab.id" [attr.aria-controls]="'canvas-panel-' + tab.id"
+                [attr.aria-selected]="workspace.activeTabId() === tab.id" [attr.tabindex]="workspace.activeTabId() === tab.id ? 0 : -1"
+                [title]="tab.title" (click)="workspace.activate(tab.id)" (keydown)="onTabKeydown(tab, $event)">
                 <span>{{ kindLabel(tab) }}</span><b>{{ tab.title }}</b>
               </button>
               <button type="button" class="close-tab" [attr.aria-label]="'Close ' + tab.title" (click)="workspace.close(tab.id)">×</button>
@@ -24,8 +27,10 @@ import { parseJsonTableData, renderSafeMarkdown } from '../core/canvas-renderers
         </nav>
       }
       @if (workspace.activeTab(); as tab) {
-        <section class="canvas-view" [attr.aria-label]="tab.title + ' Canvas view'">
-          <header class="view-heading"><div><span class="kind-chip">{{ kindLabel(tab) }}</span><h2>{{ tab.title }}</h2><small>From {{ tab.source === 'run' ? 'Run' : 'Chat' }} · {{ tab.sourceId }}</small></div></header>
+        <section class="canvas-view" role="tabpanel" [id]="'canvas-panel-' + tab.id" [attr.aria-labelledby]="'canvas-tab-' + tab.id" tabindex="0">
+          <header class="view-heading"><div><span class="kind-chip">{{ kindLabel(tab) }}</span><h2>{{ tab.title }}</h2><small>From {{ tab.source === 'run' ? 'Run' : 'Chat' }} · {{ tab.sourceId }}</small>
+            @if (tab.artifact; as artifact) { <small class="artifact-meta">{{ artifact.media_type }} · {{ artifactSize(artifact.size_bytes) }} · {{ lifetimeLabel(artifact.lifetime) }}</small> }
+          </div></header>
           @if (loadError()) { <div class="view-error" role="alert"><span>{{ loadError() }}</span><button type="button" (click)="retry(tab)">Retry</button></div> }
           @else if (loading()) { <p class="view-loading" role="status">Loading output…</p> }
           @else if (tab.kind === 'image') {
@@ -36,6 +41,7 @@ import { parseJsonTableData, renderSafeMarkdown } from '../core/canvas-renderers
           @else if (tab.kind === 'audio') {
             @if (previewUrl(tab)) { <audio class="audio-preview" controls preload="metadata" [src]="previewUrl(tab)">Audio preview is not supported by this browser.</audio> }
             @else { <p class="view-error">No audio data is available for this tab.</p> }
+            @if (previewUrl(tab)) { <div class="view-actions"><a [href]="previewUrl(tab)" [download]="tab.title">Download audio</a></div> }
           }
           @else if (tab.kind === 'html') {
             @if (previewUrl(tab)) { <iframe class="html-preview" [src]="trustedUrl(previewUrl(tab)!)" [title]="'HTML preview of ' + tab.title" sandbox=""></iframe> }
@@ -108,6 +114,23 @@ export class CanvasPage implements OnDestroy {
   }
 
   kindLabel(tab: CanvasTab): string { return tab.kind; }
+  artifactSize(bytes: number): string { return this.artifactService.formatSize(bytes); }
+  lifetimeLabel(value: ArtifactLifetime): string {
+    return value === 'ephemeral' ? 'Temporary' : value === 'session' ? 'This session'
+      : value === 'persistent' ? 'Persistent' : 'Retention unknown';
+  }
+  onTabKeydown(tab: CanvasTab, event: KeyboardEvent): void {
+    const tabs = this.workspace.tabs();
+    const current = tabs.findIndex(item => item.id === tab.id);
+    if (current < 0 || tabs.length < 2) return;
+    const next = event.key === 'ArrowRight' ? (current + 1) % tabs.length
+      : event.key === 'ArrowLeft' ? (current - 1 + tabs.length) % tabs.length
+      : event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : -1;
+    if (next < 0) return;
+    event.preventDefault();
+    this.workspace.activate(tabs[next].id);
+    document.getElementById(`canvas-tab-${tabs[next].id}`)?.focus();
+  }
   previewUrl(tab: CanvasTab): string | null { return this.previewUrls()[tab.id] ?? null; }
   trustedUrl(url: string) { return this.sanitizer.bypassSecurityTrustResourceUrl(url); }
 

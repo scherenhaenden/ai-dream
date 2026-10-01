@@ -55,7 +55,7 @@ type CapabilityCard = CapabilityMapItem & {
             <div class="catalog-title"><div><h2>Capability catalog</h2><span aria-live="polite" aria-atomic="true">{{ visibleItems().length }} of {{ items().length }} shown</span></div></div>
             <label class="search-box"><span aria-hidden="true">⌕</span><input type="search" aria-label="Search capabilities" placeholder="Search ID, input, output or route" [value]="query()" (input)="query.set($any($event.target).value)"/><kbd>LOCAL</kbd></label>
           </div>
-          <div class="filter-row" aria-label="Current filters">
+          <div class="filter-row" role="group" aria-label="Filter capabilities by status">
             <span>Filter</span>
             @for (filter of filterOptions; track filter.value) {
               <button type="button" [class.active]="statusFilter() === filter.value" [attr.aria-pressed]="statusFilter() === filter.value" (click)="setStatusFilter(filter.value)">{{ filter.label }}<small>{{ filter.count() }}</small></button>

@@ -212,7 +212,8 @@ export class SkillsPage implements OnInit {
     if (!value) return false;
     const failures = value['failures'];
     const status = value['status'];
-    return !(Array.isArray(failures) && failures.length) && status !== 'not_ready' && status !== 'failed';
+    return typeof value['plan_id'] === 'string' && /^[a-f0-9]{24}$/.test(value['plan_id']) &&
+      !(Array.isArray(failures) && failures.length) && status !== 'not_ready' && status !== 'failed';
   });
   readonly canRun = computed(() => !!this.plan() && this.planReady() &&
     (!this.assistedDraftDetails() || this.draftReviewed()) &&
@@ -520,11 +521,25 @@ export class SkillsPage implements OnInit {
   }
   async execute(skill: SkillCatalogItem): Promise<void> {
     if (!this.canRun()) return;
+    const expectedPlanId = this.plan()?.['plan_id'];
+    if (typeof expectedPlanId !== 'string' || !/^[a-f0-9]{24}$/.test(expectedPlanId)) {
+      this.composerError.set('The resolved plan has no valid review ID. Preview the plan again before running.');
+      this.plan.set(null);
+      this.assistedDraftDetails.set(null); this.draftReviewed.set(false);
+      return;
+    }
     this.running.set(true); this.composerError.set('');
     try {
-      const run = await this.service.run(skill.id, this.typedInputs(skill), this.selectionFor(skill));
+      const run = await this.service.run(skill.id, this.typedInputs(skill), expectedPlanId, this.selectionFor(skill));
       await this.router.navigate(['/runs', run.id]);
-    } catch (error) { this.composerError.set(error instanceof Error ? error.message : 'Could not start this run.'); }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not start this run.';
+      if (/plan changed after review/i.test(message)) {
+        this.plan.set(null);
+        this.assistedDraftDetails.set(null); this.draftReviewed.set(false);
+        this.composerError.set('The resolved plan changed after review. Preview the current plan again, then review it before running.');
+      } else this.composerError.set(message);
+    }
     finally { this.running.set(false); }
   }
   prettyPlan(value: unknown): string { return JSON.stringify(value, null, 2) ?? 'No plan details were returned.'; }

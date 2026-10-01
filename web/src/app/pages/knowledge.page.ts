@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject, OnInit, signal } from '@angular/core';
+import { DatePipe } from '@angular/common';
 import { firstValueFrom } from 'rxjs';
 import { ApiService } from '../core/api.service';
 
@@ -7,7 +8,7 @@ type KnowledgeResult = { id: string; name: string; snippet: string; created_at: 
 type KnowledgeResponse<T> = { data: T };
 
 @Component({
-  selector: 'ai-knowledge-page', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush,
+  selector: 'ai-knowledge-page', standalone: true, imports: [DatePipe], changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <main class="knowledge">
       <header class="heading"><div><div class="eyebrow">LIBRARY / LOCAL SEARCH</div><h1>Knowledge</h1><p>Private, local full-text indexing. SQLite FTS5 lexical matching; no embeddings or semantic RAG.</p></div>
@@ -24,8 +25,8 @@ type KnowledgeResponse<T> = { data: T };
       <section class="documents"><header><div><h2>Indexed documents</h2><span>{{ documents().length }} / {{ maxDocuments() }} documents · {{ indexedChars() }} / {{ maxChars() }} characters</span></div>
         <label class="upload" title="Add a TXT, Markdown, or text-based PDF document within the displayed limits">＋ Add document<input type="file" accept=".txt,.md,.markdown,.pdf,text/plain,text/markdown,application/pdf" (change)="addFile($event)" [disabled]="uploading() || !api.connected()" title="Select a local TXT, Markdown, or text-based PDF file; maximum 5 MiB" /></label></header>
         <p class="limits">TXT · Markdown · text PDF only. Maximum 5 MiB per file, 40,000 extracted characters per document, 80,000 total indexed characters, and 100 documents. Scanned PDFs are not OCR-processed.</p>
-        @if (loading()) { <p class="empty">Loading local index…</p> }
-        @if (!loading() && !documents().length) { <p class="empty">No documents indexed. Add a local text document to begin.</p> }
+        @if (loading() && !indexLoaded()) { <p class="empty" role="status">Loading local index…</p> }
+        @if (indexLoaded() && !documents().length) { <p class="empty">No documents indexed. Add a local text document to begin.</p> }
         @for (document of documents(); track document.id) { <article class="doc"><div class="file"><span class="file-icon">TXT</span><div><b>{{ document.name }}</b><small>{{ document.media_type }} · {{ document.char_count }} characters · {{ document.size_bytes }} bytes{{ document.truncated ? ' · truncated at document limit' : '' }}</small></div></div>
           <time>{{ document.created_at | date:'medium' }}</time><button class="remove" title="Permanently remove this document and its full-text index entry" (click)="remove(document)" [disabled]="removing() === document.id">{{ removing() === document.id ? 'Removing…' : 'Remove' }}</button></article> }
       </section>
@@ -39,6 +40,7 @@ export class KnowledgePage implements OnInit {
   readonly documents = signal<KnowledgeDocument[]>([]);
   readonly results = signal<KnowledgeResult[]>([]);
   readonly loading = signal(false);
+  readonly indexLoaded = signal(false);
   readonly searching = signal(false);
   readonly uploading = signal(false);
   readonly removing = signal('');
@@ -57,6 +59,7 @@ export class KnowledgePage implements OnInit {
       const response = await firstValueFrom(this.api.get<KnowledgeResponse<{documents: KnowledgeDocument[]; indexed_chars: number; max_indexed_chars: number; max_documents: number}>>('/api/knowledge/documents'));
       this.documents.set(response.data.documents || []); this.indexedChars.set(response.data.indexed_chars || 0);
       this.maxChars.set(response.data.max_indexed_chars || 80000); this.maxDocuments.set(response.data.max_documents || 100);
+      this.indexLoaded.set(true);
     } catch (error) { this.error.set(this.message(error, 'Could not load local index')); }
     finally { this.loading.set(false); }
   }

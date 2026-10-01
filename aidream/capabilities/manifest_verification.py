@@ -13,7 +13,7 @@ from pathlib import Path
 import re
 import tempfile
 import threading
-from typing import Any, Mapping, Protocol
+from typing import Any, Callable, Mapping, Protocol
 
 from .contracts import CapabilityDeclaration, EvidenceConfidence, EvidenceSource, EvidenceStatus
 from .manifests import ModelManifest
@@ -263,7 +263,44 @@ class ManifestVerifier(Protocol):
     def verify(self, manifest: ModelManifest) -> ManifestVerificationResult: ...
 
 
+class RuntimeBoundManifestVerifier:
+    """Bind a host supplied bounded probe to one local runtime adapter.
+
+    This is an integration seam, not a built-in capability test: AI Dream has
+    no generic way to infer the semantic capabilities of an arbitrary model.
+    The callback owns that policy and may invoke the model only when the user
+    explicitly requests verification. Construction and ``runtime.probe()``
+    must remain side-effect free; the API separately checks that this runtime
+    is registered, enabled, and available before calling ``verify``.
+    """
+
+    def __init__(self, runtime: Any,
+                 probe: Callable[[Any, ModelManifest], ManifestVerificationResult]):
+        runtime_id = getattr(runtime, "runtime_id", None)
+        if not isinstance(runtime_id, str) or not runtime_id.strip() or len(runtime_id) > 128:
+            raise ValueError("runtime adapter must expose a bounded runtime_id")
+        if not callable(getattr(runtime, "probe", None)):
+            raise TypeError("runtime adapter must expose a read-only probe()")
+        if not callable(probe):
+            raise TypeError("manifest verification requires an explicit bounded probe callback")
+        self.runtime = runtime
+        self.runtime_id = runtime_id
+        self._probe = probe
+
+    def verify(self, manifest: ModelManifest) -> ManifestVerificationResult:
+        descriptor = self.runtime.probe()
+        if (getattr(descriptor, "runtime_id", None) != self.runtime_id
+                or getattr(descriptor, "available", None) is not True):
+            raise RuntimeError("Bound local runtime is unavailable for manifest verification")
+        result = self._probe(self.runtime, manifest)
+        if not isinstance(result, ManifestVerificationResult):
+            raise TypeError("manifest probe must return ManifestVerificationResult")
+        if result.manifest_id != manifest.id or result.runtime_id != self.runtime_id:
+            raise ValueError("manifest probe returned a result for a different manifest or runtime")
+        return result
+
+
 __all__ = [
     "ManifestVerificationResult", "ManifestVerificationStore", "ManifestVerifier",
-    "default_manifest_verification_path",
+    "RuntimeBoundManifestVerifier", "default_manifest_verification_path",
 ]

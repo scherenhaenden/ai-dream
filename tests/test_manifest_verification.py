@@ -14,7 +14,10 @@ from aidream.capabilities import (
     ManifestVerificationResult,
     ManifestVerificationStore,
     ModelManifestStore,
+    RuntimeBoundManifestVerifier,
 )
+from aidream.capabilities.manifests import ModelManifest
+from aidream.runtime_adapters import FakeRuntimeAdapter
 
 
 MANIFEST_ID = "local.aaaaaaaaaaaaaaaaaaaaaaaa"
@@ -51,6 +54,46 @@ def _result(*, success=True, capabilities=None, profile=None):
 
 
 class ManifestVerificationStoreTests(unittest.TestCase):
+    def test_runtime_bound_verifier_is_read_only_until_called_and_binds_result(self):
+        manifest = ModelManifest.from_mapping({
+            "schema_version": 1, "id": MANIFEST_ID, "display_name": "Test model",
+            "artifacts": [], "capabilities": [], "provenance": {},
+        })
+        runtime = FakeRuntimeAdapter(runtime_id="fake-runtime")
+        calls = []
+        verifier = RuntimeBoundManifestVerifier(
+            runtime, lambda bound_runtime, requested: calls.append((bound_runtime, requested)) or _result())
+
+        self.assertEqual(runtime.calls, [])
+        self.assertEqual(verifier.verify(manifest), _result())
+        self.assertEqual(calls, [(runtime, manifest)])
+        self.assertEqual(runtime.calls, ["probe"])
+
+    def test_runtime_bound_verifier_rejects_unavailable_runtime_and_wrong_result(self):
+        manifest = ModelManifest.from_mapping({
+            "schema_version": 1, "id": MANIFEST_ID, "display_name": "Test model",
+            "artifacts": [], "capabilities": [], "provenance": {},
+        })
+        runtime = FakeRuntimeAdapter(runtime_id="fake-runtime")
+        runtime.probe = lambda: type("Descriptor", (), {"runtime_id": "fake-runtime", "available": False})()
+        invoked = []
+        verifier = RuntimeBoundManifestVerifier(runtime, lambda *_: invoked.append(True))
+        with self.assertRaisesRegex(RuntimeError, "unavailable"):
+            verifier.verify(manifest)
+        self.assertEqual(invoked, [])
+
+        runtime.probe = lambda: type("Descriptor", (), {"runtime_id": "fake-runtime", "available": True})()
+        wrong = ManifestVerificationResult(
+            manifest_id="local.bbbbbbbbbbbbbbbbbbbbbbbb", runtime_id="fake-runtime",
+            success=False, completed_at=COMPLETED, details="mismatch")
+        verifier = RuntimeBoundManifestVerifier(runtime, lambda *_: wrong)
+        with self.assertRaisesRegex(ValueError, "different manifest or runtime"):
+            verifier.verify(manifest)
+
+    def test_runtime_bound_verifier_requires_explicit_probe_callback(self):
+        with self.assertRaisesRegex(TypeError, "explicit bounded probe callback"):
+            RuntimeBoundManifestVerifier(FakeRuntimeAdapter(runtime_id="fake-runtime"), None)
+
     def test_successful_fake_probe_persists_verified_overlay_and_profile(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "verification.json"

@@ -151,9 +151,13 @@ export class SkillService {
     return response.data.plan;
   }
 
-  async run(skillId: string, inputs: Record<string, unknown>, selection?: Record<string, unknown>): Promise<{ id: string }> {
+  async run(skillId: string, inputs: Record<string, unknown>, expectedPlanId: string,
+            selection?: Record<string, unknown>): Promise<{ id: string }> {
+    if (!/^[a-f0-9]{24}$/.test(expectedPlanId)) throw new Error('Preview the resolved plan before starting this skill.');
     const response = await firstValueFrom(this.api.post<{ data?: { run?: { id?: string } } }>(
-      `/api/skills/${encodeURIComponent(skillId)}/run`, { inputs, ...(selection ? { selection } : {}) },
+      `/api/skills/${encodeURIComponent(skillId)}/run`, {
+        inputs, expected_plan_id: expectedPlanId, ...(selection ? { selection } : {}),
+      },
     ));
     const id = response?.data?.run?.id;
     if (typeof id !== 'string' || !/^[a-f0-9]{32}$/.test(id)) throw new Error('The local API returned an invalid run ID.');

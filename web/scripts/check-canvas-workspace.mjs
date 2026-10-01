@@ -50,6 +50,9 @@ assert.match(workspace, /closedIds\.has\(tab\.id\)/, 'a user-closed tab must not
 assert.match(canvasPage, /sandbox=""/, 'HTML artifact previews must be sandboxed');
 assert.match(canvasPage, /HTML source/, 'HTML artifacts should expose their source beside the preview');
 assert.match(canvasPage, /Open image[\s\S]*?Save image/, 'image artifacts should include open and save actions');
+assert.match(canvasPage, /Download audio/, 'audio artifacts should include a direct download action beside the player');
+assert.match(canvasPage, /artifact\.media_type[\s\S]*?artifactSize\(artifact\.size_bytes\)[\s\S]*?lifetimeLabel\(artifact\.lifetime\)/,
+  'artifact tabs should expose media type, size, and retention lifetime');
 assert.match(canvasPage, /textarea class="text-preview code-preview code-editor"[\s\S]*?editCode\(tab, \$event\)/,
   'code tabs should provide a local editable code surface');
 assert.match(canvasPage, /document-preview[\s\S]*?Download \{\{ tab\.title \}\}/,
@@ -57,6 +60,10 @@ assert.match(canvasPage, /document-preview[\s\S]*?Download \{\{ tab\.title \}\}/
 assert.match(workspace, /updateText\(id: string, content: string\)/,
   'local code edits should persist in the active session workspace');
 assert.match(canvasPage, /role="tablist"[\s\S]*?role="tab"/, 'Canvas outputs should be navigable tabs');
+assert.match(canvasPage, /onTabKeydown\(tab, \$event\)[\s\S]*?role="tabpanel"[\s\S]*?aria-labelledby/,
+  'Canvas tabs should expose a linked tab panel and keyboard navigation handler');
+assert.match(canvasPage, /event\.key === 'ArrowRight'[\s\S]*?event\.key === 'ArrowLeft'[\s\S]*?event\.key === 'Home'[\s\S]*?event\.key === 'End'/,
+  'Canvas tab keyboard navigation should support arrows, Home, and End');
 assert.match(routes, /path: 'canvas'.*canvas\.page/, 'Canvas should have a stable route');
 assert.match(runsPage, /Open in Canvas[\s\S]*?openArtifactInCanvas\(artifact\)/,
   'Run artifact outputs should expose an explicit Canvas action');

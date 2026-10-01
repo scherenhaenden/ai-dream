@@ -1010,13 +1010,29 @@ class ReadOnlyAPI:
             record = verification_store.get(manifest_match.group(1)) if verification_store is not None else None
             verifier = getattr(self, "manifest_verifier", None)
             verifier_runtime_id = getattr(verifier, "runtime_id", None)
+            verification_available = (
+                callable(getattr(verifier, "verify", None))
+                and isinstance(verifier_runtime_id, str)
+                and self._is_registered_local_runtime(verifier_runtime_id)
+            )
+            if verification_available:
+                verification_unavailable_reason = None
+            elif not callable(getattr(verifier, "verify", None)):
+                verification_unavailable_reason = (
+                    "No bounded local semantic verifier is configured. Runtime availability and help probes "
+                    "cannot establish which capabilities this model performs."
+                )
+            elif not isinstance(verifier_runtime_id, str) or not verifier_runtime_id.strip():
+                verification_unavailable_reason = "The configured verifier is not bound to a local runtime."
+            else:
+                verification_unavailable_reason = (
+                    f"Verifier runtime {verifier_runtime_id} is not registered, enabled, and available; "
+                    "refresh or enable that runtime before verification."
+                )
             return 200, {"data": {
                 "manifest": manifest.to_dict(), "field_provenance": provenance,
-                "verification_available": (
-                    callable(getattr(verifier, "verify", None))
-                    and isinstance(verifier_runtime_id, str)
-                    and self._is_registered_local_runtime(verifier_runtime_id)
-                ),
+                "verification_available": verification_available,
+                "verification_unavailable_reason": verification_unavailable_reason,
                 "verification": ({"success": record["success"], "completed_at": record["completed_at"]}
                                  if record is not None else None),
             }}

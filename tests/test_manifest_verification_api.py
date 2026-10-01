@@ -113,7 +113,12 @@ class ManifestVerificationAPITests(unittest.TestCase):
     def test_absent_verifier_fails_closed_without_persisting_claims(self):
         with tempfile.TemporaryDirectory() as root:
             api = _api(root)
-            self.assertFalse(api.get(f"/api/model-manifests/{MANIFEST_ID}")[1]["data"]["verification_available"])
+            data = api.get(f"/api/model-manifests/{MANIFEST_ID}")[1]["data"]
+            self.assertFalse(data["verification_available"])
+            self.assertIn("No bounded local semantic verifier is configured",
+                          data["verification_unavailable_reason"])
+            self.assertIn("cannot establish which capabilities this model performs",
+                          data["verification_unavailable_reason"])
             with self.assertRaises(APIUnavailable):
                 api.verify_model_manifest(MANIFEST_ID)
             self.assertEqual(api.manifest_verification_store.list_records(), ())
@@ -122,9 +127,14 @@ class ManifestVerificationAPITests(unittest.TestCase):
     def test_ui_read_model_reports_only_a_bound_available_local_verifier(self):
         with tempfile.TemporaryDirectory() as root:
             api = _api(root, _result())
-            self.assertTrue(api.get(f"/api/model-manifests/{MANIFEST_ID}")[1]["data"]["verification_available"])
+            data = api.get(f"/api/model-manifests/{MANIFEST_ID}")[1]["data"]
+            self.assertTrue(data["verification_available"])
+            self.assertIsNone(data["verification_unavailable_reason"])
             api.runtime_installations.list_installations = lambda: []
-            self.assertFalse(api.get(f"/api/model-manifests/{MANIFEST_ID}")[1]["data"]["verification_available"])
+            data = api.get(f"/api/model-manifests/{MANIFEST_ID}")[1]["data"]
+            self.assertFalse(data["verification_available"])
+            self.assertIn("runtime.fake is not registered, enabled, and available",
+                          data["verification_unavailable_reason"])
 
     def test_unregistered_or_unavailable_runtime_is_rejected_before_probe(self):
         with tempfile.TemporaryDirectory() as root:

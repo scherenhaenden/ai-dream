@@ -18,6 +18,7 @@ from .manifest_store import FieldProvenance, ModelManifestStore
 from .manifest_overlay import UserManifestOverlayStore, default_manifest_overlay_path
 from .manifest_verification import (
     ManifestVerificationResult, ManifestVerificationStore, ManifestVerifier,
+    RuntimeBoundManifestVerifier,
     default_manifest_verification_path,
 )
 from .preferences import CapabilityPreferenceStore, default_capability_preferences_path
@@ -41,6 +42,7 @@ __all__ = [
     "ManifestVerificationResult",
     "ManifestVerificationStore",
     "ManifestVerifier",
+    "RuntimeBoundManifestVerifier",
     "UserManifestOverlayStore",
     "Resolution",
     "ResolutionRequest",

@@ -5,6 +5,8 @@ const page = await readFile(new URL('../src/app/pages/capability-map.page.ts', i
 
 assert.match(page, /aria-label="Search capabilities"/,
   'the capability catalog must expose an accessible search field');
+assert.match(page, /role="group" aria-label="Filter capabilities by status"/,
+  'status filters must be grouped under an accessible label');
 assert.match(page, /\[attr\.aria-pressed\]="statusFilter\(\) === 'all'"/,
   'the all-capabilities summary button must expose its selected state');
 assert.match(page, /\[attr\.aria-pressed\]="statusFilter\(\) === status"/,

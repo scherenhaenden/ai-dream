@@ -55,13 +55,17 @@ PATCH  /api/model-manifests/<id>/preferences
 
 Local user-created manifests may later support create/update endpoints, but the first implementation can generate manifests from catalog metadata plus bundled/user overlays.
 
-`POST /api/model-manifests/<id>/verify` accepts only `{}`. It delegates startup
-and a minimal capability probe to an injected local `ManifestVerifier`; the
-request cannot submit evidence or capabilities. The default API has no runtime
-probe configured and returns `503` without changing records. Successful typed
-results are checked against the manifest, validated as a verified model
-profile, persisted, and merged below user-authored metadata. Failed probes are
-recorded without promoting a profile or capability claim.
+`POST /api/model-manifests/<id>/verify` accepts only `{}`. It delegates a
+bounded semantic probe to an injected local `ManifestVerifier`; the request
+cannot submit evidence or capabilities. A semantic probe may start/load the
+selected model, so runtime `--help`, health, and availability checks alone
+cannot implement it. The default API has no semantic verifier configured and
+returns `503` without changing records. `GET /api/model-manifests/<id>` reports
+`verification_available` and, when false,
+`verification_unavailable_reason` with the concrete host/runtime blocker.
+Successful typed results are checked against the manifest, validated as a
+verified model profile, persisted, and merged below user-authored metadata.
+Failed probes are recorded without promoting a profile or capability claim.
 
 The existing `GET /api/models` continues to return file catalog records. The UI can join records with manifest summaries or the API can add an optional expanded representation later.
 
