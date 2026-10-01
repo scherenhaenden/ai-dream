@@ -310,6 +310,37 @@ class HTTPAPITests(unittest.TestCase):
         self.assertIn('"missing_from":1', stream)
         self.assertIn("event: run.succeeded", stream)
 
+    def test_run_requires_the_exact_plan_id_after_explicit_review(self):
+        from aidream.run_manager import RunManager
+
+        manager = RunManager(executor=lambda **kwargs: [])
+        self.addCleanup(manager.close)
+        self.server.services.run_manager = manager
+        expected = "a" * 24
+        self.server.services.run_planner = lambda **kwargs: {"plan": {"plan_id": expected, "nodes": []}}
+        request_body = {
+            "inputs": {"prompt": {"kind": "text", "text": "hello"}},
+            "parameters": {}, "selection": {"mode": "guided"},
+            "expected_plan_id": "b" * 24,
+        }
+        with self.assertRaises(HTTPError) as caught:
+            self.post_json("/api/skills/chat.general/run", request_body)
+        self.assertEqual(caught.exception.code, 409)
+        caught.exception.read()
+        caught.exception.close()
+        self.assertEqual(manager.list_runs(), [])
+
+        request_body["expected_plan_id"] = expected
+        with self.post_json("/api/skills/chat.general/run", request_body) as response:
+            self.assertEqual(response.status, 202)
+        self.assertEqual(len(manager.list_runs()), 1)
+
+        with self.assertRaises(HTTPError) as caught:
+            self.post_json("/api/skills/chat.general/plan", request_body)
+        self.assertEqual(caught.exception.code, 400)
+        caught.exception.read()
+        caught.exception.close()
+
     def test_artifact_upload_list_content_owner_scope_and_delete(self):
         with self.request("/api/artifacts", method="OPTIONS",
                           headers={"Origin": "http://127.0.0.1:5173"}) as response:

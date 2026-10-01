@@ -256,6 +256,8 @@ export class ChatPage implements OnInit {
   readonly chatExecutionMode = signal<'orchestrated'|'legacy'>('orchestrated');
   readonly orchestrationPlan = signal<any>(null);
   readonly approvedGuidedPlanKey = signal('');
+  readonly selectedPlanOverride = signal<{ capabilityId: string; modelId: string; profileId?: string } | null>(null);
+  readonly selectedPlanOverrideKey = signal('');
   readonly planInspectorOpen = signal(false);
   readonly orchestrationError = signal('');
   readonly planNotice = signal('');
@@ -492,6 +494,8 @@ export class ChatPage implements OnInit {
 
   selectModel(modelId: string): void {
     this.modelSelectionTouched = true;
+    this.selectedPlanOverride.set(null);
+    this.selectedPlanOverrideKey.set('');
     this.selectedModelId.set(modelId);
     this.selectedProfileId.set('');
     this.orchestrationPlan.set(null);
@@ -507,7 +511,12 @@ export class ChatPage implements OnInit {
     this.selectedModelId.set(route.model_id);
     this.profiles.set([]);
     this.selectedProfileId.set(typeof route.profile_id === 'string' ? route.profile_id : '');
+    this.selectedPlanOverride.set(typeof route.capability_id === 'string'
+      ? { capabilityId: route.capability_id, modelId: route.model_id,
+          ...(typeof route.profile_id === 'string' ? { profileId: route.profile_id } : {}) }
+      : null);
     this.loadProfiles(route.model_id);
+    this.selectedPlanOverrideKey.set(this.guidedPlanKey());
     this.orchestrationPlan.set(null);
     this.approvedGuidedPlanKey.set('');
     this.planInspectorOpen.set(false);
@@ -517,6 +526,8 @@ export class ChatPage implements OnInit {
 
   setChatExecutionMode(mode: 'orchestrated'|'legacy'): void {
     this.chatExecutionMode.set(mode);
+    this.selectedPlanOverride.set(null);
+    this.selectedPlanOverrideKey.set('');
     this.orchestrationError.set('');
     this.planNotice.set('');
     this.orchestrationPlan.set(null);
@@ -525,11 +536,11 @@ export class ChatPage implements OnInit {
   }
 
   private guidedPlanKey(text = this.prompt().trim()): string {
-    return JSON.stringify([text, this.selectedModelId(), this.selectedProfileId(), this.selectedChatId()]);
+    return JSON.stringify([this.selectionModeService.mode(), text, this.selectedModelId(), this.selectedProfileId(), this.selectedChatId()]);
   }
 
   guidedPlanCurrent(): boolean {
-    return !!this.orchestrationPlan() && !!this.approvedGuidedPlanKey()
+    return /^[a-f0-9]{24}$/.test(this.orchestrationPlan()?.plan_id || '') && !!this.approvedGuidedPlanKey()
       && this.approvedGuidedPlanKey() === this.guidedPlanKey();
   }
 
@@ -614,6 +625,8 @@ export class ChatPage implements OnInit {
     const version = ++this.selectionVersion;
     this.orchestrationPlan.set(null);
     this.approvedGuidedPlanKey.set('');
+    this.selectedPlanOverride.set(null);
+    this.selectedPlanOverrideKey.set('');
     this.canvasOpen.set(false);
     this.generationLoadVersion++;
     this.selectedChatId.set(id);
@@ -847,15 +860,23 @@ export class ChatPage implements OnInit {
     }
   }
 
-  private selectionForMode(mode = this.selectionModeService.mode(), modelId = this.selectedModelId()): Record<string, string> {
-    if (mode !== 'manual') return { mode: 'auto' };
-    const selection: Record<string, string> = { mode: 'manual', pinned_model_id: modelId };
-    if (this.selectedProfileId()) selection['pinned_profile_id'] = this.selectedProfileId();
+  private selectionForMode(mode = this.selectionModeService.mode(), modelId = this.selectedModelId(), text = this.prompt().trim()): Record<string, unknown> {
+    const selection: Record<string, unknown> = mode === 'manual'
+      ? { mode: 'manual', pinned_model_id: modelId }
+      : { mode };
+    if (mode === 'manual' && this.selectedProfileId()) selection['pinned_profile_id'] = this.selectedProfileId();
+    const override = this.selectedPlanOverride();
+    if (mode !== 'manual' && override && this.selectedPlanOverrideKey() === this.guidedPlanKey(text)) {
+      selection['capability_pins'] = { [override.capabilityId]: {
+        model_id: override.modelId,
+        ...(override.profileId ? { profile_id: override.profileId } : {}),
+      } };
+    }
     return selection;
   }
 
   private async resolveChatPlan(text: string, mode = this.selectionModeService.mode(), modelId = this.selectedModelId()): Promise<any> {
-    const selection = this.selectionForMode(mode, modelId);
+    const selection = this.selectionForMode(mode, modelId, text);
     const request = { inputs: { prompt: { kind: 'text', text } }, selection };
     const response = await firstValueFrom(this.api.post<unknown>('/api/skills/chat.general/plan', request));
     const data = unwrap(response) as any;
@@ -918,7 +939,7 @@ export class ChatPage implements OnInit {
       this.orchestrationPlan.set(plan);
       this.planNotice.set('');
       this.planningChat.set(false);
-      const selection = this.selectionForMode(mode, modelId);
+      const selection = this.selectionForMode(mode, modelId, text);
       const response = await firstValueFrom(this.api.post<unknown>('/api/skills/chat.general/run', { chat_id: chatId, inputs: { prompt: { kind: 'text', text } }, selection }));
       const data = unwrap(response) as any;
       const run = data?.run;
@@ -971,7 +992,8 @@ export class ChatPage implements OnInit {
     this.messages.update(messages => [...messages, temporaryUser]);
     try {
       const response = await firstValueFrom(this.api.post<unknown>('/api/skills/chat.general/run', {
-        chat_id: chatId, inputs: { prompt: { kind: 'text', text } }, selection: this.selectionForMode(mode),
+        chat_id: chatId, inputs: { prompt: { kind: 'text', text } },
+        selection: this.selectionForResolvedPlan(plan, mode, text), expected_plan_id: plan?.plan_id,
       }));
       const run = (unwrap(response) as any)?.run;
       if (!run || typeof run.id !== 'string') throw new Error('The local API did not create a chat run.');
@@ -1003,6 +1025,20 @@ export class ChatPage implements OnInit {
       this.orchestrationError.set(message);
       this.turnError.set(message);
     }
+  }
+
+  private selectionForResolvedPlan(plan: any, mode: 'guided', text: string): Record<string, unknown> {
+    const selection = this.selectionForMode(mode, this.selectedModelId(), text);
+    const pins = { ...((selection['capability_pins'] as Record<string, Record<string, string>> | undefined) ?? {}) };
+    for (const node of Array.isArray(plan?.nodes) ? plan.nodes : []) {
+      if (typeof node?.capability_id !== 'string' || typeof node?.selected?.model_id !== 'string') continue;
+      pins[node.capability_id] = {
+        model_id: node.selected.model_id,
+        ...(typeof node.selected.profile_id === 'string' ? { profile_id: node.selected.profile_id } : {}),
+      };
+    }
+    selection['capability_pins'] = pins;
+    return selection;
   }
 
   private async readStream(body: ReadableStream<Uint8Array>): Promise<void> {

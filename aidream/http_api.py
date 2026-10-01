@@ -931,6 +931,31 @@ class ReadOnlyAPI:
             return 200, {"data": {"capabilities": self._capability_declarations()}}
         if path == "/api/capability-map":
             declarations = self._capability_declarations()
+            skill_links: dict[str, list[dict[str, str]]] | None = {}
+            try:
+                installed_skills = self.skill_registry.snapshot()
+                skill_status = {(item["id"], item.get("version")): item
+                                for item in self._skill_summaries(declarations)}
+            except (AttributeError, RuntimeError, TypeError, ValueError, KeyError):
+                skill_links = None
+                installed_skills, skill_status = (), {}
+            for skill in installed_skills:
+                requirements = skill.get("requirements", {})
+                required = requirements.get("capabilities", []) if isinstance(requirements, Mapping) else []
+                if not isinstance(required, list):
+                    continue
+                summary = skill_status.get((skill.get("id"), skill.get("version")), {})
+                ui = skill.get("ui", {}) if isinstance(skill.get("ui", {}), Mapping) else {}
+                linked = {
+                    "id": skill["id"],
+                    "name": skill["name"],
+                    "version": skill["version"],
+                    "status": summary.get("status", "unknown"),
+                    "category": str(ui.get("category", "Other")),
+                }
+                for capability_id in required:
+                    if isinstance(capability_id, str):
+                        skill_links.setdefault(capability_id, []).append(linked)
             return 200, {"data": {"capabilities": [
                 {
                     "id": item["id"],
@@ -939,6 +964,9 @@ class ReadOnlyAPI:
                     "preferred_route_id": item["preferred_route_id"],
                     "inputs": sorted({value["kind"] for value in item["inputs"]}),
                     "outputs": sorted({value["kind"] for value in item["outputs"]}),
+                    "skills": None if skill_links is None else sorted(
+                        skill_links.get(item["id"], []),
+                        key=lambda skill: (skill["name"].casefold(), skill["id"], skill["version"])),
                 }
                 for item in declarations
             ]}}
@@ -1769,12 +1797,21 @@ class ReadOnlyAPI:
                 self._active_backend = None
                 self._active_binding = None
 
-    def _resolve_skill_request(self, skill_id: str, request: Mapping[str, Any]):
+    def _resolve_skill_request(self, skill_id: str, request: Mapping[str, Any], *,
+                               allow_expected_plan_id: bool = False):
         skill = self.skill_registry.get(skill_id)
         if skill is None:
             raise APINotFound("Skill not found")
-        if not isinstance(request, dict) or set(request) - {"inputs", "parameters", "selection", "chat_id"}:
-            raise APIError("Skill plan accepts only inputs, parameters, and selection")
+        allowed_fields = {"inputs", "parameters", "selection", "chat_id"}
+        if allow_expected_plan_id:
+            allowed_fields.add("expected_plan_id")
+        if not isinstance(request, dict) or set(request) - allowed_fields:
+            raise APIError("Skill request contains unsupported fields")
+        expected_plan_id = request.get("expected_plan_id")
+        if expected_plan_id is not None and (
+                not isinstance(expected_plan_id, str)
+                or not re.fullmatch(r"[a-f0-9]{24}", expected_plan_id)):
+            raise APIError("expected_plan_id must be a 24-character plan ID")
         if "chat_id" in request:
             if skill_id != "chat.general" or not isinstance(request["chat_id"], str) or not CHAT_ID_RE.fullmatch(request["chat_id"]):
                 raise APIError("chat_id is only supported for chat.general and must be a valid conversation id")
@@ -1785,7 +1822,9 @@ class ReadOnlyAPI:
         if planner is None:
             raise APIUnavailable("Deterministic skill planning is not available")
         try:
-            result = planner(skill=skill, request=request)
+            planner_request = dict(request)
+            planner_request.pop("expected_plan_id", None)
+            result = planner(skill=skill, request=planner_request)
         except APIError:
             raise
         except (KeyError, ValueError, TypeError, RuntimeError) as exc:
@@ -1798,8 +1837,11 @@ class ReadOnlyAPI:
         run_manager = getattr(self, "run_manager", None)
         if run_manager is None:
             raise APIUnavailable("Run orchestration is not available")
-        result, skill = self._resolve_skill_request(skill_id, request)
+        result, skill = self._resolve_skill_request(skill_id, request, allow_expected_plan_id=True)
         planned = result["plan"]
+        expected_plan_id = request.get("expected_plan_id") if isinstance(request, Mapping) else None
+        if expected_plan_id is not None and planned.get("plan_id") != expected_plan_id:
+            raise APIConflict("The plan changed after review. Preview the current plan again before running it.")
         execution_context = None
         if result.get("service") is not None:
             execution_context = (result["service"], result["execution_plan"], result["inputs"], request.get("chat_id"))
@@ -1819,16 +1861,18 @@ class ReadOnlyAPI:
             raise APIError(str(exc)) from exc
         return {"data": {"run": run}}
 
-    def _skill_summaries(self) -> list[dict[str, Any]]:
+    def _skill_summaries(self, capability_declarations: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
         """Return catalog UX metadata with readiness derived from live route evidence."""
         try:
             skills = self.skill_registry.snapshot()
         except (AttributeError, RuntimeError, TypeError, ValueError):
             skills = ()
-        try:
-            capabilities = {item["id"]: item for item in self._capability_declarations()}
-        except (AttributeError, RuntimeError, TypeError, ValueError):
-            capabilities = {}
+        if capability_declarations is None:
+            try:
+                capability_declarations = self._capability_declarations()
+            except (AttributeError, RuntimeError, TypeError, ValueError):
+                capability_declarations = []
+        capabilities = {item["id"]: item for item in capability_declarations}
         summaries = []
         for skill in skills:
             requirements = skill.get("requirements", {})

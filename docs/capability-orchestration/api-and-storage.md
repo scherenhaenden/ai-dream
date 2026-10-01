@@ -107,6 +107,14 @@ Planning response:
 
 A plan request does not perform expensive model inference. Runtime metadata probes may be reused if already available.
 
+The current deterministic planner returns a stable `plan_id` (24 lowercase
+hexadecimal characters) with the resolved routes. When the user explicitly
+confirms a Guided plan, `POST /api/skills/<skill-id>/run` may include that
+`expected_plan_id` and route-scoped `selection.capability_pins`. The server
+re-resolves the request and refuses to start the run with HTTP 409 if the plan
+identity changed after review. `expected_plan_id` is accepted only on run
+requests, never on plan requests.
+
 ## 5. Run endpoints
 
 ```text

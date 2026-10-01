@@ -16,6 +16,10 @@ The user chooses a task or simply provides inputs. AI Dream selects a valid skil
 
 AI Dream proposes a plan and exposes replaceable nodes. The user can swap the vision model, choose another TTS voice/model or select a low-VRAM profile before starting.
 
+The confirmed run must use the plan the user reviewed. A replacement is pinned
+for that run, and the server rejects confirmation if the resolved plan changes
+before execution starts.
+
 ### Manual / pinned
 
 The user chooses the exact model, profile and runtime. AI Dream validates compatibility and resources but does not silently substitute another route.
@@ -397,6 +401,10 @@ skills using it
 verification records
 missing dependencies
 ```
+
+The skill list is derived from installed manifests' declared
+`requirements.capabilities`, and includes each skill's current readiness. An
+empty declared list is distinct from an API response that omits this mapping.
 
 This becomes AI Dream's "what can my machine do?" screen.
 

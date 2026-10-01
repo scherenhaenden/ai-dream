@@ -8,6 +8,7 @@ type CapabilityCard = CapabilityMapItem & {
   routeDetails?: CapabilityDeclaration['routes'];
   evidenceDetails?: CapabilityDeclaration['evidence'];
   detailsUnavailable?: boolean;
+  skills?: Array<{ id: string; name: string; version: string; category: string; status: 'ready' | 'not_ready' | 'unknown' }>;
 };
 
 @Component({
@@ -79,6 +80,14 @@ type CapabilityCard = CapabilityMapItem & {
                       <div><span>Inputs</span><div>@for (input of item.inputs || []; track input) { <code>{{ artifactLabel(input) }} · {{ input }}</code> } @empty { <small>Not reported</small> }</div></div>
                       <div><span>Outputs</span><div>@for (output of item.outputs || []; track output) { <code>{{ artifactLabel(output) }} · {{ output }}</code> } @empty { <small>Not reported</small> }</div></div>
                     </div>
+                    @if (item.skills; as skills) {
+                      <section class="skill-usage" aria-label="Skills using this capability">
+                        <span>SKILLS USING THIS</span>
+                        @if (skills.length) {
+                          <div>@for (skill of skills; track skill.id + '@' + skill.version) { <article><b>{{ skill.name }}</b><code>{{ skill.id }} · {{ skill.version }}</code><small>{{ skill.category }} · {{ skill.status === 'ready' ? 'Ready' : skill.status === 'not_ready' ? 'Not ready' : 'Unknown' }}</small></article> }</div>
+                        } @else { <small>No installed skill declares this capability as a requirement.</small> }
+                      </section>
+                    } @else { <p class="skill-usage-unreported">Skill relationships are not reported by this API.</p> }
                     @if (item.detailsUnavailable) { <p class="detail-degraded">Detailed route records are unavailable; compact status is shown.</p> }
                     @if (item.routeDetails?.length) {
                       <div class="route-models" aria-label="Registered compatible routes"><span>COMPATIBLE ROUTES</span>
@@ -111,6 +120,7 @@ type CapabilityCard = CapabilityMapItem & {
     .capability-group{display:grid;gap:7px}.group-heading{display:flex;justify-content:space-between;align-items:center;padding:5px 1px}.group-heading>div{display:flex;align-items:center;gap:8px}.group-mark{display:grid;place-items:center;width:24px;height:24px;border:1px solid #3b4b66;border-radius:3px;background:#192334;color:#adc6ff;font:8px ui-monospace,monospace}.group-heading h3{margin:0;color:#cbd4e3;font-size:10px;font-weight:550}.group-heading small{display:block;margin-top:3px;color:#7e899d;font:8px ui-monospace,monospace}.group-heading>span{color:#8994a7;font:9px ui-monospace,monospace}
     .capability-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,370px),1fr));gap:8px}.capability-card{min-width:0;padding:11px 12px;background:var(--panel-2,#1b202a);border:1px solid #2a303c;border-radius:4px}.capability-card>header{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding-bottom:8px;border-bottom:1px solid #2a303b}.capability-id{font:11px ui-monospace,monospace;color:#d5def0;overflow-wrap:anywhere}.capability-summary{display:block;margin-top:4px;color:#7f899b;font-size:8px}.status{flex:none;padding:4px 6px;border-radius:3px;background:#252a34;color:#aab4c5;font:8px ui-monospace,monospace;text-transform:uppercase}.status.ready{color:var(--green,#4edea3);background:#1c302d}.status.supported{color:var(--amber,#f3c97b);background:#302b20}.status.degraded{color:var(--amber,#f3c97b);background:#302b20}.status.unavailable{color:var(--red,#ffb4ab);background:#342326}.status.unknown{color:#bbc3d1}.facts{display:grid;grid-template-columns:.55fr 1.4fr .7fr;gap:8px;padding:9px 0}.facts>div{display:grid;align-content:start;gap:4px;min-width:0}.facts span,.types>div>span{color:#8993a7;font:8px ui-monospace,monospace;text-transform:uppercase}.facts b,.facts code{color:#c6cede;font:9px ui-monospace,monospace;overflow-wrap:anywhere}.types{display:grid;gap:7px}.types>div{display:grid;grid-template-columns:48px minmax(0,1fr);gap:7px;align-items:start}.types>div>div{display:flex;flex-wrap:wrap;gap:4px}.types code,.evidence code{padding:3px 5px;background:#141923;color:#b8c9e6;border-radius:2px;font:8px ui-monospace,monospace}.types small{color:#818b9d;font-size:9px}.capability-card details{margin-top:9px;border-top:1px solid #2a303b;padding-top:7px}.capability-card summary{cursor:pointer;color:#9da8ba;font-size:9px}.evidence{display:flex;justify-content:space-between;gap:8px;padding:5px 0;color:#8e99ab;font:8px ui-monospace,monospace}.catalog-note{margin:2px 0;color:#788499;font-size:8px;line-height:1.4}.filtered-empty{padding:14px}.filtered-empty button{margin-top:9px}.notice button:disabled{opacity:.55}@media(max-width:700px){.capability-map{padding:14px 11px}.page-heading{align-items:flex-start}.overview-stats{grid-template-columns:repeat(3,minmax(0,1fr))}.stat:first-child{grid-column:span 3}.catalog-toolbar{align-items:flex-start;flex-direction:column}.search-box{width:100%}.facts{grid-template-columns:.5fr 1.3fr}.facts>div:last-child{grid-column:1/-1}.capability-list{grid-template-columns:1fr}}@media(max-width:430px){.overview-heading{align-items:flex-start;flex-direction:column}.overview-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.stat:first-child{grid-column:span 2}.filter-row{gap:2px}.filter-row button{padding:4px 5px}}
     .route-models{display:grid;gap:5px;padding-top:8px;margin-top:8px;border-top:1px solid #2a303b}.route-models>span{color:#8993a7;font:8px ui-monospace,monospace}.route-models>div{display:flex;align-items:center;gap:7px;min-width:0;flex-wrap:wrap}.route-models code{max-width:100%;overflow-wrap:anywhere;color:#c1d0e8;font:8px ui-monospace,monospace}.route-models small{color:#8d99ac;font:8px ui-monospace,monospace}.route-models b{padding:2px 4px;border-radius:2px;background:#1c302d;color:#87d5a7;font:7px ui-monospace,monospace;text-transform:uppercase}.route-reason,.detail-degraded{margin:7px 0 0;padding:7px 8px;border-left:2px solid #bd8059;background:#211f1b;color:#d8c2a6;font-size:9px;line-height:1.4}.detail-degraded{border-color:#7387a5;background:#1b222d;color:#b1bfd2}.evidence{display:grid;grid-template-columns:minmax(80px,auto) 1fr;align-items:start}.evidence p{grid-column:1/-1;margin:1px 0 3px;color:#b8c5da;font-size:9px;line-height:1.45}
+    .skill-usage{display:grid;gap:6px;padding-top:8px;margin-top:8px;border-top:1px solid #2a303b}.skill-usage>span{color:#8993a7;font:8px ui-monospace,monospace}.skill-usage>div{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:5px}.skill-usage article{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 6px;padding:6px;background:#141923;border-radius:3px;min-width:0}.skill-usage article b{color:#d5def0;font-size:9px;overflow-wrap:anywhere}.skill-usage article code{color:#92a3be;font:8px ui-monospace,monospace;overflow-wrap:anywhere;text-align:right}.skill-usage article small{grid-column:1/-1;color:#8994a7;font-size:8px}.skill-usage>small,.skill-usage-unreported{color:#8994a7;font-size:9px;line-height:1.4}.skill-usage-unreported{margin:8px 0 0}
     .capability-map button:focus-visible,.capability-map input:focus-visible,.capability-map summary:focus-visible{outline:2px solid #adc6ff;outline-offset:2px}
   `],
 })
@@ -185,7 +195,7 @@ export class CapabilityMapPage implements OnInit {
         if (Array.isArray(response?.data?.capabilities)) details = response.data.capabilities;
       } catch { details = null; }
       const byId = new Map((details ?? []).map(item => [item.id, item]));
-      this.items.set(compact.map(item => {
+      this.items.set((compact as CapabilityCard[]).map(item => {
         const detail = byId.get(item.id);
         return { ...item, routeDetails: detail?.routes, evidenceDetails: detail?.evidence,
           detailsUnavailable: details === null || !detail };

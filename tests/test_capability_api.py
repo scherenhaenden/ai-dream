@@ -93,6 +93,7 @@ class CapabilityAPITests(unittest.TestCase):
             "preferred_route_id": declaration["preferred_route_id"],
             "inputs": ["text"],
             "outputs": ["text"],
+            "skills": None,
         })
 
         status, detail_response = api.get("/api/capabilities/text.chat")
@@ -101,6 +102,26 @@ class CapabilityAPITests(unittest.TestCase):
         status, routes_response = api.get("/api/capabilities/text.chat/routes")
         self.assertEqual(status, 200)
         self.assertEqual(routes_response["data"]["routes"], declaration["routes"])
+
+    def test_capability_map_links_only_installed_skills_that_declare_requirement(self):
+        from aidream.skills import SkillRegistry, builtin_skill_manifests
+
+        api = _api([self.model], [self.backend])
+        api.skill_registry = SkillRegistry(builtin_skill_manifests())
+        compact = {item["id"]: item for item in api.get("/api/capability-map")[1]["data"]["capabilities"]}
+
+        text_skills = {item["id"]: item for item in compact["text.chat"]["skills"]}
+        self.assertIn("chat.general", text_skills)
+        self.assertIn("document.summarize", text_skills)
+        self.assertEqual(text_skills["chat.general"]["name"], "General chat")
+        self.assertEqual(text_skills["chat.general"]["version"], "1.0.0")
+        self.assertEqual(text_skills["chat.general"]["status"], "ready")
+        self.assertEqual(text_skills["chat.general"]["category"], "Chat")
+        self.assertNotIn("image.describe", text_skills)
+
+        image_skills = {item["id"] for item in compact["image.generate"]["skills"]}
+        self.assertEqual(image_skills, {"image.generate"})
+        self.assertEqual(compact["music.understand"]["skills"], [])
 
     def test_invalid_id_is_400_and_unknown_id_is_404(self):
         api = _api([self.model], [self.backend])

@@ -20,6 +20,14 @@ for (const field of ['route.id', 'route.model_id', 'route.runtime_id']) {
 }
 assert.match(page, /'local tool'/,
   'local tool routes without model ids should remain searchable by their visible label');
+assert.match(page, /aria-label="Skills using this capability"/,
+  'the capability card must expose the installed skill relationships');
+assert.match(page, /@for \(skill of skills; track skill\.id \+ '@' \+ skill\.version\)/,
+  'the capability card must render each API-reported skill');
+assert.match(page, /No installed skill declares this capability as a requirement/,
+  'an empty declared relationship list must be distinguished from an API that omits the mapping');
+assert.match(page, /Skill relationships are not reported by this API/,
+  'older or partial API responses must not be presented as proof that no skill uses a capability');
 assert.match(page, /\.\.\.\(item\.inputs \|\| \[\]\)[\s\S]*?\.\.\.\(item\.outputs \|\| \[\]\)/,
   'search should include declared input and output artifact roles');
 assert.match(page, /evidence\.source[\s\S]*?evidence\.confidence[\s\S]*?evidence\.verified_at/,

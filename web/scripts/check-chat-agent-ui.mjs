@@ -14,6 +14,10 @@ const SCREENSHOT_DIR = path.resolve(__dirname, '../../artifacts/ui-smoke/chat-ag
   let healthChecks = 0;
   let knowledgeEnabled = false;
   let chatPayload = null;
+  let selectionMode = 'auto';
+  let guidedPlanPayload = null;
+  let guidedRunPayload = null;
+  let guidedRunCount = 0;
   let chatMessages = [
     { role: 'user', content: 'Hello' },
     { role: 'assistant', content: 'Hi there!' }
@@ -102,10 +106,18 @@ const SCREENSHOT_DIR = path.resolve(__dirname, '../../artifacts/ui-smoke/chat-ag
       });
     });
 
-    await page.route('**/api/capability-preferences', route => route.fulfill({
-      status: 200, contentType: 'application/json',
-      body: JSON.stringify({ data: { selection_defaults: { mode: 'auto', eviction_policy: 'lru' } } })
-    }));
+    await page.route('**/api/capability-preferences', route => {
+      if (route.request().method() === 'PATCH') {
+        const payload = route.request().postDataJSON();
+        if (['auto', 'guided', 'manual'].includes(payload?.selection_defaults?.mode)) {
+          selectionMode = payload.selection_defaults.mode;
+        }
+      }
+      return route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify({ data: { selection_defaults: { mode: selectionMode, eviction_policy: 'lru' } } })
+      });
+    });
     await page.route('**/api/resources', route => route.fulfill({
       status: 200, contentType: 'application/json',
       body: JSON.stringify({ data: { resources: { ram: {}, gpus: [], loaded_models: [] }, status: 'observed' } })
@@ -135,6 +147,32 @@ const SCREENSHOT_DIR = path.resolve(__dirname, '../../artifacts/ui-smoke/chat-ag
     }));
     await page.route('**/api/skills', route => route.fulfill({
       status: 200, contentType: 'application/json', body: JSON.stringify({ data: { skills: [] } })
+    }));
+    await page.route('**/api/skills/chat.general/plan', async route => {
+      guidedPlanPayload = route.request().postDataJSON();
+      const pin = guidedPlanPayload?.selection?.capability_pins?.['text.chat'];
+      const modelId = pin?.model_id || 'mock-model-1';
+      const planId = modelId === 'mock-model-2' ? 'b'.repeat(24) : 'a'.repeat(24);
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: { plan: {
+        plan_id: planId, mode: guidedPlanPayload?.selection?.mode || 'auto',
+        resource_budget: { max_parallel_routes: 1 },
+        nodes: [{ node_id: 'reply', capability_id: 'text.chat',
+          selected: { id: `route-${modelId}`, model_id: modelId, runtime_id: 'llama.cpp' },
+          alternatives: [{ id: 'route-mock-model-2', capability_id: 'text.chat', model_id: 'mock-model-2', runtime_id: 'vllm' }],
+          why: [{ route_id: `route-${modelId}`, eligible: true, selected: true, reasons: ['compatible'] }] }]
+      } } }) });
+    });
+    await page.route('**/api/skills/chat.general/run', async route => {
+      guidedRunCount += 1;
+      guidedRunPayload = route.request().postDataJSON();
+      await route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ data: { run: {
+        id: 'c'.repeat(32), state: 'succeeded'
+      } } }) });
+    });
+    await page.route(`**/api/runs/${'c'.repeat(32)}`, route => route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ data: { run: {
+        id: 'c'.repeat(32), state: 'succeeded', current_nodes: [], outputs: [], last_sequence: 4
+      } } })
     }));
 
     // Mock API for /api/chats
@@ -231,6 +269,25 @@ const SCREENSHOT_DIR = path.resolve(__dirname, '../../artifacts/ui-smoke/chat-ag
     await expect(page.frameLocator('iframe.html-preview').locator('body')).toContainText('Hello');
 
     await page.screenshot({ path: path.join(SCREENSHOT_DIR, 'chat.png') });
+
+    // Guided plans must remain read-only until the exact reviewed plan is confirmed.
+    await page.goto('http://localhost:4200/chat');
+    await page.waitForSelector('.chat-workspace', { state: 'visible', timeout: 30000 });
+    await page.getByRole('combobox', { name: 'Global orchestration mode' }).selectOption('guided');
+    await expect.poll(() => selectionMode).toBe('guided');
+    await page.getByRole('textbox', { name: 'Message' }).fill('Review this route before running');
+    await page.getByRole('button', { name: 'Preview plan' }).click();
+    await expect(page.getByRole('button', { name: 'Confirm plan and run' })).toBeEnabled();
+    await expect.poll(() => guidedRunCount).toBe(0);
+    await expect.poll(() => guidedPlanPayload?.selection?.mode).toBe('guided');
+    await page.getByRole('button', { name: /Use mock-model-2/ }).click();
+    await page.getByRole('button', { name: 'Preview plan' }).click();
+    await expect.poll(() => guidedPlanPayload?.selection?.capability_pins?.['text.chat']?.model_id).toBe('mock-model-2');
+    await expect.poll(() => guidedRunCount).toBe(0);
+    await page.getByRole('button', { name: 'Confirm plan and run' }).click();
+    await expect.poll(() => guidedRunCount).toBe(1);
+    await expect.poll(() => guidedRunPayload?.expected_plan_id).toBe('b'.repeat(24));
+    await expect.poll(() => guidedRunPayload?.selection?.capability_pins?.['text.chat']?.model_id).toBe('mock-model-2');
 
     // 2. Check Agent Page
     console.log("Checking Agent Page...");
