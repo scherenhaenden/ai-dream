@@ -22,7 +22,7 @@ assert.match(backend, /if supplied != expected:/, 'draft components must match t
 assert.match(prefs, /"assisted_planner_enabled": False/, 'global assisted planner opt-in must default off');
 assert.match(api, /def draft_skill\([\s\S]*?defaults\["assisted_planner_enabled"\] is not True[\s\S]*?No local model is already loaded/, 'API must require opt-in and an already-loaded model');
 assert.match(api, /backend\.generate\(planner_prompt, \{"temperature": 0\.1, "max_tokens": 256\}\)/, 'planner generation must be bounded');
-assert.match(api, /resolve_assisted_draft\([\s\S]*?draft, inputs, mode=selection\.get\("mode"\)/, 'model output must pass strict deterministic draft validation');
+assert.match(api, /plan = service\.resolve_assisted_draft\(draft, inputs, \*\*draft_options\)/, 'model output must pass strict deterministic draft validation with explicit selection options');
 assert.match(api, /skill_action = re\.fullmatch\([\s\S]*?\(plan\|run\|draft\)/, 'draft endpoint must be routed through the local API');
 
 console.log('Assisted planner opt-in, loaded-model gate and strict-draft UX checks passed.');

@@ -14,6 +14,47 @@ image -> vision.understand -> structured JSON -> text.reason -> text
 
 The intermediate structured result can be inspected, validated, cached and reused. This also means a stronger text model can reason over the output of a smaller vision model without forcing one giant multimodal model to do everything.
 
+## 1.1 Current local capability boundaries
+
+AI Dream's image runtime is an injected adapter, not a bundled image model.
+It advertises `image.generate` and `image.edit` only when an injected backend
+explicitly reports local-only execution, disabled network access, operation
+support, and at least one compatible model. Capability probing lists model
+identities and estimates without loading weights. Fake backends exercise typed,
+signature-checked PNG/JPEG/WebP output and bounded image inputs. A machine with
+no qualifying backend must report image generation/editing unavailable; it
+must not imply that a model is installed or silently contact a cloud provider.
+
+The current adapter returns image bytes as a typed operation result. A complete
+user-facing image workflow still needs a real local backend and an artifact or
+canvas consumer that can display/open the produced image. Provider-specific
+features such as masks, reference images, compound VAE/text-encoder placement,
+and independent generator/editor pinning are not inferred from the base
+adapter.
+
+The local voice integration discovers existing executables and
+`ggml-*.bin` Whisper models without downloading or loading them during
+readiness checks. Transcription requires an installed `whisper-cli` or
+`whisper-cpp` executable, an existing GGML model file, and an existing audio
+file within the local input bound. Captured transcript output is bounded before
+it is returned to the caller. TTS uses an installed `espeak-ng`/`espeak`; push
+to talk uses `arecord` with explicit stop/cancel handling. These shell tools are
+local alternatives, not neural audio-understanding, diarization, music
+analysis, streaming STT, or streaming TTS providers.
+
+For reviewed voice response, the user-facing handoff is explicit:
+
+```text
+audio artifact -> voice.transcribe -> editable transcript
+                                      -> user submits reviewed text
+                                      -> text.chat -> audio.synthesize
+```
+
+The direct `voice.conversation` path may compose the same local tools
+sequentially when the required executable and Whisper model are present. A
+transcript is never forwarded to a response skill merely because transcription
+finished; the reviewed text submission is a separate user action.
+
 ## 2. Screenshot / UI understanding
 
 Goal: user drops a screenshot and asks what is wrong with an interface.

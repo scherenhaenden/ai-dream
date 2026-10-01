@@ -163,6 +163,13 @@ The scheduler returns a `ModelLease` referencing a ready runtime handle. Multipl
 
 A node releases the lease when its work ends. The scheduler decides whether to keep the model resident.
 
+The orchestration boundary marks adapter calls active for their full synchronous
+invocation. Releasing a lease, releasing all leases for a run, or unloading a
+resident is rejected while an adapter call is active. Cancellation only signals
+the adapter: a successful cancel callback does not prove that the invocation
+has stopped. The run keeps its leases until every invocation returns and the
+normal execution cleanup releases them.
+
 ## 7. Residency policy
 
 Loading large local models is expensive. A minimal initial policy can be LRU-like but capability-aware:

@@ -554,9 +554,20 @@ class OrchestrationService:
             def invoke(_node: Mapping[str, Any], node_inputs: Mapping[str, Any]) -> Mapping[str, Any]:
                 path = _node.get("_orchestration_path", _node["id"])
                 route = route_by_node[path]
-                if path not in held_leases:
+                lease = held_leases.get(path)
+                if lease is None:
                     raise PlanResolutionError(f"route node {path!r} started without a reserved lease")
-                return self.route_invokers[route.id](route, _node, node_inputs)
+                begin_call = getattr(self.scheduler, "begin_call", None)
+                end_call = getattr(self.scheduler, "end_call", None)
+                if callable(begin_call):
+                    begin_call(lease)
+                try:
+                    if cancel_event is not None and cancel_event.is_set():
+                        raise RunCancelled("run cancelled before runtime invocation")
+                    return self.route_invokers[route.id](route, _node, node_inputs)
+                finally:
+                    if callable(end_call):
+                        end_call(lease)
 
             if node["type"] == "capability":
                 callbacks[capability_id] = invoke

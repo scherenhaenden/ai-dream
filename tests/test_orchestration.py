@@ -43,6 +43,7 @@ class FakeScheduler:
     def __init__(self):
         self.acquired = []
         self.released = []
+        self.lifecycle = []
 
     def acquire(self, request):
         lease = {"model": request.model_id}
@@ -51,6 +52,12 @@ class FakeScheduler:
 
     def release(self, lease):
         self.released.append(lease)
+
+    def begin_call(self, lease):
+        self.lifecycle.append(("begin", lease))
+
+    def end_call(self, lease):
+        self.lifecycle.append(("end", lease))
 
 
 class OrchestrationServiceTests(unittest.TestCase):
@@ -348,6 +355,8 @@ class OrchestrationServiceTests(unittest.TestCase):
         self.assertEqual([(plan.resolved_nodes[0].route.id, "hello")], seen)
         self.assertEqual(1, len(scheduler.acquired))
         self.assertEqual(1, len(scheduler.released))
+        lease = scheduler.released[0]
+        self.assertEqual([("begin", lease), ("end", lease)], scheduler.lifecycle)
 
     def parallel_skill(self):
         return {

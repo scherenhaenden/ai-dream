@@ -20,6 +20,7 @@ async function main() {
   const browser = await chromium.launch({ headless: true, ...(executablePath ? { executablePath } : {}) });
   const context = await browser.newContext({ viewport: { width: 1320, height: 900 } });
   const unmatchedApiRequests = [];
+  const unexpectedMutatingApiRequests = [];
   const profileRequests = [];
   const pageErrors = [];
 
@@ -30,7 +31,17 @@ async function main() {
     await page.route('**/*', async (route, request) => {
       const url = new URL(request.url());
       if (url.pathname.startsWith('/api/')) {
-        unmatchedApiRequests.push(url.pathname);
+        const readOnlyFixtures = {
+          '/api/capability-preferences': { data: { selection_defaults: { mode: 'auto' } } },
+          '/api/resources': { data: { resources: { ram: {}, gpus: [], loaded_models: [], pending_reservations: [] }, status: 'observed' } },
+          '/api/models/residency': { data: { residency: { items: [], count: 0, status: 'observed' } } },
+        };
+        if (request.method() === 'GET' && readOnlyFixtures[url.pathname]) {
+          await route.fulfill({ json: readOnlyFixtures[url.pathname] });
+          return;
+        }
+        if (request.method() !== 'GET') unexpectedMutatingApiRequests.push(`${request.method()} ${url.pathname}`);
+        unmatchedApiRequests.push(`${request.method()} ${url.pathname}`);
         await route.fulfill({ status: 501, contentType: 'application/json', body: JSON.stringify({ error: `No fixture for ${url.pathname}` }) });
         return;
       }
@@ -84,6 +95,7 @@ async function main() {
 
     expect(profileRequests).toEqual(['alpha', 'beta']);
     expect(unmatchedApiRequests).toEqual([]);
+    expect(unexpectedMutatingApiRequests).toEqual([]);
     expect(pageErrors).toEqual([]);
     console.log(`Model Studio UI smoke passed. Screenshot: ${screenshotDir}`);
   } finally {

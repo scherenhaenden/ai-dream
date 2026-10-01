@@ -235,7 +235,7 @@ class ModelSchedulerTest(unittest.TestCase):
         self.assertEqual(busy_scheduler.residency()[0].lease_count, 1)
         busy_scheduler.release(active)
 
-    def test_cancel_releases_lease_even_when_cancel_callback_fails(self):
+    def test_cancel_does_not_release_lease_even_when_cancel_callback_fails(self):
         adapter = FakeAdapter()
 
         def fail_cancel(handle, request_id=None):
@@ -248,9 +248,29 @@ class ModelSchedulerTest(unittest.TestCase):
         with self.assertRaises(SchedulerError) as raised:
             scheduler.cancel(lease, "request-1")
         self.assertEqual(raised.exception.code, SchedulerErrorCode.LIFECYCLE_FAILED)
-        self.assertEqual(scheduler.active_leases(), ())
-        self.assertEqual(scheduler.residency()[0].state, "idle")
-        self.assertEqual(scheduler.release_owner("run-1"), 0)
+        self.assertEqual((lease.lease_id,), tuple(item.lease_id for item in scheduler.active_leases()))
+        self.assertEqual(scheduler.residency()[0].state, "busy")
+        self.assertEqual(scheduler.release_owner("run-1"), 1)
+
+    def test_active_adapter_call_prevents_release_and_unload_until_call_returns(self):
+        adapter = FakeAdapter()
+        scheduler = ModelScheduler({"fake": adapter})
+        lease = scheduler.acquire(req("chat", 10, owner="run-1"))
+        scheduler.begin_call(lease)
+
+        with self.assertRaises(SchedulerError) as raised:
+            scheduler.release(lease)
+        self.assertEqual(SchedulerErrorCode.BUSY, raised.exception.code)
+        with self.assertRaises(SchedulerError) as raised:
+            scheduler.release_owner("run-1")
+        self.assertEqual(SchedulerErrorCode.BUSY, raised.exception.code)
+        with self.assertRaises(SchedulerError) as raised:
+            scheduler.unload("chat", "fake")
+        self.assertEqual(SchedulerErrorCode.BUSY, raised.exception.code)
+
+        scheduler.end_call(lease)
+        scheduler.release_owner("run-1")
+        self.assertEqual((), scheduler.active_leases())
 
     def test_orchestration_pin_and_unload_require_allowlisted_owned_resident(self):
         adapter = FakeAdapter()

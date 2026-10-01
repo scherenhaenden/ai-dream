@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 import signal
 import subprocess
+import tempfile
 import threading
 import time
 
@@ -49,6 +50,13 @@ class VoiceCapabilities:
 class VoiceConfiguration:
     capabilities: VoiceCapabilities
     whisper_models: tuple[Path, ...]
+
+
+# Keep direct transcription aligned with the bounded orchestration contract.
+MAX_VOICE_INPUT_BYTES = 32 * 1024 * 1024
+MAX_TRANSCRIPT_BYTES = 64 * 1024
+MAX_VOICE_DIAGNOSTIC_BYTES = 8 * 1024
+VOICE_TOOL_TIMEOUT_SECONDS = 180
 
 
 def discover_whisper_models(directories: list[str | Path] | None = None) -> tuple[Path, ...]:
@@ -258,8 +266,42 @@ class LocalVoice:
         audio_path, model_path = Path(audio).expanduser().resolve(), Path(model).expanduser().resolve()
         if not audio_path.is_file() or not model_path.is_file():
             raise FileNotFoundError("Choose an existing audio file and a whisper.cpp model file")
-        result = self._run([exe, "-m", str(model_path), "-f", str(audio_path), "--no-timestamps"], capture=True)
-        return result.stdout.strip()
+        audio_size = audio_path.stat().st_size
+        if not 1 <= audio_size <= MAX_VOICE_INPUT_BYTES:
+            raise ValueError(f"Audio input must be from 1 to {MAX_VOICE_INPUT_BYTES} bytes")
+        if model_path.stat().st_size <= 0:
+            raise ValueError("The selected whisper.cpp model file is empty")
+        if not (model_path.name.startswith("ggml-") and model_path.suffix == ".bin"):
+            raise ValueError("Choose an installed whisper.cpp GGML model file (ggml-*.bin)")
+        output = self._run_bounded_capture(
+            [exe, "-m", str(model_path), "-f", str(audio_path), "--no-timestamps"])
+        return output.strip()
+
+    @staticmethod
+    def _run_bounded_capture(command: list[str]) -> str:
+        """Run a local tool without retaining unbounded child output in memory."""
+        try:
+            with tempfile.TemporaryFile(mode="w+b") as stdout_file, \
+                    tempfile.TemporaryFile(mode="w+b") as stderr_file:
+                result = subprocess.run(command, check=False, stdout=stdout_file,
+                                        stderr=stderr_file, timeout=VOICE_TOOL_TIMEOUT_SECONDS)
+                stdout_file.seek(0, os.SEEK_END)
+                stdout_size = stdout_file.tell()
+                if stdout_size > MAX_TRANSCRIPT_BYTES:
+                    raise RuntimeError("Local transcription exceeded its output limit")
+                stdout_file.seek(0)
+                stdout = stdout_file.read(MAX_TRANSCRIPT_BYTES + 1).decode(errors="replace")
+                if result.returncode:
+                    stderr_file.seek(0, os.SEEK_END)
+                    stderr_size = stderr_file.tell()
+                    stderr_file.seek(max(0, stderr_size - MAX_VOICE_DIAGNOSTIC_BYTES))
+                    detail = stderr_file.read(MAX_VOICE_DIAGNOSTIC_BYTES).decode(errors="replace").strip()
+                    raise RuntimeError(f"Voice tool exited with status {result.returncode}: {detail}")
+                return stdout
+        except RuntimeError:
+            raise
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise RuntimeError(f"Could not run local voice tool: {exc}") from exc
 
     @staticmethod
     def _run(command: list[str], capture: bool = False):

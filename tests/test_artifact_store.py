@@ -105,6 +105,18 @@ class ArtifactStoreTests(unittest.TestCase):
         self.store.close()
         self.assertFalse(root.exists())
 
+    def test_constructor_preserves_caller_owned_parent_permissions(self):
+        parent = Path(self.temp.name) / "shared-parent"
+        parent.mkdir(mode=0o755)
+        parent.chmod(0o755)
+        before = parent.stat().st_mode & 0o777
+        store = ArtifactStore(parent)
+        try:
+            self.assertEqual(parent.stat().st_mode & 0o777, before)
+            self.assertEqual(store.root.stat().st_mode & 0o777, 0o700)
+        finally:
+            store.close()
+
 
 if __name__ == "__main__":
     unittest.main()

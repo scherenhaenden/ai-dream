@@ -64,10 +64,10 @@ class ArtifactStore:
         self._records: dict[str, tuple[ArtifactEnvelope, Path, float]] = {}
         parent = Path(root) if root is not None else self._default_parent()
         parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        try:
-            os.chmod(parent, 0o700)
-        except OSError:
-            pass
+        # ``root`` is a caller-owned parent directory. Do not change its
+        # permissions as a constructor side effect; the store's actual data
+        # directory is created privately below regardless of the parent's
+        # existing mode.
         self._root = Path(tempfile.mkdtemp(prefix="artifacts-", dir=parent))
         os.chmod(self._root, 0o700)
         self._closed = False

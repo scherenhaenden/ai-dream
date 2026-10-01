@@ -323,6 +323,17 @@ The public orchestration layer should never assemble backend CLI flags itself.
 
 For current AI Dream, llama.cpp and vLLM can gradually implement this interface around existing backend classes rather than being rewritten at once.
 
+The current `BackendRuntimeAdapter` owns one loaded handle and rejects a second
+`load()` until that handle is unloaded. Its synchronous backend call is
+serialized per adapter. Existing engines expose a process-wide
+`cancel_generation()` rather than request-scoped cancellation, so the adapter
+only cancels the currently active call when the optional request ID matches;
+an idle call or mismatched ID returns `false`. It does not advertise
+`requests.concurrent`, even if the engine supports internal batching, because
+this adapter boundary cannot safely run concurrent invocations with global
+cancellation. A future adapter may advertise concurrency after it provides
+request-scoped cancellation and matching lifecycle tests.
+
 ## 14. Model card requirements
 
 Every model card should eventually show the information the resolver uses:

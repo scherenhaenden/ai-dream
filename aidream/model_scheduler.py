@@ -84,6 +84,7 @@ class ResidencyRecord:
     estimated_vram_bytes: int | None = None
     pinned: bool = False
     lease_ids: set[str] = field(default_factory=set)
+    active_calls: int = 0
     loaded_at: float = field(default_factory=time.monotonic)
     last_used_at: float = field(default_factory=time.monotonic)
     state: str = "idle"
@@ -334,34 +335,76 @@ class ModelScheduler:
             self._release_locked(lease_id)
 
     def cancel(self, lease: ModelLease | str, request_id: str | None = None) -> None:
+        """Signal cancellation without ending the lease.
+
+        A runtime's cancellation callback may only request that an in-flight
+        call stop. The caller must keep the lease until that call returns and
+        then release it through the normal execution cleanup path.
+        """
         lease_id = lease if isinstance(lease, str) else lease.lease_id
         with self._mutation_lock:
             entry = self._leases.get(lease_id)
             if entry is None:
                 raise SchedulerError(SchedulerErrorCode.INVALID_LEASE, "Lease is no longer active")
             record, _owner = entry
-            try:
-                self._adapter(record.runtime_id).cancel(record.handle, request_id)
-            except Exception as exc:
+            adapter, handle = self._adapter(record.runtime_id), record.handle
+            # Prevent a concurrent owner cleanup from unloading the handle
+            # until the cancellation signal itself has returned.
+            record.active_calls += 1
+        try:
+            adapter.cancel(handle, request_id)
+        except Exception as exc:
+            raise SchedulerError(SchedulerErrorCode.LIFECYCLE_FAILED,
+                                 f"Cancellation callback failed: {exc}") from exc
+        finally:
+            with self._mutation_lock:
+                record.active_calls -= 1
+
+    def begin_call(self, lease: ModelLease | str) -> None:
+        """Mark an adapter invocation active for the lifetime of its call."""
+        lease_id = lease if isinstance(lease, str) else lease.lease_id
+        with self._mutation_lock:
+            entry = self._leases.get(lease_id)
+            if entry is None:
+                raise SchedulerError(SchedulerErrorCode.INVALID_LEASE, "Lease is no longer active")
+            record, _owner = entry
+            record.active_calls += 1
+            record.state = "busy"
+
+    def end_call(self, lease: ModelLease | str) -> None:
+        """Mark a completed adapter invocation; the lease remains caller-owned."""
+        lease_id = lease if isinstance(lease, str) else lease.lease_id
+        with self._mutation_lock:
+            entry = self._leases.get(lease_id)
+            if entry is None:
+                raise SchedulerError(SchedulerErrorCode.INVALID_LEASE, "Lease is no longer active")
+            record, _owner = entry
+            if record.active_calls <= 0:
                 raise SchedulerError(SchedulerErrorCode.LIFECYCLE_FAILED,
-                                     f"Cancellation callback failed: {exc}") from exc
-            finally:
-                self._release_locked(lease_id)
+                                     "Lease has no active adapter call")
+            record.active_calls -= 1
 
     def release_owner(self, owner_id: str) -> int:
         """Release every lease associated with a cancelled/finished run."""
         with self._mutation_lock:
             lease_ids = [lease_id for lease_id, (_record, owner) in self._leases.items()
                          if owner == owner_id]
+            if any(self._leases[lease_id][0].active_calls for lease_id in lease_ids):
+                raise SchedulerError(SchedulerErrorCode.BUSY,
+                                     "Cannot release run leases while adapter calls are active")
             for lease_id in lease_ids:
                 self._release_locked(lease_id)
             return len(lease_ids)
 
     def _release_locked(self, lease_id: str) -> None:
-        entry = self._leases.pop(lease_id, None)
+        entry = self._leases.get(lease_id)
         if entry is None:
             raise SchedulerError(SchedulerErrorCode.INVALID_LEASE, "Lease is no longer active")
         record, _owner = entry
+        if record.active_calls:
+            raise SchedulerError(SchedulerErrorCode.BUSY,
+                                 "Cannot release a lease while adapter calls are active")
+        self._leases.pop(lease_id)
         record.lease_ids.discard(lease_id)
         record.last_used_at = time.monotonic()
         record.state = "busy" if record.lease_count else "idle"
@@ -456,6 +499,8 @@ class ModelScheduler:
                 return
             if record.lease_count:
                 raise SchedulerError(SchedulerErrorCode.BUSY, "Cannot unload a model with active leases")
+            if record.active_calls:
+                raise SchedulerError(SchedulerErrorCode.BUSY, "Cannot unload a model with active adapter calls")
             if record.pinned and not force:
                 raise SchedulerError(SchedulerErrorCode.BUSY, "Cannot unload a pinned model without force")
             self._unload_record(record, reason="requested", force=force)
@@ -463,6 +508,8 @@ class ModelScheduler:
     def _unload_record(self, record: ResidencyRecord, *, reason: str, force: bool = False) -> None:
         if record.lease_count:
             raise SchedulerError(SchedulerErrorCode.BUSY, "Cannot evict a model with active leases")
+        if record.active_calls:
+            raise SchedulerError(SchedulerErrorCode.BUSY, "Cannot evict a model with active adapter calls")
         if record.pinned and not force:
             raise SchedulerError(SchedulerErrorCode.BUSY, "Cannot evict a pinned model")
         record.state = "unloading"

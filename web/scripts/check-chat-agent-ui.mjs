@@ -102,6 +102,19 @@ const SCREENSHOT_DIR = path.resolve(__dirname, '../../artifacts/ui-smoke/chat-ag
       });
     });
 
+    await page.route('**/api/capability-preferences', route => route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ data: { selection_defaults: { mode: 'auto', eviction_policy: 'lru' } } })
+    }));
+    await page.route('**/api/resources', route => route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ data: { resources: { ram: {}, gpus: [], loaded_models: [] }, status: 'observed' } })
+    }));
+    await page.route('**/api/models/residency', route => route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ data: { residency: { items: [], count: 0, status: 'observed' } } })
+    }));
+
     // Mock API for /api/models
     await page.route('**/api/models', route => {
       route.fulfill({
@@ -117,6 +130,12 @@ const SCREENSHOT_DIR = path.resolve(__dirname, '../../artifacts/ui-smoke/chat-ag
         })
       });
     });
+    await page.route(/\/api\/model-profiles(?:\?.*)?$/, route => route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ data: { profiles: [] } })
+    }));
+    await page.route('**/api/skills', route => route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ data: { skills: [] } })
+    }));
 
     // Mock API for /api/chats
     await page.route(/\/api\/chats(?:\/[^/?#]+)?(?:[?#].*)?$/, async route => {
@@ -196,18 +215,20 @@ const SCREENSHOT_DIR = path.resolve(__dirname, '../../artifacts/ui-smoke/chat-ag
     await expect(page.getByText('Local full-text retrieval · no embeddings')).toBeVisible();
     await expect(page.locator('#chat-model')).toHaveValue('mock-model-2');
     await page.locator('#chat-model').selectOption('mock-model-1');
+    await page.getByRole('button', { name: 'Direct chat' }).click();
     await page.getByRole('textbox', { name: 'Message' }).fill('Test request contract');
     await page.getByRole('button', { name: 'Send message' }).click();
     await expect.poll(() => chatPayload?.model_id).toBe('mock-model-1');
     await expect.poll(() => Object.keys(chatPayload || {}).sort()).toEqual(['chat_id', 'model_id', 'prompt']);
     await expect(page.getByText('Mock answer')).toBeVisible();
-    await expect(page.locator('.code-canvas')).toBeVisible();
-    await expect(page.locator('.code-scroll code')).toContainText('<html><body>Hello</body></html>');
-    await expect(page.locator('.message-content').filter({ hasText: '[html block is shown in Canvas]' })).toBeVisible();
-    await page.getByRole('button', { name: 'Hide Canvas' }).click();
     await expect(page.locator('.code-canvas')).toHaveCount(0);
-    await page.getByRole('button', { name: 'Canvas · Code' }).click();
-    await expect(page.locator('.code-canvas')).toBeVisible();
+    await expect(page.locator('.message-content').filter({ hasText: '[html block is available to open in Canvas]' })).toBeVisible();
+    await page.getByRole('button', { name: 'Open html in Canvas' }).click();
+    await expect(page).toHaveURL(/\/canvas$/);
+    await expect(page.getByRole('heading', { name: 'Canvas', level: 1 })).toBeVisible();
+    const htmlPreview = page.locator('iframe.html-preview');
+    await expect(htmlPreview).toBeVisible();
+    await expect(page.frameLocator('iframe.html-preview').locator('body')).toContainText('Hello');
 
     await page.screenshot({ path: path.join(SCREENSHOT_DIR, 'chat.png') });
 

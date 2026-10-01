@@ -1,7 +1,7 @@
 import unittest
 from types import SimpleNamespace
 
-from aidream.image_runtime import LocalImageRuntimeAdapter
+from aidream.image_runtime import LocalImageModel, LocalImageRuntimeAdapter
 from aidream.runtime_adapters import RuntimeFailure, RuntimeRequest
 
 
@@ -89,6 +89,24 @@ class LocalImageRuntimeTest(unittest.TestCase):
                 "image": b"not an image", "media_type": "image/png", "instruction": "edit"}))
         with self.assertRaises(RuntimeFailure):
             adapter.invoke(handle, RuntimeRequest("image.generate", {"prompt": "x" * 8001}))
+
+    def test_backend_output_must_match_a_supported_image_signature(self):
+        backend = FakeImageBackend()
+        backend.generate_image = lambda _prompt, options=None: {
+            "content_bytes": b"not really a PNG", "media_type": "image/png"}
+        adapter = LocalImageRuntimeAdapter(backend)
+        model = adapter.list_models()[0]
+        handle = adapter.load(adapter.prepare({"model": model,
+                                               "required_capability": "image.generate"}))
+        with self.assertRaisesRegex(RuntimeFailure, "operation failed"):
+            adapter.invoke(handle, RuntimeRequest("image.generate", {"prompt": "a tree"}))
+
+    def test_resource_estimates_are_read_only_and_ignore_invalid_hints(self):
+        model = SimpleNamespace(id="fixture", estimated_ram_bytes=1024,
+                                resource_hints={"vram_bytes_estimate": 2048,
+                                                "ram_bytes_estimate": True})
+        self.assertEqual(LocalImageRuntimeAdapter.resource_estimates(
+            LocalImageModel("fixture", model)), (1024, 2048))
 
 
 if __name__ == "__main__":

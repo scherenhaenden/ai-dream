@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+import threading
 from typing import Any, Mapping, Protocol, runtime_checkable
 import uuid
 
@@ -112,6 +113,12 @@ class BackendRuntimeAdapter:
         self.backend = backend
         self.runtime_id = runtime_id or getattr(backend, "runtime_id", None) or getattr(backend, "name", self.kind)
         self._handle: RuntimeHandle | None = None
+        # Existing engines expose a process-wide cancel_generation(), not a
+        # request-scoped cancellation API. Serialize invocation so that this
+        # global cancellation can never target a different concurrent call.
+        self._invoke_lock = threading.Lock()
+        self._state_lock = threading.RLock()
+        self._active_request_id: str | None = None
 
     def _features(self) -> frozenset[str]:
         caps = self.backend.capabilities()
@@ -122,7 +129,6 @@ class BackendRuntimeAdapter:
             "device_selection": "placement.device",
             "tensor_split": "placement.tensor_parallel",
             "context_size": "context.configurable",
-            "max_concurrent": "requests.concurrent",
         }
         return frozenset(feature for attr, feature in names.items() if getattr(caps, attr, False))
 
@@ -170,14 +176,18 @@ class BackendRuntimeAdapter:
 
     def load(self, prepared: PreparedLaunch) -> RuntimeHandle:
         self._require_runtime(prepared.runtime_id)
-        try:
-            self.backend.load(prepared.model, prepared.placement, prepared.options)
-        except ValueError as exc:
-            raise RuntimeFailure(RuntimeErrorCode.INVALID_REQUEST, str(exc)) from exc
-        except RuntimeError as exc:
-            raise RuntimeFailure(RuntimeErrorCode.FAILED, str(exc), retryable=True) from exc
-        self._handle = RuntimeHandle(self.runtime_id, uuid.uuid4().hex)
-        return self._handle
+        with self._state_lock:
+            if self._handle is not None:
+                raise RuntimeFailure(RuntimeErrorCode.INVALID_REQUEST,
+                                     "A model is already loaded; unload it before loading another")
+            try:
+                self.backend.load(prepared.model, prepared.placement, prepared.options)
+            except ValueError as exc:
+                raise RuntimeFailure(RuntimeErrorCode.INVALID_REQUEST, str(exc)) from exc
+            except RuntimeError as exc:
+                raise RuntimeFailure(RuntimeErrorCode.FAILED, str(exc), retryable=True) from exc
+            self._handle = RuntimeHandle(self.runtime_id, uuid.uuid4().hex)
+            return self._handle
 
     def invoke(self, handle: RuntimeHandle, request: RuntimeRequest) -> RuntimeOutput:
         self._require_handle(handle)
@@ -195,30 +205,46 @@ class BackendRuntimeAdapter:
                 raise RuntimeFailure(RuntimeErrorCode.INVALID_REQUEST,
                                      "Provide images in either inputs or options, not both")
             options["images"] = request.inputs["images"]
-        try:
-            result = self.backend.generate(prompt, options)
-        except ValueError as exc:
-            raise RuntimeFailure(RuntimeErrorCode.INVALID_REQUEST, str(exc)) from exc
-        except Exception as exc:
-            # Keep engine exceptions private from the orchestration contract.
-            name = type(exc).__name__.lower()
-            code = RuntimeErrorCode.CANCELLED if "cancel" in name else RuntimeErrorCode.FAILED
-            raise RuntimeFailure(code, str(exc), retryable=code == RuntimeErrorCode.FAILED) from exc
+        with self._invoke_lock:
+            with self._state_lock:
+                self._require_handle(handle)
+                self._active_request_id = request.request_id or None
+            try:
+                result = self.backend.generate(prompt, options)
+            except ValueError as exc:
+                raise RuntimeFailure(RuntimeErrorCode.INVALID_REQUEST, str(exc)) from exc
+            except Exception as exc:
+                # Keep engine exceptions private from the orchestration contract.
+                name = type(exc).__name__.lower()
+                code = RuntimeErrorCode.CANCELLED if "cancel" in name else RuntimeErrorCode.FAILED
+                raise RuntimeFailure(code, str(exc), retryable=code == RuntimeErrorCode.FAILED) from exc
+            finally:
+                with self._state_lock:
+                    self._active_request_id = None
         return RuntimeOutput(request.operation, result,
                              {"runtime_id": self.runtime_id, "request_id": request.request_id})
 
     def cancel(self, handle: RuntimeHandle, request_id: str | None = None) -> bool:
-        self._require_handle(handle)
-        cancel = getattr(self.backend, "cancel_generation", None)
-        if cancel is None:
-            return False
-        cancel()
-        return True
+        with self._state_lock:
+            self._require_handle(handle)
+            active_request_id = self._active_request_id
+            if active_request_id is None or (request_id is not None and request_id != active_request_id):
+                return False
+            cancel = getattr(self.backend, "cancel_generation", None)
+            if cancel is None:
+                return False
+            # Keep the state lock while cancelling: invoke() cannot clear this
+            # request and begin a later one until the global cancel has returned.
+            cancel()
+            return True
 
     def unload(self, handle: RuntimeHandle) -> None:
-        self._require_handle(handle)
-        self.backend.unload()
-        self._handle = None
+        # Wait for a serialized invoke to finish before tearing its engine down.
+        with self._invoke_lock:
+            with self._state_lock:
+                self._require_handle(handle)
+                self.backend.unload()
+                self._handle = None
 
     def health(self, handle: RuntimeHandle | None = None) -> HealthState:
         if handle is not None:
@@ -283,6 +309,9 @@ class FakeRuntimeAdapter:
         self.calls.append("load")
         if prepared.runtime_id != self.runtime_id:
             raise RuntimeFailure(RuntimeErrorCode.INVALID_REQUEST, "wrong runtime")
+        if self._active_handle is not None:
+            raise RuntimeFailure(RuntimeErrorCode.INVALID_REQUEST,
+                                 "A model is already loaded; unload it before loading another")
         self.loaded = True
         self._active_handle = RuntimeHandle(self.runtime_id, uuid.uuid4().hex)
         return self._active_handle
@@ -297,8 +326,9 @@ class FakeRuntimeAdapter:
     def cancel(self, handle: RuntimeHandle, request_id: str | None = None) -> bool:
         self.calls.append("cancel")
         self._check(handle)
-        self.cancelled.append(request_id)
-        return True
+        # The fake invoke is synchronous and therefore has no active request
+        # after invoke() returns. It cannot model cancellation of a live call.
+        return False
 
     def unload(self, handle: RuntimeHandle) -> None:
         self.calls.append("unload")

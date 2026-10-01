@@ -7,6 +7,7 @@ import type { ArtifactEnvelope, UploadArtifactKind } from '../core/artifact.type
 import { SkillService } from '../core/skill.service';
 import type { SkillCatalogItem } from '../core/skill.types';
 import { CanvasWorkspaceService } from '../core/canvas-workspace.service';
+import { SelectionModeService } from '../core/selection-mode.service';
 
 type Model = { id: string; path?: string; format?: string };
 type ChatSummary = { id: string; title?: string; created_at?: string; updated_at?: string };
@@ -86,12 +87,14 @@ type ChatGeneration = { temperature: number; top_p: number | null; top_k: number
           <div class="orchestration-strip" aria-label="Chat execution plan">
             <div class="orchestration-strip-heading"><span class="eyebrow">EXECUTION</span><div class="execution-mode"><button [class.active]="chatExecutionMode() === 'orchestrated'" (click)="setChatExecutionMode('orchestrated')" [disabled]="busy()">Plan + run</button><button [class.active]="chatExecutionMode() === 'legacy'" (click)="setChatExecutionMode('legacy')" [disabled]="busy()">Direct chat</button></div></div>
             @if (chatExecutionMode() === 'orchestrated') {
+              <div class="plan-notice selection-mode-note" role="status">Global mode: <b>{{ selectionModeService.mode() }}</b>@if (selectionModeService.mode() === 'guided') { · Send resolves a plan for review; it runs only after confirmation. }@else if (selectionModeService.mode() === 'manual') { · Selected model and profile are hard pins; incompatible routes fail without substitution. }@else { · AI Dream resolves and runs the local route automatically. }</div>
               <div class="orchestration-route">@if (orchestrationPlan()) {<span class="route-ready">PLAN READY</span><span>{{ orchestrationRouteLabel() }}</span>} @else if (planningChat()) {<span>Resolving a local route…</span>} @else {<span>Preview route for {{ selectedModel()?.id || 'the selected model' }}</span>}</div>
               @if (orchestrationError()) {<div class="orchestration-error" role="status">{{ orchestrationError() }}</div>}
               @if (planNotice()) {<div class="plan-notice" role="status">{{ planNotice() }}</div>}
               @if (orchestrationPlan()) {<button class="plan-preview-button inspector-toggle" (click)="togglePlanInspector()" [attr.aria-expanded]="planInspectorOpen()">{{ planInspectorOpen() ? 'Close plan' : 'Inspect plan' }}</button>}
               @if (chatRunId()) {<div class="orchestration-route"><span class="run-state">{{ chatRunState() }}</span><span>Run {{ chatRunId().slice(0, 8) }}</span></div>}
               <button class="plan-preview-button" (click)="previewChatPlan()" [disabled]="!prompt().trim() || !selectedModelId() || planningChat() || busy()">{{ planningChat() ? 'Resolving…' : 'Preview plan' }}</button>
+              @if (selectionModeService.mode() === 'guided' && orchestrationPlan()) {<button class="plan-preview-button guided-confirm" (click)="confirmGuidedPlan()" [disabled]="!guidedPlanCurrent() || busy()">Confirm plan and run</button>}
               @if (planInspectorOpen() && orchestrationPlan(); as plan) {
                 <section class="chat-plan-inspector" aria-label="Resolved chat plan">
                   <header><div><b>Plan inspector</b><small>Resolved locally · no inference started</small></div><span>{{ plan.mode || 'automatic' }} · Up to {{ plan.resource_budget?.max_parallel_routes ?? 'unknown' }} parallel routes</span></header>
@@ -240,6 +243,7 @@ type ChatGeneration = { temperature: number; top_p: number | null; top_k: number
   `]
 })
 export class ChatPage implements OnInit {
+  readonly selectionModeService = inject(SelectionModeService);
   private readonly artifactService = inject(ArtifactService);
   private readonly canvasWorkspace = inject(CanvasWorkspaceService);
   private readonly router = inject(Router);
@@ -251,6 +255,7 @@ export class ChatPage implements OnInit {
   readonly profilesLoading = signal(false);
   readonly chatExecutionMode = signal<'orchestrated'|'legacy'>('orchestrated');
   readonly orchestrationPlan = signal<any>(null);
+  readonly approvedGuidedPlanKey = signal('');
   readonly planInspectorOpen = signal(false);
   readonly orchestrationError = signal('');
   readonly planNotice = signal('');
@@ -490,6 +495,7 @@ export class ChatPage implements OnInit {
     this.selectedModelId.set(modelId);
     this.selectedProfileId.set('');
     this.orchestrationPlan.set(null);
+    this.approvedGuidedPlanKey.set('');
     this.planInspectorOpen.set(false);
     this.planNotice.set('');
     this.loadProfiles(modelId);
@@ -503,6 +509,7 @@ export class ChatPage implements OnInit {
     this.selectedProfileId.set(typeof route.profile_id === 'string' ? route.profile_id : '');
     this.loadProfiles(route.model_id);
     this.orchestrationPlan.set(null);
+    this.approvedGuidedPlanKey.set('');
     this.planInspectorOpen.set(false);
     this.orchestrationError.set('');
     this.planNotice.set('Alternative selected for this turn. The next plan will pin this model and profile.');
@@ -513,7 +520,17 @@ export class ChatPage implements OnInit {
     this.orchestrationError.set('');
     this.planNotice.set('');
     this.orchestrationPlan.set(null);
+    this.approvedGuidedPlanKey.set('');
     this.planInspectorOpen.set(false);
+  }
+
+  private guidedPlanKey(text = this.prompt().trim()): string {
+    return JSON.stringify([text, this.selectedModelId(), this.selectedProfileId(), this.selectedChatId()]);
+  }
+
+  guidedPlanCurrent(): boolean {
+    return !!this.orchestrationPlan() && !!this.approvedGuidedPlanKey()
+      && this.approvedGuidedPlanKey() === this.guidedPlanKey();
   }
 
   private loadProfiles(modelId: string): void {
@@ -595,6 +612,8 @@ export class ChatPage implements OnInit {
 
   selectChat(id: string): void {
     const version = ++this.selectionVersion;
+    this.orchestrationPlan.set(null);
+    this.approvedGuidedPlanKey.set('');
     this.canvasOpen.set(false);
     this.generationLoadVersion++;
     this.selectedChatId.set(id);
@@ -777,7 +796,9 @@ export class ChatPage implements OnInit {
     const modelId = this.selectedModelId();
     if (!text || !chatId || !modelId || this.busy()) return;
     if (this.chatExecutionMode() === 'orchestrated') {
-      await this.sendOrchestrated(text, chatId, modelId);
+      const mode = this.selectionModeService.mode();
+      if (mode === 'guided') await this.previewChatPlan();
+      else await this.sendOrchestrated(text, chatId, modelId);
       return;
     }
     const previousMessages = this.messages();
@@ -826,13 +847,26 @@ export class ChatPage implements OnInit {
     }
   }
 
-  private async resolveChatPlan(text: string, modelId = this.selectedModelId()): Promise<any> {
+  private selectionForMode(mode = this.selectionModeService.mode(), modelId = this.selectedModelId()): Record<string, string> {
+    if (mode !== 'manual') return { mode: 'auto' };
     const selection: Record<string, string> = { mode: 'manual', pinned_model_id: modelId };
     if (this.selectedProfileId()) selection['pinned_profile_id'] = this.selectedProfileId();
+    return selection;
+  }
+
+  private async resolveChatPlan(text: string, mode = this.selectionModeService.mode(), modelId = this.selectedModelId()): Promise<any> {
+    const selection = this.selectionForMode(mode, modelId);
     const request = { inputs: { prompt: { kind: 'text', text } }, selection };
     const response = await firstValueFrom(this.api.post<unknown>('/api/skills/chat.general/plan', request));
     const data = unwrap(response) as any;
     if (!data?.plan || !Array.isArray(data.plan.nodes)) throw new Error('The local API returned an invalid chat plan.');
+    if (mode === 'manual') {
+      const node = data.plan.nodes.find((item: any) => item?.capability_id === 'text.chat');
+      if (!node?.selected || node.selected.model_id !== modelId
+        || (this.selectedProfileId() && node.selected.profile_id !== this.selectedProfileId())) {
+        throw new Error('The selected model or profile is not compatible with this chat route. Manual mode will not substitute another route.');
+      }
+    }
     return data.plan;
   }
 
@@ -842,9 +876,28 @@ export class ChatPage implements OnInit {
     this.orchestrationError.set('');
     this.planNotice.set('');
     this.orchestrationPlan.set(null);
-    try { this.orchestrationPlan.set(await this.resolveChatPlan(this.prompt().trim())); }
+    try {
+      const text = this.prompt().trim();
+      const mode = this.selectionModeService.mode();
+      const plan = await this.resolveChatPlan(text, mode);
+      this.orchestrationPlan.set(plan);
+      this.approvedGuidedPlanKey.set(mode === 'guided' ? this.guidedPlanKey(text) : '');
+      if (mode === 'guided') this.planInspectorOpen.set(true);
+    }
     catch (error) { this.orchestrationError.set(error instanceof Error ? error.message : 'Could not resolve a local chat route.'); }
     finally { this.planningChat.set(false); }
+  }
+
+  async confirmGuidedPlan(): Promise<void> {
+    if (this.selectionModeService.mode() !== 'guided' || !this.guidedPlanCurrent()) {
+      this.planNotice.set('The reviewed plan is out of date. Resolve the current prompt and selections again before running.');
+      this.orchestrationPlan.set(null);
+      this.approvedGuidedPlanKey.set('');
+      return;
+    }
+    const chatId = this.selectedChatId();
+    if (!chatId) return;
+    await this.runResolvedChatPlan(this.prompt().trim(), chatId, this.orchestrationPlan(), 'guided');
   }
 
   private async sendOrchestrated(text: string, chatId: string, modelId: string): Promise<void> {
@@ -860,15 +913,13 @@ export class ChatPage implements OnInit {
     this.planningChat.set(true);
     this.messages.update(messages => [...messages, temporaryUser]);
     try {
-      const plan = await this.resolveChatPlan(text, modelId);
+      const mode = this.selectionModeService.mode();
+      const plan = await this.resolveChatPlan(text, mode, modelId);
       this.orchestrationPlan.set(plan);
       this.planNotice.set('');
       this.planningChat.set(false);
-      const selection: Record<string, string> = { mode: 'manual', pinned_model_id: modelId };
-      if (this.selectedProfileId()) selection['pinned_profile_id'] = this.selectedProfileId();
-      const response = await firstValueFrom(this.api.post<unknown>('/api/skills/chat.general/run', {
-        chat_id: chatId, inputs: { prompt: { kind: 'text', text } }, selection
-      }));
+      const selection = this.selectionForMode(mode, modelId);
+      const response = await firstValueFrom(this.api.post<unknown>('/api/skills/chat.general/run', { chat_id: chatId, inputs: { prompt: { kind: 'text', text } }, selection }));
       const data = unwrap(response) as any;
       const run = data?.run;
       if (!run || typeof run.id !== 'string') throw new Error('The local API did not create a chat run.');
@@ -899,6 +950,53 @@ export class ChatPage implements OnInit {
       this.sending.set(false);
       this.streaming.set(false);
       this.planningChat.set(false);
+      this.prompt.set(draft);
+      this.messages.set(previousMessages);
+      const message = error instanceof Error ? error.message : 'The orchestration run failed.';
+      this.orchestrationError.set(message);
+      this.turnError.set(message);
+    }
+  }
+
+  private async runResolvedChatPlan(text: string, chatId: string, plan: any, mode: 'guided'): Promise<void> {
+    const previousMessages = this.messages();
+    const draft = this.prompt();
+    const temporaryUser: TranscriptMessage = { role: 'user', content: text, key: `pending-user-${Date.now()}` };
+    this.prompt.set('');
+    this.turnError.set('');
+    this.orchestrationError.set('');
+    this.chatRunId.set('');
+    this.chatRunState.set('Planning');
+    this.sending.set(true);
+    this.messages.update(messages => [...messages, temporaryUser]);
+    try {
+      const response = await firstValueFrom(this.api.post<unknown>('/api/skills/chat.general/run', {
+        chat_id: chatId, inputs: { prompt: { kind: 'text', text } }, selection: this.selectionForMode(mode),
+      }));
+      const run = (unwrap(response) as any)?.run;
+      if (!run || typeof run.id !== 'string') throw new Error('The local API did not create a chat run.');
+      this.chatRunId.set(run.id);
+      this.chatRunState.set(run.state || 'queued');
+      this.sending.set(false);
+      this.streaming.set(true);
+      const deadline = Date.now() + 300_000;
+      while (Date.now() < deadline) {
+        const snapshot = (unwrap(await firstValueFrom(this.api.get<unknown>(`/api/runs/${encodeURIComponent(run.id)}`))) as any)?.run;
+        if (!snapshot || snapshot.id !== run.id) throw new Error('The local API returned an invalid run status.');
+        this.chatRunState.set(snapshot.state);
+        if (snapshot.state === 'succeeded') {
+          this.streaming.set(false);
+          await this.refreshTranscript(chatId, temporaryUser);
+          this.loadRuntimeStatus();
+          return;
+        }
+        if (snapshot.state === 'failed' || snapshot.state === 'cancelled') throw new Error(snapshot.error?.message || `Chat run ${snapshot.state}.`);
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      throw new Error('The chat run is still active; open Runs to inspect its current state.');
+    } catch (error) {
+      this.sending.set(false);
+      this.streaming.set(false);
       this.prompt.set(draft);
       this.messages.set(previousMessages);
       const message = error instanceof Error ? error.message : 'The orchestration run failed.';
