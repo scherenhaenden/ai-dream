@@ -469,6 +469,49 @@ class HTTPAPITests(unittest.TestCase):
         self.assertIn("disabled globally", caught.exception.read().decode())
         caught.exception.close()
 
+    def test_assisted_draft_http_rejects_a_different_installed_skill(self):
+        from aidream.capabilities.preferences import CapabilityPreferenceStore
+
+        class Backend:
+            name = "fake-runtime"
+            runtime_id = "fake-runtime"
+            _loaded_model = "already-loaded-model"
+            def generate(self, _prompt, _options):
+                return json.dumps({
+                    "skill_id": "document.extract-text",
+                    "components": [{"node_id": "parse", "component_id": "document.parse"}],
+                })
+            def unload(self):
+                self._loaded_model = None
+
+        class DraftValidator:
+            def __init__(self):
+                self.resolve_called = False
+            def draft_components(self, _skill_id):
+                return [{"node_id": "reply", "component_id": "text.chat"}]
+            def resolve_assisted_draft(self, *_args, **_kwargs):
+                self.resolve_called = True
+                raise AssertionError("cross-skill draft must be rejected before plan resolution")
+
+        service = self.server.services
+        service.capability_preference_store = CapabilityPreferenceStore(
+            Path(self.temp.name) / "planner-cross-skill-preferences.json")
+        service.capability_preference_store.patch({
+            "selection_defaults": {"assisted_planner_enabled": True},
+        })
+        service._active_backend = Backend()
+        validator = DraftValidator()
+        service.run_planner = lambda **_kwargs: {
+            "plan": {"preview": True}, "service": validator,
+        }
+
+        with self.assertRaises(HTTPError) as caught:
+            self.post_json("/api/skills/chat.general/draft", {"goal": "answer my question"})
+        self.assertEqual(caught.exception.code, 400)
+        self.assertIn("must match the requested skill", caught.exception.read().decode())
+        caught.exception.close()
+        self.assertFalse(validator.resolve_called)
+
     def test_rejects_unknown_routes_query_and_bad_host(self):
         for path in ("/api/unknown", "/api/health?x=1"):
             with self.subTest(path=path), self.assertRaises(HTTPError) as caught:

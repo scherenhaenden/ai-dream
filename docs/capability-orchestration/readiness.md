@@ -75,9 +75,43 @@ Run durability verification on 2026-10-01: focused `RunJournalStore`/`RunManager
 The first orchestration release above is an intermediate milestone, not the
 completion target for the active capability-orchestration objective. The full
 target covers every Phase 0–15 deliverable and acceptance criterion in
-`implementation-plan.md`, every applicable interaction in `ux.md`, and the
-contracts, API and pipeline requirements in the other files in this directory.
-Do not call this work complete when only the first-release milestone passes.
+`implementation-plan.md`, every applicable interaction in `ux.md`, the
+progressive-disclosure stages and preservation requirements in
+[`../ux-information-architecture.md`](../ux-information-architecture.md), and
+the contracts, API and pipeline requirements in the other files in this
+directory. The information-architecture proposal is an additive UX layer: it
+does not replace the capability orchestration UX contract in `ux.md`. Both
+specifications must be satisfied. Where the proposed navigation hierarchy
+changes where an existing capability is reached, preserve its behavior,
+deep-links and discoverability through contextual navigation, Settings or
+search/command palette. Do not call this work complete when only the
+first-release milestone passes.
+
+### Progressive-disclosure information architecture
+
+This matrix tracks the six implementation stages in
+[`../ux-information-architecture.md`](../ux-information-architecture.md).
+The source document is a proposed direction, not evidence of shipped behavior.
+Stage 1 is **completed** based on local frontend implementation and recorded
+static, build and browser verification below. Stages 2–4 and 6 remain not
+started. Stage 5 is not started; telemetry de-duplication remains an explicit
+gap. The cross-stage preservation gate remains in progress because later
+stages and its configuration non-mutation criteria are still outstanding.
+
+| Stage | Readiness | Atomic acceptance evidence required for completion | Current evidence / gap |
+|---|---|---|---|
+| 1. Navigation-only simplification | Completed | Standard navigation contains only primary task surfaces and Settings; every implemented route remains reachable through Settings, contextual links or command palette; existing deep links still work. | `web/src/app/app.component.ts` implements six sidebar destinations and a 19-destination command palette. `npm run test:nav-routes` passes; `npm run typecheck` and `npm run build` pass. Playwright smoke `web/scripts/smoke-progressive-navigation.mjs` verifies click navigation to all 19 destinations, ArrowDown+Enter keyboard selection, `/hub`, the `/capability-map` deep link, and 390 px layout. No routes were removed. This is local verification; deployment is not implied. |
+| 2. Settings consolidation | Not started | Settings contains coherent General, Models & Storage, Runtimes, Connections, Appearance and Advanced areas; Local API connection has one authoritative home; runtime defaults relate coherently to runtime installation management; advanced infrastructure pages are discoverable from Settings. | Current readiness records Settings and runtime surfaces, but no evidence of the proposed consolidated categories or advanced-page directory. |
+| 3. Model-centered configuration | Not started | User can discover/select a model, configure its runtime/placement/profile and load/use it without an unrelated top-level route; global runtime defaults remain separate; saved profiles remain usable. | Model Studio contains model/profile configuration, while Load Model/Placement and Runtime remain separate destinations. End-to-end model-centered completion and preserved-profile verification are not recorded. |
+| 4. Provider connections | Not started | Connections can be added, tested, disabled and edited from Settings; credentials use the selected secure storage strategy and are not shown in plaintext after save; remote model discovery feeds shared model selection; generic OpenAI-compatible endpoints work where supported. | No Connections abstraction/UI or acceptance evidence is recorded. Do not infer this from the existing local API status page or model hub. |
+| 5. Telemetry de-duplication | Not started | Local API status is not repeated in three persistent locations; detailed resources are reachable in one interaction; connectivity and resource failures remain obvious and actionable. | The sidebar status card, top-bar connection chip and footer status still repeat API state (`web/src/app/app.component.ts`); stage 1 changed navigation only. No telemetry de-duplication is claimed. |
+| 6. Standard/Advanced visibility preference | Not started | Standard is uncluttered by default; Advanced can expose workstation destinations directly; switching modes leaves runtime/model/provider configuration unchanged. | No Standard/Advanced preference or persistence/non-mutation evidence is recorded. |
+| Cross-stage preservation gate | In progress | All currently implemented routes remain functional and reachable in the consolidated IA; existing deep links continue to resolve; moving a destination preserves its behavior and capability; advanced destinations remain discoverable through Settings, contextual links or command/search palette; switching visibility mode does not modify model/runtime/provider settings. | Stage 1 preserves all 19 destinations in the command palette and its route smoke covers keyboard selection plus `/hub` and `/capability-map` deep links. Stages 2–6 and visibility-mode configuration non-mutation remain unimplemented and unverified. |
+
+The matrix above is separate from the existing capability-orchestration UX
+coverage below. Passing stages 1–6 does not prove the `ux.md` interactions;
+passing the `ux.md` interactions does not prove progressive-disclosure
+navigation, configuration consolidation or preservation requirements.
 
 | Phase | Current | Full-scope evidence required before 100% |
 |---|---:|---|
@@ -96,10 +130,12 @@ Do not call this work complete when only the first-release milestone passes.
 | 12. Audio stack | 68% | Fake tests cover STT, direct conversation, reviewed-transcript response, and Flite provider discovery. On this host `LocalVoice` discovers FFmpeg/libflite plus `kal`, `kal16`, `slt`, `rms`, and `awb`; `audio.synthesize` now returns a bounded typed WAV from the local CPU provider, verified by a real `ffprobe` smoke (22,050 Hz mono PCM). Speech Dispatcher `spd-say` is available for local playback. `whisper-cli`/`whisper-cpp`, GGML model files, and Python STT packages were absent, so transcription is not host-ready and no STT inference was claimed. | STT executable plus an existing local model; explicit TTS voice choice in the workflow; real reviewed text.chat→TTS route validation; diarization, audio understanding/music, streaming and rendered user playback QA. |
 | 13. Knowledge/RAG | 83% | Bounded BM25-style lexical retrieval reports matched terms and heuristic scores; fixed labeled tests achieve MRR@5 1.0 across three fixtures; Runs shows retrieval evidence; citations retain exact offsets/quotes and PDF text/optional first-pages OCR tools have fake coverage. Source text resembling generated citation labels is neutralized in model context while exact quote and offset evidence is preserved. Knowledge browser smoke covers load failure/retry, confirmed-empty state, lexical no-match/match, and 360 px layout. | Broader relevance evaluation, embeddings/reranking, OCR host verification and broader citation review remain. |
 | 14. Document generation | 88% | HTML/PDF/report outputs, typed JSON display, retryable previews, sandboxed HTML, PDF actions and Canvas content tabs exist; structured text/bullet/table reports render to paginated PDF and pass fake owner-scoped API coverage. Poppler+Pillow smoke rendering produced and visually inspected a three-page PDF; content was readable, but line/pipe-table layout and templates need refinement. Broader rendered visual QA remains. |
-| 15. Assisted planner | 60% | Goal-first lexical skill discovery uses declared metadata; draft and resolved plans have side-by-side panels with mobile layout. Static UX check, typecheck/build, and narrow smoke checks for search, opt-in, loaded-model gating and mobile pass per report. The endpoint retains explicit global opt-in, already-loaded-model-only generation, strict validation, and Run binding to the current reviewed plan ID; stale-plan conflicts require a fresh preview. | Dynamic smoke remains pending because its fixture did not expose goal-entry or approval controls. Real model generation remains unverified, and API enforcement of `draft.skill_id == requested skill_id` is pending. |
+| 15. Assisted planner | 60% | Goal-first lexical skill discovery uses declared metadata; draft and resolved plans have side-by-side panels with mobile layout. Static UX check, typecheck/build, and narrow smoke checks for search, opt-in, loaded-model gating and mobile pass per report. The endpoint retains explicit global opt-in, already-loaded-model-only generation, strict validation, and Run binding to the current reviewed plan ID; stale-plan conflicts require a fresh preview. | The API now rejects `draft.skill_id != requested skill_id` before plan resolution (`aidream/http_api.py`); the fake-backed HTTP cross-skill test passes (`tests/test_http_api.py`). Dynamic planner smoke remains pending because its fixture did not expose goal-entry or approval controls. Real model generation and the interactive approval flow remain unverified. Readiness stays at 60%; this contract fix alone does not establish broader phase completion. |
 
-The 20 sections in `ux.md` are also in scope; automated route checks or backend
-tests do not prove visual quality. Rendered smoke evidence currently covers the
+All 20 sections in `ux.md` remain independently in scope alongside stages 1–6
+above; the information-architecture proposal is additive and does not supersede
+these capability UX requirements. Automated route checks or backend tests do
+not prove visual quality. Rendered smoke evidence currently covers the
 topbar, Hardware, Settings, Model Studio, Chat/Agent, Auto/Guided/Manual route
 interactions, explicit Chat→Canvas handoff, Resources eviction/pin/unpin/unload,
 Setup Assistant refresh feedback, Skills permission-before-run gating, and

@@ -6,6 +6,23 @@ import { ResourcesService } from './core/resources.service';
 import { SelectionModeService } from './core/selection-mode.service';
 
 const NAV_GROUPS = [
+  { label: 'WORK', items: [
+    { label: 'Chat', path: '/chat', icon: '▤' },
+    { label: 'Models', path: '/models', icon: '⬡' },
+    { label: 'Create / Skills', path: '/skills', icon: '◇' },
+    { label: 'Knowledge (RAG)', path: '/knowledge', icon: '▧' },
+  ] },
+  { label: 'ACTIVITY', items: [
+    { label: 'Downloads', path: '/downloads', icon: '↓' },
+  ] },
+  { label: 'SETTINGS', items: [
+    { label: 'Settings', path: '/settings', icon: '⚙' },
+  ] },
+];
+
+// Keep every existing destination discoverable after reducing the permanent
+// navigation surface. Deep links and route definitions remain unchanged.
+const PALETTE_NAV_GROUPS = [
   { label: 'WORKSPACE', items: [
     { label: 'Chat', path: '/chat', icon: '▤' },
     { label: 'Agent', path: '/agent', icon: '◇' },
@@ -14,6 +31,7 @@ const NAV_GROUPS = [
     { label: 'Setup Assistant', path: '/setup-assistant', icon: '◇' },
     { label: 'Skills', path: '/skills', icon: '◇' },
     { label: 'Runs', path: '/runs', icon: '≋' },
+    { label: 'Canvas', path: '/canvas', icon: '▤' },
     { label: 'Model Hubs', path: '/hub', icon: '⌕' },
     { label: 'Knowledge (RAG)', path: '/knowledge', icon: '▧' },
   ] },
@@ -33,7 +51,7 @@ const NAV_GROUPS = [
     { label: 'Settings', path: '/settings', icon: '⚙' },
   ] },
 ];
-const NAV = NAV_GROUPS.flatMap(group => group.items);
+const PALETTE_NAV = PALETTE_NAV_GROUPS.flatMap(group => group.items);
 
 @Component({
   selector: 'ai-root', standalone: true, imports: [RouterOutlet, RouterLink, RouterLinkActive],
@@ -74,7 +92,7 @@ const NAV = NAV_GROUPS.flatMap(group => group.items);
           <button class="mobile-menu icon-button" (click)="mobileNav.set(!mobileNav())" aria-label="Toggle navigation">☰</button>
           <div class="breadcrumbs"><span>Studio</span><i>›</i><b>{{ title() }}</b></div>
           <div class="top-actions">
-            <button class="search-trigger" (click)="openPalette()"><span>⌕</span><span>Search models, runtimes, commands</span><kbd>Ctrl+K</kbd></button>
+            <button class="search-trigger" (click)="openPalette()"><span>⌕</span><span>Search pages</span><kbd>Ctrl+K</kbd></button>
             <label class="mode-picker" [title]="modeDescription()"><span>MODE</span><select aria-label="Global orchestration mode" [value]="selectionMode()" [disabled]="modeLoading() || !api.connected()" (change)="setSelectionMode($any($event.target).value)"><option value="auto">Auto</option><option value="guided">Guided</option><option value="manual">Manual / pinned</option></select></label>
             <a class="resource-chip" routerLink="/resources" [attr.aria-label]="'Open Resources · ' + resourceIndicator()" [title]="'Measured free/total values · ' + resourceIndicator()"><span aria-hidden="true">▦</span><span>{{ resourceIndicator() }}</span></a>
             <a class="load-model-action" routerLink="/models"><span>＋</span><span>Models</span></a>
@@ -87,8 +105,8 @@ const NAV = NAV_GROUPS.flatMap(group => group.items);
       <footer class="statusbar"><div><span class="status-key">LOCAL API</span><span class="pulse" [class.online]="api.connected()"></span><span>{{ api.connected() ? 'Connected' : api.connection() === 'checking' ? 'Connecting' : 'Unavailable' }}</span><span class="divider">|</span><span>LOCAL ONLY</span></div><div><span>ENDPOINT</span> <code>{{ api.baseUrl() }}</code><span class="divider">|</span><span>AI DREAM</span></div></footer>
       @if (paletteOpen()) {
         <div class="palette-backdrop" (click)="paletteOpen.set(false)" (keydown.escape)="paletteOpen.set(false)">
-          <section class="palette" (click)="$event.stopPropagation()"><label class="palette-search"><span>⌕</span><input autofocus placeholder="Jump to a page..." [value]="query()" (input)="query.set($any($event.target).value)" (keydown.escape)="paletteOpen.set(false)" (keydown.enter)="goFirst()" /></label>
-            <div class="palette-list">@for (item of filteredNav(); track item.path; let i = $index) {<a [routerLink]="item.path" (click)="paletteOpen.set(false)" [class.selected]="i === 0"><span class="nav-icon">{{ item.icon }}</span>{{ item.label }}<kbd>↵</kbd></a>} @empty {<p class="muted">No matching page</p>}</div><div class="palette-hint">Navigate <kbd>↑</kbd><kbd>↓</kbd> <span>Open</span> <kbd>↵</kbd> <span>Close</span> <kbd>Esc</kbd></div>
+          <section class="palette" role="dialog" aria-label="Navigate to a page" (click)="$event.stopPropagation()" (keydown)="onPaletteKeydown($event)"><label class="palette-search"><span aria-hidden="true">⌕</span><input autofocus role="combobox" aria-expanded="true" aria-autocomplete="list" aria-label="Search all pages" aria-controls="palette-results" [attr.aria-activedescendant]="activePaletteItemId()" placeholder="Jump to any page..." [value]="query()" (input)="setPaletteQuery($any($event.target).value)" (keydown.escape)="paletteOpen.set(false)" (keydown.enter)="goActive()" /></label>
+            <div class="palette-list" id="palette-results" role="listbox" aria-label="Available pages">@for (item of filteredNav(); track item.path; let i = $index) {<a role="option" [id]="paletteItemId(i)" [attr.aria-selected]="i === activePaletteIndex()" [routerLink]="item.path" (click)="paletteOpen.set(false)" [class.selected]="i === activePaletteIndex()"><span class="nav-icon">{{ item.icon }}</span>{{ item.label }}<kbd>↵</kbd></a>} @empty {<p class="muted" role="status">No matching page</p>}</div><div class="palette-hint">Navigate <kbd>↑</kbd><kbd>↓</kbd> <span>Open</span> <kbd>↵</kbd> <span>Close</span> <kbd>Esc</kbd></div>
           </section>
         </div>
       }
@@ -104,10 +122,12 @@ export class AppComponent {
   readonly mobileNav = signal(false);
   readonly paletteOpen = signal(false);
   readonly query = signal('');
+  readonly activePaletteIndex = signal(0);
   readonly selectionMode = this.selectionModeService.mode;
   readonly modeLoading = this.selectionModeService.loading;
   readonly modeError = this.selectionModeService.error;
-  readonly filteredNav = computed(() => NAV.filter(item => item.label.toLowerCase().includes(this.query().toLowerCase())));
+  readonly filteredNav = computed(() => PALETTE_NAV.filter(item => item.label.toLowerCase().includes(this.query().toLowerCase())));
+  readonly activePaletteItemId = computed(() => this.filteredNav().length ? this.paletteItemId(Math.min(this.activePaletteIndex(), this.filteredNav().length - 1)) : null);
   readonly title = signal('Chat (Loaded Model)');
   readonly resourceIndicator = computed(() => {
     const resources = this.resourceService.resources()?.resources;
@@ -136,7 +156,7 @@ export class AppComponent {
       if (this.api.connected()) void this.resourceService.refresh();
     }, 30_000);
     this.destroyRef.onDestroy(() => window.clearInterval(timer));
-    this.router.events.pipe(filter((event): event is NavigationEnd => event instanceof NavigationEnd)).subscribe(event => { this.title.set(NAV.find(item => event.urlAfterRedirects === item.path || event.urlAfterRedirects.startsWith(`${item.path}/`))?.label ?? 'Chat (Loaded Model)'); });
+    this.router.events.pipe(filter((event): event is NavigationEnd => event instanceof NavigationEnd)).subscribe(event => { this.title.set(PALETTE_NAV.find(item => event.urlAfterRedirects === item.path || event.urlAfterRedirects.startsWith(`${item.path}/`))?.label ?? 'Chat (Loaded Model)'); });
   }
   async setSelectionMode(value: string): Promise<void> {
     if (value !== 'auto' && value !== 'guided' && value !== 'manual') return;
@@ -160,6 +180,21 @@ export class AppComponent {
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); this.openPalette(); }
     if (event.key === 'Escape') { this.paletteOpen.set(false); this.mobileNav.set(false); }
   }
-  openPalette() { this.query.set(''); this.paletteOpen.set(true); }
-  goFirst() { const item = this.filteredNav()[0]; if (item) { void this.router.navigateByUrl(item.path); this.paletteOpen.set(false); } }
+  openPalette() { this.query.set(''); this.activePaletteIndex.set(0); this.paletteOpen.set(true); }
+  setPaletteQuery(value: string) { this.query.set(value); this.activePaletteIndex.set(0); }
+  paletteItemId(index: number): string { return `palette-option-${index}`; }
+  onPaletteKeydown(event: KeyboardEvent) {
+    const count = this.filteredNav().length;
+    if (!count) return;
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      const delta = event.key === 'ArrowDown' ? 1 : -1;
+      this.activePaletteIndex.update(index => (index + delta + count) % count);
+      requestAnimationFrame(() => document.getElementById(this.paletteItemId(this.activePaletteIndex()))?.scrollIntoView({ block: 'nearest' }));
+    }
+  }
+  goActive() {
+    const item = this.filteredNav()[this.activePaletteIndex()];
+    if (item) { void this.router.navigateByUrl(item.path); this.paletteOpen.set(false); }
+  }
 }

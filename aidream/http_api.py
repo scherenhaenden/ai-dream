@@ -1353,6 +1353,8 @@ class ReadOnlyAPI:
                 raise PlanDraftError("planner output is not valid JSON") from exc
             if not isinstance(draft, Mapping):
                 raise PlanDraftError("planner output must be a JSON object")
+            if draft.get("skill_id") != skill_id:
+                raise PlanDraftError("planner draft skill_id must match the requested skill")
             draft_options = {"mode": selection.get("mode")}
             if selection.get("capability_pins") is not None:
                 draft_options["capability_pins"] = selection["capability_pins"]
