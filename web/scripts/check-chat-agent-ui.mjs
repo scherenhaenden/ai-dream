@@ -18,6 +18,7 @@ const SCREENSHOT_DIR = path.resolve(__dirname, '../../artifacts/ui-smoke/chat-ag
   let guidedPlanPayload = null;
   let guidedRunPayload = null;
   let guidedRunCount = 0;
+  let forceManualMismatch = false;
   let chatMessages = [
     { role: 'user', content: 'Hello' },
     { role: 'assistant', content: 'Hi there!' }
@@ -151,7 +152,9 @@ const SCREENSHOT_DIR = path.resolve(__dirname, '../../artifacts/ui-smoke/chat-ag
     await page.route('**/api/skills/chat.general/plan', async route => {
       guidedPlanPayload = route.request().postDataJSON();
       const pin = guidedPlanPayload?.selection?.capability_pins?.['text.chat'];
-      const modelId = pin?.model_id || 'mock-model-1';
+      const requestedModel = pin?.model_id || guidedPlanPayload?.selection?.pinned_model_id || 'mock-model-1';
+      const modelId = forceManualMismatch && guidedPlanPayload?.selection?.mode === 'manual'
+        ? 'mock-model-1' : requestedModel;
       const planId = modelId === 'mock-model-2' ? 'b'.repeat(24) : 'a'.repeat(24);
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: { plan: {
         plan_id: planId, mode: guidedPlanPayload?.selection?.mode || 'auto',
@@ -288,6 +291,31 @@ const SCREENSHOT_DIR = path.resolve(__dirname, '../../artifacts/ui-smoke/chat-ag
     await expect.poll(() => guidedRunCount).toBe(1);
     await expect.poll(() => guidedRunPayload?.expected_plan_id).toBe('b'.repeat(24));
     await expect.poll(() => guidedRunPayload?.selection?.capability_pins?.['text.chat']?.model_id).toBe('mock-model-2');
+
+    // Auto executes the selected compatible plan directly; Manual keeps the
+    // selected model as a hard pin and preserves the prompt if it cannot route.
+    const modePicker = page.getByRole('combobox', { name: 'Global orchestration mode' });
+    await modePicker.selectOption('auto');
+    await expect.poll(() => selectionMode).toBe('auto');
+    await page.getByRole('textbox', { name: 'Message' }).fill('Run with automatic route selection');
+    await page.getByRole('button', { name: 'Send message' }).click();
+    await expect.poll(() => guidedRunCount).toBe(2);
+    await expect.poll(() => guidedRunPayload?.selection?.mode).toBe('auto');
+    await expect(guidedRunPayload?.selection?.pinned_model_id).toBeUndefined();
+
+    await modePicker.selectOption('manual');
+    await expect.poll(() => selectionMode).toBe('manual');
+    await page.getByRole('textbox', { name: 'Message' }).fill('Keep this prompt if the pinned route is unavailable');
+    forceManualMismatch = true;
+    await page.getByRole('button', { name: 'Send message' }).click();
+    await expect(page.locator('.orchestration-error')).toContainText('Manual mode will not substitute another route');
+    await expect(page.getByRole('textbox', { name: 'Message' })).toHaveValue('Keep this prompt if the pinned route is unavailable');
+    await expect.poll(() => guidedRunCount).toBe(2);
+    forceManualMismatch = false;
+    await page.getByRole('button', { name: 'Send message' }).click();
+    await expect.poll(() => guidedRunCount).toBe(3);
+    await expect.poll(() => guidedRunPayload?.selection?.mode).toBe('manual');
+    await expect.poll(() => guidedRunPayload?.selection?.pinned_model_id).toBe('mock-model-2');
 
     // 2. Check Agent Page
     console.log("Checking Agent Page...");

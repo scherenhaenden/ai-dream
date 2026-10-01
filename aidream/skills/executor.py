@@ -19,7 +19,7 @@ import hashlib
 import json
 import threading
 from dataclasses import dataclass
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections.abc import Callable, Mapping
 from typing import Any
 
@@ -468,13 +468,28 @@ class SkillExecutor:
                         with ThreadPoolExecutor(max_workers=max_parallel, thread_name_prefix="aidream-skill") as pool:
                             futures = [pool.submit(self._run_node, node, resolved, base_plan_revision, execution_context)
                                        for node, resolved in prepared]
-                            outcomes = []
-                            for (node, _), future in zip(prepared, futures):
+                            outcomes = [None] * len(prepared)
+                            future_indexes = {future: index for index, future in enumerate(futures)}
+                            for future in as_completed(futures):
+                                index = future_indexes[future]
+                                node = prepared[index][0]
                                 try:
                                     produced, trace = future.result()
-                                    outcomes.append((node, produced, None, trace))
+                                    outcomes[index] = (node, produced, None, trace)
                                 except Exception as exc:
-                                    outcomes.append((node, None, exc, getattr(exc, "trace", None)))
+                                    outcomes[index] = (node, None, exc, getattr(exc, "trace", None))
+                                    if isinstance(exc, RunCancelled):
+                                        # A nested/parallel branch can observe cancellation
+                                        # before the parent thread does. Signal every sibling
+                                        # immediately so cooperative runtime calls can stop,
+                                        # and prevent work that has not started from entering.
+                                        signal_cancel = getattr(cancel_event, "set", None)
+                                        if callable(signal_cancel):
+                                            signal_cancel()
+                                        for pending in futures:
+                                            if pending is not future:
+                                                pending.cancel()
+                            outcomes = [outcome for outcome in outcomes if outcome is not None]
                     else:
                         outcomes = []
                         for node, resolved in prepared:
@@ -509,6 +524,11 @@ class SkillExecutor:
                                 event_callback("completed", node_id)
                     errors = [error for _, _, error, _ in outcomes if error is not None]
                     if errors:
+                        cancellations = [error for error in errors if isinstance(error, RunCancelled)]
+                        if cancellations:
+                            # Cancellation is control flow, never a sibling's ordinary
+                            # failure or a fallback candidate failure.
+                            raise cancellations[0]
                         # Deterministic failure selection follows graph declaration order.
                         raise errors[0]
                 finally:

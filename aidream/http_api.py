@@ -890,21 +890,30 @@ class ReadOnlyAPI:
 
     def apply_residency_action(self, route_id: str, action: str):
         """Apply a residency-only action to a server-allowlisted route."""
+        # Residency controls and legacy Direct Chat share backend instances.
+        # In particular, an unload must not stop a backend while a chat turn
+        # is streaming from it. The same lock also serializes this mutation
+        # against an orchestration run, which owns the scheduler during execute.
+        if not self._chat_lock.acquire(blocking=False):
+            raise APIConflict("A model turn or orchestration run is active; retry the residency action afterward")
         scheduler = getattr(self, "_orchestration_scheduler", None)
         routes = dict(getattr(self, "_orchestration_route_allowlist", {}))
-        if scheduler is None or not routes:
-            raise APIUnavailable("No orchestration routes are available for residency controls")
-        from aidream.residency_control import ResidencyControlService
-        from aidream.model_scheduler import SchedulerError, SchedulerErrorCode
         try:
-            result = ResidencyControlService(scheduler, route_allowlist=routes).apply(route_id, action)
-        except SchedulerError as exc:
-            if exc.code == SchedulerErrorCode.NOT_ALLOWED:
-                raise APINotFound("Residency route not found") from None
-            if exc.code in {SchedulerErrorCode.BUSY, SchedulerErrorCode.INVALID_LEASE}:
-                raise APIConflict(str(exc)) from None
-            raise APIError(str(exc)) from None
-        return {"data": {"residency": result}}
+            if scheduler is None or not routes:
+                raise APIUnavailable("No orchestration routes are available for residency controls")
+            from aidream.residency_control import ResidencyControlService
+            from aidream.model_scheduler import SchedulerError, SchedulerErrorCode
+            try:
+                result = ResidencyControlService(scheduler, route_allowlist=routes).apply(route_id, action)
+            except SchedulerError as exc:
+                if exc.code == SchedulerErrorCode.NOT_ALLOWED:
+                    raise APINotFound("Residency route not found") from None
+                if exc.code in {SchedulerErrorCode.BUSY, SchedulerErrorCode.INVALID_LEASE}:
+                    raise APIConflict(str(exc)) from None
+                raise APIError(str(exc)) from None
+            return {"data": {"residency": result}}
+        finally:
+            self._chat_lock.release()
 
     def get(self, path: str, query: str = "") -> tuple[int, dict[str, Any]]:
         if path == "/api/health":

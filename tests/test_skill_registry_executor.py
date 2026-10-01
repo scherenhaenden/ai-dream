@@ -242,6 +242,43 @@ class SkillExecutorTests(unittest.TestCase):
                           ("started", "merge"), ("completed", "merge"),
                           ("started", "result"), ("completed", "result")], events)
 
+    def test_parallel_cancellation_signals_siblings_and_wins_over_regular_failure(self):
+        graph = [
+            {"id": "left", "type": "tool", "tool_id": "left", "in": {"prompt": "$input.prompt"},
+             "accepts": {"prompt": "text"}, "out": {"value": "text"}},
+            {"id": "right", "type": "tool", "tool_id": "right", "in": {"prompt": "$input.prompt"},
+             "accepts": {"prompt": "text"}, "out": {"value": "text"}},
+            {"id": "fanout", "type": "parallel", "in": {"left": "$left.value", "right": "$right.value"},
+             "accepts": {"left": "text", "right": "text"}, "out": {"left": "text", "right": "text"}},
+            {"id": "merge", "type": "join", "in": {"left": "$fanout.left", "right": "$fanout.right"},
+             "accepts": {"left": "text", "right": "text"}, "out": {"value": "json"}},
+            {"id": "result", "type": "output", "in": {"answer": "$merge.value"}},
+        ]
+        skill = manifest(graph)
+        skill["outputs"] = [{"name": "answer", "artifact": "json", "required": True}]
+        skill["policy"] = {"max_parallel_nodes": 2}
+        cancel_event = Event()
+        sibling_observed_cancel = Event()
+        branches_entered = Barrier(2)
+
+        def ordinary_failure_after_cancel(*_):
+            branches_entered.wait(timeout=2)
+            if cancel_event.wait(1):
+                sibling_observed_cancel.set()
+                raise RuntimeError("ordinary sibling failure")
+            raise RuntimeError("cancellation was not propagated")
+
+        def cancel_branch(*_):
+            branches_entered.wait(timeout=2)
+            raise RunCancelled("nested branch cancelled")
+
+        executor = SkillExecutor(tools={"left": ordinary_failure_after_cancel, "right": cancel_branch})
+        with self.assertRaisesRegex(RunCancelled, "nested branch cancelled"):
+            executor.execute(skill, {"prompt": artifact("text", "go")}, cancel_event=cancel_event)
+
+        self.assertTrue(cancel_event.is_set())
+        self.assertTrue(sibling_observed_cancel.is_set())
+
     def test_parallel_contract_requires_distinct_static_typed_branches_and_parallel_budget(self):
         graph = [
             {"id": "left", "type": "tool", "tool_id": "identity", "in": {"value": "$input.prompt"},

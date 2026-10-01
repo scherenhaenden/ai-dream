@@ -14,7 +14,7 @@ from urllib.request import Request, urlopen
 
 from aidream.conversation import ChatStore
 from aidream.diagnostics import DiagnosticsLog
-from aidream.http_api import APIUnavailable, APINotFound, MAX_MODELS, MAX_REQUEST_BYTES, ReadOnlyAPI, create_server
+from aidream.http_api import APIConflict, APIUnavailable, APINotFound, MAX_MODELS, MAX_REQUEST_BYTES, ReadOnlyAPI, create_server
 from aidream.runtime import LlamaCppBackend
 
 
@@ -995,6 +995,33 @@ class ResourceSnapshotAPIRouteTest(unittest.TestCase):
         self.assertEqual(adapter.calls.count("unload"), 0)
         with self.assertRaises(APINotFound):
             api.apply_residency_action("caller-supplied-model-id", "unload")
+        api.close()
+
+    def test_residency_unload_conflicts_with_an_active_direct_chat_turn(self):
+        from aidream.model_scheduler import LeaseRequest, ModelScheduler
+        from aidream.runtime_adapters import FakeRuntimeAdapter
+
+        api = ReadOnlyAPI(hardware=FakeHardware(), catalog=FakeCatalog(), runtimes=FakeRuntime())
+        adapter = FakeRuntimeAdapter(runtime_id="fixture")
+        scheduler = ModelScheduler({"fixture": adapter})
+        api._orchestration_scheduler = scheduler
+        api._orchestration_route_allowlist = {"route_fixture_chat": ("model-a", "fixture", None)}
+        lease = scheduler.acquire(LeaseRequest("model-a", "fixture", {"model_id": "model-a"},
+                                               owner_id="run-1", orchestration_owned=True))
+        scheduler.release(lease)
+
+        self.assertTrue(api._chat_lock.acquire(blocking=False))
+        try:
+            with self.assertRaises(APIConflict):
+                api.apply_residency_action("route_fixture_chat", "unload")
+            self.assertEqual(adapter.calls.count("unload"), 0)
+            self.assertEqual(len(scheduler.residency()), 1)
+        finally:
+            api._chat_lock.release()
+
+        result = api.apply_residency_action("route_fixture_chat", "unload")
+        self.assertIsNone(result["data"]["residency"]["resident"])
+        self.assertEqual(adapter.calls.count("unload"), 1)
         api.close()
 
 

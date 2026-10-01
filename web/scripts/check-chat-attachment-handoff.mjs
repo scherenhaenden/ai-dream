@@ -8,6 +8,8 @@ const artifactService = await readFile(new URL('../src/app/core/artifact.service
 assert.match(chat, /supportsAttachmentSkill\(item, skill\)/, 'offer a skill route only when its declared input supports the attachment kind');
 assert.match(chat, /if \(kind === 'audio'\) return \['voice\.transcribe', 'voice\.conversation'\]/,
   'audio uploads should offer existing transcript-only and voice-conversation workflows');
+assert.match(chat, /if \(kind === 'image'\) return \['image\.describe', 'image\.edit-from-instruction'\]/,
+  'image uploads should offer both image understanding and source-image editing workflows');
 assert.match(chat, /this\.router\.navigate\(\['\/skills'\], \{ queryParams: \{ skill: skill\.id, artifact: item\.artifact\.id \} \}\)/,
   'explicit selection must carry only skill and opaque artifact IDs');
 assert.match(chat, /Attachments are staged for the suggested skills; sending a chat message remains text-only\./,

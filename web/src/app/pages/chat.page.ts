@@ -1170,7 +1170,7 @@ function attachmentKind(file: File): UploadArtifactKind | null {
   return null;
 }
 function suggestedSkillIds(kind: UploadArtifactKind): string[] {
-  if (kind === 'image') return ['image.describe'];
+  if (kind === 'image') return ['image.describe', 'image.edit-from-instruction'];
   if (kind === 'audio') return ['voice.transcribe', 'voice.conversation'];
   return ['document.summarize', 'document.extract-text'];
 }
