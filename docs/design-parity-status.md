@@ -18,8 +18,21 @@ Scores use the same five design/UX dimensions as the previous review. They measu
 | Information architecture | 9/10 | **9/10** | Atomic inventory maps all 13 reference Units to production destinations and documents six product-only destinations. Navigation smoke passed all 19 destinations, keyboard selection, deep links, and 390px overflow check. | Review hierarchy and visual discoverability at tablet and desktop widths; the 390px run checks the production shell, not the React reference. |
 | System consistency | 10/10 | **10/10** | YAML is named as the single color source; all 50 color tokens match the 50 CSS variables; duplicate warning/scrim entries were removed and radii reconciled. | Keep the token inventory synchronized as the system changes. Rendered contrast is tracked under accessibility, not inferred from token consistency. |
 | Accessibility and adaptation | 8/10 | **8/10** | Chromium AX checks confirmed clean sampled names, selected states, one-step palette arrow behavior, Tab containment, Enter selection, Escape close and focus restoration. Decorative icon names and a 1280px header overlap were fixed. | Complete Orca/screen-reader coverage, test all Units, validate 390/768/1440px layouts and zoom, and verify rendered contrast/motion states. |
-| Product fidelity | 8/10 | **8/10** | The source map distinguishes prototype-only sample actions from Angular/API-backed capabilities, corrects route/component counts, and records six production-only destinations. | Run the mapped production flows in Angular with fixtures or safe live APIs; screenshot and interaction parity remains unverified. |
+| Product fidelity | 8/10 | **8/10** | The source map distinguishes prototype-only sample actions from Angular/API-backed capabilities and records six production-only destinations. All 13 Units now have a named feature/UI check; the four formerly route-only pages passed a dedicated fixture smoke in this review. | Rerun the other nine checks; compare screenshots/interactions with the reference; verify real-service behavior where safe. |
 | **Readiness total** | **8.6/10** | **8.6/10** | Average of the five dimension scores above. All 13 Units have a route/evidence inventory; **0/13** have complete, verified behavioral parity. | The remaining checks above are required before claiming 10/10. |
+
+### Atomic percentages
+
+These percentages keep evidence coverage separate from product completion. The
+five design/UX scores above are on a ten-point evidence scale; the atomic counts
+below are direct inventory ratios.
+
+| Atomic measure | Result | What the percentage means |
+|---|---:|---|
+| Design Units mapped to a production route | **13/13 · 100%** | Every reference Unit has a production destination recorded. |
+| Units with a named route-specific or feature-specific automated check | **13/13 · 100%** | A check exists for every Unit; this does not mean every check was rerun today. |
+| Dedicated page smokes rerun in this review | **4/13 · 31%** | Model Hubs, Local API Server, Tools & Permissions, and Logs & Traces passed fixture-backed state checks. |
+| Units with complete, verified behavior parity | **0/13 · 0%** | No Unit has a full sign-off for design-matched interactions and production behavior. |
 
 Unit-specific test evidence and gaps are enumerated separately in [`design/local-ai-studio/UNIT-COVERAGE.md`](../design/local-ai-studio/UNIT-COVERAGE.md). Accessibility evidence and its limits are in [`design/local-ai-studio/ACCESSIBILITY-AUDIT.md`](../design/local-ai-studio/ACCESSIBILITY-AUDIT.md). A 13/13 route mapping is not a 13/13 interaction-parity result.
 
@@ -29,6 +42,10 @@ Unit-specific test evidence and gaps are enumerated separately in [`design/local
 - `web`: `npm run test:nav-routes` — passed (6 standard sidebar links, 19 command-palette destinations).
 - `web`: `npm run test:progressive-navigation` — passed (19 destinations, keyboard selection, deep links, and 390px shell overflow check; API responses were fixtures).
 - `web`: `npm run test:downloads-ui` — passed after narrowing an ambiguous `role=alert` assertion to the Downloads error panel; screenshots cover populated, empty, loading, and error/retry states.
+- `web`: `npm run typecheck && npm run build` — passed after the production command-palette focus and modal-semantics fix. The bundle-size advisory remains non-blocking.
+- `web`: `npm run test:nav-routes` and `npm run test:progressive-navigation` — passed; palette focus, Tab containment, Escape close, and focus restoration were additionally checked with mocked API responses.
+- `web`: `npm run test:design-unit-pages` — passed for Model Hubs, Local API Server, Tools & Permissions, and Logs & Traces, including fixture-backed empty/error states. The same run failed under the default sandbox's loopback restriction and passed after the temporary local server was allowed; no backend, model, or external network was used.
+- `git diff --check` — passed.
 - No live model inference, GPU load, external hub transfer, or host runtime mutation was performed.
 
 ## Atomic Unit inventory

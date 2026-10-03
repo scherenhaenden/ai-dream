@@ -43,7 +43,8 @@
     "test:artifact-run-ux": "node scripts/check-artifact-session-ux.mjs && node scripts/check-run-citation-document-ui.mjs",
     "test:resource-dashboard": "node scripts/check-resource-dashboard.mjs",
     "test:runs-ui": "node scripts/smoke-runs-ui.mjs",
-    "test:knowledge-ui": "node scripts/smoke-knowledge-ui.mjs"
+    "test:knowledge-ui": "node scripts/smoke-knowledge-ui.mjs",
+    "test:design-unit-pages": "node scripts/smoke-design-unit-pages.mjs"
   },
   "dependencies": {
     "@angular/common": "^20.3.0",

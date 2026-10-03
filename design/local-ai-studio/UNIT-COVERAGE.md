@@ -11,15 +11,15 @@ real hardware, network services, downloads, or model inference.
 | Chat | `/chat` | `test:chat-agent-ui`, `test:chat-orchestration-ui`, `test:chat-attachment-handoff`, `test:chat-document-suggestion-ui`, `test:voice-transcript-handoff` | Partial: composer, thread, attachment and handoff contracts are covered with fixtures; real generation and runtime telemetry are not exercised. |
 | Agent | `/agent` | `test:chat-agent-ui`, `test:chat-orchestration-ui` | Partial: page structure and bounded tool/orchestration contracts are checked; no live model or hardware tool call is made. |
 | Models Library | `/models` | `test:model-studio-ui`, `test:models-config`, `test:model-manifest-verification` | Partial: model selection, configuration, and manifest contracts use fixtures; no actual model load is performed. |
-| Model Hubs | `/hub` | `test:progressive-navigation`, `test:settings-information-architecture` | Route/discoverability only: live repository search and file download remain unverified. |
+| Model Hubs | `/hub` | `test:design-unit-pages` | Fixture UI check: search, inspect repository files, and no-results state. Real hub search and transfer completion remain unverified. |
 | Hardware Topology | `/hardware` | `test:hardware-settings-ui`, `test:resource-dashboard` | Partial: browser checks use fixture hardware; host inventory, PCIe topology, and live utilization are not verified here. |
 | Load Model Placement | `/load-model` | `test:runtime-layout`, `test:model-studio-ui`, `test:progressive-navigation` | Partial: placement controls and route are checked; loading a model or measuring memory fit is not exercised. |
 | Runtime Manager | `/runtime` | `test:runtime-layout`, `test:setup-assistant`, `test:progressive-navigation` | Partial: layout and capability-gated controls are checked; probing or modifying an installed runtime and actual load/unload remain unverified. |
-| Local API Server | `/local-api` | `test:settings-information-architecture`, `test:progressive-navigation` | Route/discoverability only: no dedicated browser interaction check for health, endpoint list, or unavailable states is recorded. |
+| Local API Server | `/local-api` | `test:design-unit-pages` | Fixture UI check: connected endpoint list and unavailable/503 state. No per-endpoint real service verification is recorded. |
 | Knowledge / Local Search | `/knowledge` | `test:knowledge-ui`, `test:rag-capability-contract` | Partial: browser fixture states and API contracts are covered; a fresh end-to-end add/search/delete against the running local service is not established by these checks. |
-| Tools & Permissions | `/tools-permissions` | `test:skill-permissions-ux`, `test:progressive-navigation` | Partial: permission UX contracts and route are checked; the production tool inventory page lacks a dedicated browser interaction check. |
+| Tools & Permissions | `/tools-permissions` | `test:design-unit-pages`, `test:skill-permissions-ux` | Fixture UI check: registry, limits, blocked policies, and registry error state. This does not exercise tool execution. |
 | Downloads | `/downloads` | `test:downloads-ui` (`web/scripts/check-downloads-ui.mjs`) | Partial: the UI script covers fixture API states; a real transfer and cancel behavior against the host are not verified. |
-| Logs & Traces | `/logs` | `test:progressive-navigation`, `test:shell-telemetry` | Route/shell only: no route-specific browser check of active, empty, unsupported, and error log states is recorded. |
+| Logs & Traces | `/logs` | `test:design-unit-pages`, `test:shell-telemetry` | Fixture UI check: runtime output filtering, application incident filtering, empty runtime logs, and no matching incidents. Real runtime log capture remains unverified. |
 | Settings | `/settings` | `test:settings-information-architecture`, `test:hardware-settings-ui`, `test:interface-visibility` | Partial: information architecture, fixture-backed controls, and visibility modes are checked; live persistence across an actual service restart is not established. |
 
 ## Coverage totals
@@ -27,11 +27,18 @@ real hardware, network services, downloads, or model inference.
 - **13/13 Units (100%)** have a production route and at least one related
   checked-in automated check. This is route/evidence mapping, not 100% behavior
   coverage.
-- **9/13 Units** have a named route-specific or feature-specific UI/API check:
+- **13/13 Units (100%)** now have a named route-specific or feature-specific
+  UI/API check:
   Chat, Agent, Models Library, Hardware Topology, Load Model Placement, Runtime
-  Manager, Knowledge / Local Search, Downloads, and Settings. The remaining
-  four are Model Hubs, Local API Server, Tools & Permissions, and Logs & Traces,
-  where current evidence checks navigation or adjacent/shared behavior only.
+  Manager, Knowledge / Local Search, Downloads, Settings, Model Hubs, Local API
+  Server, Tools & Permissions, and Logs & Traces. The four formerly navigation-
+  only Units now have a dedicated fixture-backed browser smoke.
+- The new `test:design-unit-pages` passed for its four routes in the 2026-10-03
+  review. It exercises success and empty/unavailable/error states using fixtures,
+  and fails on unexpected API requests or browser errors.
+- **4/13 Units (31%)** had their dedicated route smoke rerun during this review;
+  evidence for the other nine checks is available in the package but those nine
+  were not rerun here.
 - The progressive-navigation smoke covers discoverability and route changes;
   it does not substitute for page behavior checks.
 - No percentage of source-code line or branch coverage is claimed: the frontend
@@ -47,10 +54,11 @@ real hardware, network services, downloads, or model inference.
   check. API responses were fixture data.
 - Downloads UI: `npm run test:downloads-ui` — passed with fixture responses for
   populated, empty, loading, and error/retry states.
-- The named checks in the other rows are available in the package but were not
-  all rerun for this snapshot. See the readiness report for the exact boundary.
+- The named checks in the other nine rows were not all rerun for this snapshot.
+  See the readiness report for the exact boundary.
 
-The 100% target for behavioral readiness therefore remains open. The biggest
-specific gaps are Local API and Logs & Traces page-state checks, a Model Hubs
-fixture interaction check, and explicit live-service checks where safe. Real
-model inference and GPU loads are outside this fixture-based Unit audit.
+The automated-check inventory is now 13/13 Units (100%), but that is not full
+behavioral readiness: **0/13 Units (0%)** have complete, verified behavioral
+parity with the design reference. Screenshot parity, screen-reader coverage,
+and real-service behavior remain separate acceptance items. Real model
+inference and GPU loads are outside this fixture-based Unit audit.

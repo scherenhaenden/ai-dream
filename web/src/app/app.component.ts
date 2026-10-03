@@ -114,9 +114,9 @@ const ADVANCED_NAV_GROUP = { label: 'ADVANCED', items: [
       </section>
       <footer class="statusbar"><div><span class="status-key">LOCAL ONLY</span><span class="divider">|</span><span>AI DREAM</span></div></footer>
       @if (paletteOpen()) {
-        <div class="palette-backdrop" (click)="paletteOpen.set(false)" (keydown.escape)="paletteOpen.set(false)">
-          <section class="palette" role="dialog" aria-label="Navigate to a page" (click)="$event.stopPropagation()" (keydown)="onPaletteKeydown($event)"><label class="palette-search"><span aria-hidden="true">⌕</span><input autofocus role="combobox" aria-expanded="true" aria-autocomplete="list" aria-label="Search all pages" aria-controls="palette-results" [attr.aria-activedescendant]="activePaletteItemId()" placeholder="Jump to any page..." [value]="query()" (input)="setPaletteQuery($any($event.target).value)" (keydown.escape)="paletteOpen.set(false)" (keydown.enter)="goActive()" /></label>
-            <div class="palette-list" id="palette-results" role="listbox" aria-label="Available pages">@for (item of filteredNav(); track item.path; let i = $index) {<a role="option" [id]="paletteItemId(i)" [attr.aria-selected]="i === activePaletteIndex()" [routerLink]="item.path" (click)="paletteOpen.set(false)" [class.selected]="i === activePaletteIndex()"><span class="nav-icon">{{ item.icon }}</span>{{ item.label }}<kbd>↵</kbd></a>} @empty {<p class="muted" role="status">No matching page</p>}</div><div class="palette-hint">Navigate <kbd>↑</kbd><kbd>↓</kbd> <span>Open</span> <kbd>↵</kbd> <span>Close</span> <kbd>Esc</kbd></div>
+        <div class="palette-backdrop" (click)="closePalette()">
+          <section class="palette" role="dialog" aria-modal="true" aria-label="Navigate to a page" tabindex="-1" (click)="$event.stopPropagation()" (keydown)="onPaletteKeydown($event)"><label class="palette-search"><span aria-hidden="true">⌕</span><input #paletteInput role="combobox" aria-expanded="true" aria-autocomplete="list" aria-label="Search all pages" aria-controls="palette-results" [attr.aria-activedescendant]="activePaletteItemId()" placeholder="Jump to any page..." [value]="query()" (input)="setPaletteQuery($any($event.target).value)" (keydown.enter)="goActive()" /></label>
+            <div class="palette-list" id="palette-results" role="listbox" aria-label="Available pages">@for (item of filteredNav(); track item.path; let i = $index) {<a role="option" [id]="paletteItemId(i)" [attr.aria-selected]="i === activePaletteIndex()" [routerLink]="item.path" (click)="closePalette()" [class.selected]="i === activePaletteIndex()"><span class="nav-icon">{{ item.icon }}</span>{{ item.label }}<kbd>↵</kbd></a>} @empty {<p class="muted" role="status">No matching page</p>}</div><div class="palette-hint">Navigate <kbd>↑</kbd><kbd>↓</kbd> <span>Open</span> <kbd>↵</kbd> <span>Close</span> <kbd>Esc</kbd></div>
           </section>
         </div>
       }
@@ -129,6 +129,7 @@ export class AppComponent {
   private readonly interfaceModeService = inject(InterfaceModeService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);
+  private paletteReturnFocus: HTMLElement | null = null;
   readonly navGroups = computed(() => this.interfaceModeService.mode() === 'advanced'
     ? [...NAV_GROUPS, ADVANCED_NAV_GROUP]
     : NAV_GROUPS);
@@ -192,12 +193,45 @@ export class AppComponent {
   }
   @HostListener('window:keydown', ['$event']) onKey(event: KeyboardEvent) {
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); this.openPalette(); }
-    if (event.key === 'Escape') { this.paletteOpen.set(false); this.mobileNav.set(false); }
+    if (event.key === 'Escape') { this.closePalette(); this.mobileNav.set(false); }
   }
-  openPalette() { this.query.set(''); this.activePaletteIndex.set(0); this.paletteOpen.set(true); }
+  openPalette() {
+    if (this.paletteOpen()) return;
+    this.paletteReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    this.query.set(''); this.activePaletteIndex.set(0); this.paletteOpen.set(true);
+    requestAnimationFrame(() => {
+      if (!this.paletteOpen()) return;
+      const backdrop = document.querySelector('.palette-backdrop');
+      if (!backdrop) return;
+      for (const sibling of Array.from(backdrop.parentElement?.children ?? [])) {
+        if (sibling !== backdrop) (sibling as HTMLElement).setAttribute('inert', '');
+      }
+      backdrop.querySelector<HTMLInputElement>('[role="combobox"]')?.focus();
+    });
+  }
+  closePalette() {
+    if (!this.paletteOpen()) return;
+    this.paletteOpen.set(false);
+    const backdrop = document.querySelector('.palette-backdrop');
+    for (const sibling of Array.from(backdrop?.parentElement?.children ?? [])) {
+      if (sibling !== backdrop) (sibling as HTMLElement).removeAttribute('inert');
+    }
+    if (this.paletteReturnFocus?.isConnected) this.paletteReturnFocus.focus();
+    this.paletteReturnFocus = null;
+  }
   setPaletteQuery(value: string) { this.query.set(value); this.activePaletteIndex.set(0); }
   paletteItemId(index: number): string { return `palette-option-${index}`; }
   onPaletteKeydown(event: KeyboardEvent) {
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); this.closePalette(); return; }
+    if (event.key === 'Tab') {
+      const dialog = event.currentTarget as HTMLElement;
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>('input:not([disabled]), a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'));
+      if (!focusable.length) { event.preventDefault(); dialog.focus(); return; }
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      return;
+    }
     const count = this.filteredNav().length;
     if (!count) return;
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -209,6 +243,6 @@ export class AppComponent {
   }
   goActive() {
     const item = this.filteredNav()[this.activePaletteIndex()];
-    if (item) { void this.router.navigateByUrl(item.path); this.paletteOpen.set(false); }
+    if (item) { void this.router.navigateByUrl(item.path); this.closePalette(); }
   }
 }
