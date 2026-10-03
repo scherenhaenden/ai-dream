@@ -37,6 +37,7 @@
     "test:skills-goals-ui": "node scripts/smoke-skills-goal-groups.mjs",
     "test:global-mode-residency-ux": "node scripts/check-global-mode-residency-ux.mjs",
     "test:ui-smoke": "node scripts/smoke-hardware-settings-ui.mjs",
+    "test:downloads-ui": "node scripts/check-downloads-ui.mjs",
     "test:hardware-settings-ui": "node scripts/smoke-hardware-settings-ui.mjs",
     "test:models-config": "node scripts/check-models-config.mjs",
     "test:artifact-run-ux": "node scripts/check-artifact-session-ux.mjs && node scripts/check-run-citation-document-ui.mjs",

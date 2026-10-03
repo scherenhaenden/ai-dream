@@ -64,6 +64,7 @@ export default function App() {
           }}
           onOpenCommandPalette={() => setCommandPaletteOpen(true)}
           onToggleInspector={() => setInspectorOpen(!inspectorOpen)}
+          inspectorOpen={inspectorOpen}
           onToggleSidebar={() => setSidebarOpen((open) => !open)}
           sidebarOpen={sidebarOpen}
         />
@@ -125,6 +126,7 @@ export default function App() {
         {/* Global Fixed Statusbar Footer */}
         <Footer
           onToggleInspector={() => setInspectorOpen(!inspectorOpen)}
+          inspectorOpen={inspectorOpen}
           onToggleConsole={() => setActiveScreen('logs-and-traces')}
         />
       </div>

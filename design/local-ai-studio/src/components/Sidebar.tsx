@@ -120,7 +120,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 }`}
               >
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <span className="material-symbols-outlined text-[18px]">chat</span>
+                  <span className="material-symbols-outlined text-[18px]" aria-hidden="true">chat</span>
                   <span className="text-[13px] truncate">Chat</span>
                 </div>
               </button>
@@ -148,7 +148,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 }`}
               >
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <span className="material-symbols-outlined text-[18px]">inventory_2</span>
+                  <span className="material-symbols-outlined text-[18px]" aria-hidden="true">inventory_2</span>
                   <span className="text-[13px] truncate">Models (Local Library)</span>
                 </div>
               </button>
@@ -162,7 +162,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 }`}
               >
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <span className="material-symbols-outlined text-[18px]">hub</span>
+                  <span className="material-symbols-outlined text-[18px]" aria-hidden="true">hub</span>
                   <span className="text-[13px] truncate">Model Hub (Hugging Face)</span>
                 </div>
               </button>
@@ -176,7 +176,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 }`}
               >
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <span className="material-symbols-outlined text-[18px]">database</span>
+                  <span className="material-symbols-outlined text-[18px]" aria-hidden="true">database</span>
                   <span className="text-[13px] truncate">Knowledge (RAG)</span>
                 </div>
               </button>
@@ -197,7 +197,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 }`}
               >
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <span className="material-symbols-outlined text-[18px]">developer_board</span>
+                  <span className="material-symbols-outlined text-[18px]" aria-hidden="true">developer_board</span>
                   <span className="text-[13px] truncate">Hardware (Multi-GPU)</span>
                 </div>
               </button>
@@ -211,7 +211,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 }`}
               >
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <span className="material-symbols-outlined text-[18px]">memory</span>
+                  <span className="material-symbols-outlined text-[18px]" aria-hidden="true">memory</span>
                   <span className="text-[13px] truncate">Load Model (Placement)</span>
                 </div>
               </button>
@@ -225,7 +225,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 }`}
               >
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <span className="material-symbols-outlined text-[18px]">settings_input_component</span>
+                  <span className="material-symbols-outlined text-[18px]" aria-hidden="true">settings_input_component</span>
                   <span className="text-[13px] truncate">Runtime Manager</span>
                 </div>
               </button>
@@ -239,7 +239,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 }`}
               >
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <span className="material-symbols-outlined text-[18px]">download</span>
+                  <span className="material-symbols-outlined text-[18px]" aria-hidden="true">download</span>
                   <span className="text-[13px] truncate">Downloads</span>
                 </div>
               </button>
@@ -260,7 +260,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 }`}
               >
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <span className="material-symbols-outlined text-[18px]">terminal</span>
+                  <span className="material-symbols-outlined text-[18px]" aria-hidden="true">terminal</span>
                   <span className="text-[13px] truncate">Local API Server</span>
                 </div>
               </button>
@@ -274,7 +274,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 }`}
               >
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <span className="material-symbols-outlined text-[18px]">shield</span>
+                  <span className="material-symbols-outlined text-[18px]" aria-hidden="true">shield</span>
                   <span className="text-[13px] truncate">Tools &amp; Permissions</span>
                 </div>
               </button>
@@ -288,7 +288,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 }`}
               >
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <span className="material-symbols-outlined text-[18px]">dvr</span>
+                  <span className="material-symbols-outlined text-[18px]" aria-hidden="true">dvr</span>
                   <span className="text-[13px] truncate">Logs &amp; Traces</span>
                 </div>
               </button>
@@ -308,7 +308,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 : 'text-on-surface-variant hover:text-on-surface'
             }`}
           >
-            <span className="material-symbols-outlined text-[16px]">settings</span>
+            <span className="material-symbols-outlined text-[16px]" aria-hidden="true">settings</span>
             <span>Settings</span>
           </button>
         </div>

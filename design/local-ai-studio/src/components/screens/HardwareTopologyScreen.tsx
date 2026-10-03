@@ -13,7 +13,7 @@ export const HardwareTopologyScreen: React.FC = () => {
       <div className="flex flex-col 2xl:flex-row 2xl:items-center justify-between gap-4 bg-surface-container-low border border-outline-variant/30 p-4 sm:p-5 rounded-xl shadow-sm min-w-0">
         <div className="flex flex-col gap-1 min-w-0">
           <div className="flex items-start gap-2 min-w-0">
-            <span className="material-symbols-outlined text-primary text-[20px]">hub</span>
+            <span className="material-symbols-outlined text-primary text-[20px]" aria-hidden="true">hub</span>
             <h1 className="text-[18px] sm:text-[20px] font-semibold text-on-surface tracking-tight min-w-0">
               Hardware Orchestration &amp; PCIe Topology
             </h1>
@@ -29,11 +29,11 @@ export const HardwareTopologyScreen: React.FC = () => {
             <span>System Ready • 2 Compute GPUs Active • 1 Display GPU Excluded</span>
           </div>
           <div className="flex items-center gap-1.5 px-3 py-1 bg-surface-container-high rounded-lg border border-outline-variant/20 text-primary">
-            <span className="material-symbols-outlined text-[13px]">verified</span>
+            <span className="material-symbols-outlined text-[13px]" aria-hidden="true">verified</span>
             <span>ROCm 6.2 &amp; Vulkan b6821 Drivers Initialized</span>
           </div>
           <div className="flex items-center gap-1.5 px-3 py-1 bg-secondary-container/30 rounded-lg border border-secondary/30 text-secondary">
-            <span className="material-symbols-outlined text-[13px]">swap_horiz</span>
+            <span className="material-symbols-outlined text-[13px]" aria-hidden="true">swap_horiz</span>
             <span>P2P PCIe Gen4 x16 Direct Bridge: 28.0 GB/s</span>
           </div>
         </div>
@@ -48,7 +48,7 @@ export const HardwareTopologyScreen: React.FC = () => {
             {/* Canvas Legend */}
             <div className="flex flex-col items-start pb-4 gap-3 border-b border-outline-variant/20">
               <div className="flex flex-wrap items-center gap-2 min-w-0">
-                <span className="material-symbols-outlined text-outline text-[16px]">account_tree</span>
+                <span className="material-symbols-outlined text-outline text-[16px]" aria-hidden="true">account_tree</span>
                 <span className="text-[14px] font-semibold text-on-surface">Physical Interconnect Fabric</span>
                 <span className="font-mono text-[10px] text-outline bg-surface-container-high px-2 py-0.5 rounded border border-outline-variant/20">
                   Topology: Tree-Direct P2P
@@ -107,7 +107,7 @@ export const HardwareTopologyScreen: React.FC = () => {
                 <div className="2xl:col-span-8 bg-surface-container border border-outline-variant/30 p-3 sm:p-4 rounded-lg shadow-sm flex flex-col 2xl:flex-row gap-4 justify-between min-w-0">
                   <div className="flex items-start gap-3">
                     <div className="w-10 h-10 rounded-lg bg-primary-container/20 border border-primary/30 flex items-center justify-center shrink-0">
-                      <span className="material-symbols-outlined text-primary text-[22px]">memory</span>
+                      <span className="material-symbols-outlined text-primary text-[22px]" aria-hidden="true">memory</span>
                     </div>
                     <div>
                       <div className="flex items-center gap-1 font-mono text-[10px] text-tertiary">
@@ -143,7 +143,7 @@ export const HardwareTopologyScreen: React.FC = () => {
                 <div className="2xl:col-span-4 bg-surface-container border border-outline-variant/30 p-3 sm:p-4 rounded-lg shadow-sm flex items-center justify-between min-w-0">
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="w-9 h-9 rounded-lg bg-surface-container-high flex items-center justify-center shrink-0 border border-outline-variant/20">
-                      <span className="material-symbols-outlined text-primary text-[20px]">hard_drive</span>
+                      <span className="material-symbols-outlined text-primary text-[20px]" aria-hidden="true">hard_drive</span>
                     </div>
                     <div className="min-w-0">
                       <div className="font-mono text-[10px] text-outline uppercase truncate">
@@ -165,13 +165,13 @@ export const HardwareTopologyScreen: React.FC = () => {
               {/* Interconnect Bus Strip */}
               <div className="relative z-10 py-1 2xl:py-4 flex flex-wrap items-center justify-start 2xl:justify-between px-0 sm:px-2 gap-2">
                 <div className="bg-surface-container-lowest/90 px-3 py-1 rounded-md font-mono text-[11px] text-tertiary flex items-center gap-1 border border-outline-variant/20 shadow-sm">
-                  <span className="material-symbols-outlined text-[13px]">arrow_downward</span>
+                  <span className="material-symbols-outlined text-[13px]" aria-hidden="true">arrow_downward</span>
                   <span>PCIe 4.0 x16 Link (Direct Root)</span>
                 </div>
 
                 {/* Center P2P Direct Bridge Badge */}
                 <div className="bg-secondary-container px-3 sm:px-4 py-1.5 rounded-full flex items-center gap-2 shadow-md border border-secondary/40 max-w-full">
-                  <span className="material-symbols-outlined text-on-secondary-container text-[16px] animate-pulse">
+                  <span className="material-symbols-outlined text-on-secondary-container text-[16px] animate-pulse" aria-hidden="true">
                     compare_arrows
                   </span>
                   <span className="font-mono text-[11px] text-on-secondary-container font-semibold">
@@ -180,7 +180,7 @@ export const HardwareTopologyScreen: React.FC = () => {
                 </div>
 
                 <div className="bg-surface-container-lowest/90 px-3 py-1 rounded-md font-mono text-[11px] text-outline flex items-center gap-1 border border-outline-variant/20 shadow-sm">
-                  <span className="material-symbols-outlined text-[13px]">block</span>
+                  <span className="material-symbols-outlined text-[13px]" aria-hidden="true">block</span>
                   <span>PCIe 3.0 x8 (Legacy)</span>
                 </div>
               </div>
@@ -218,7 +218,7 @@ export const HardwareTopologyScreen: React.FC = () => {
 
                   <div className="flex items-center justify-between pt-1 font-mono text-[11px]">
                     <span className="text-tertiary flex items-center gap-1">
-                      <span className="material-symbols-outlined text-[13px]">check_circle</span>
+                      <span className="material-symbols-outlined text-[13px]" aria-hidden="true">check_circle</span>
                       Host P2P Validated
                     </span>
                     <span className="text-on-surface font-mono font-semibold">2,450 MHz</span>
@@ -256,7 +256,7 @@ export const HardwareTopologyScreen: React.FC = () => {
 
                   <div className="flex items-center justify-between pt-1 font-mono text-[11px]">
                     <span className="text-tertiary flex items-center gap-1">
-                      <span className="material-symbols-outlined text-[13px]">swap_horizontal_circle</span>
+                      <span className="material-symbols-outlined text-[13px]" aria-hidden="true">swap_horizontal_circle</span>
                       Dual-GPU Ring Mesh
                     </span>
                     <span className="text-on-surface font-mono font-semibold">2,210 MHz</span>
@@ -294,7 +294,7 @@ export const HardwareTopologyScreen: React.FC = () => {
 
                   <div className="flex items-center justify-between pt-1 font-mono text-[11px] text-outline">
                     <span className="flex items-center gap-1 text-on-surface-variant">
-                      <span className="material-symbols-outlined text-[13px]">do_not_disturb_on</span>
+                      <span className="material-symbols-outlined text-[13px]" aria-hidden="true">do_not_disturb_on</span>
                       Excluded (VRAM &lt; 8GB)
                     </span>
                     <span className="font-mono">1,090 MHz</span>
@@ -450,10 +450,10 @@ export const HardwareTopologyScreen: React.FC = () => {
           <div className="bg-surface-container-low border border-outline-variant/30 p-4 rounded-xl shadow-sm flex flex-col gap-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-primary text-[18px]">build</span>
+                <span className="material-symbols-outlined text-primary text-[18px]" aria-hidden="true">build</span>
                 <span className="font-semibold text-on-surface text-[14px]">Diagnostic Suite</span>
               </div>
-              <span className="material-symbols-outlined text-outline text-[16px]">info</span>
+              <span className="material-symbols-outlined text-outline text-[16px]" aria-hidden="true">info</span>
             </div>
 
             <div className="flex flex-col gap-2">
@@ -464,7 +464,7 @@ export const HardwareTopologyScreen: React.FC = () => {
                 type="button"
               >
                 <div className="flex items-center gap-2.5">
-                  <span className="material-symbols-outlined text-secondary text-[18px]">
+                  <span className="material-symbols-outlined text-secondary text-[18px]" aria-hidden="true">
                     speed
                   </span>
                   <div>
@@ -472,7 +472,7 @@ export const HardwareTopologyScreen: React.FC = () => {
                     <div className="font-mono text-[10px] text-outline">Stress GPU0 ↔ GPU1 Ring Bus</div>
                   </div>
                 </div>
-                <span className="material-symbols-outlined text-outline text-[16px]">chevron_right</span>
+                <span className="material-symbols-outlined text-outline text-[16px]" aria-hidden="true">chevron_right</span>
               </button>
 
               <button
@@ -482,7 +482,7 @@ export const HardwareTopologyScreen: React.FC = () => {
                 type="button"
               >
                 <div className="flex items-center gap-2.5">
-                  <span className="material-symbols-outlined text-tertiary text-[18px]">
+                  <span className="material-symbols-outlined text-tertiary text-[18px]" aria-hidden="true">
                     memory_alt
                   </span>
                   <div>
@@ -490,7 +490,7 @@ export const HardwareTopologyScreen: React.FC = () => {
                     <div className="font-mono text-[10px] text-outline">Check ECC / Bitflip parity</div>
                   </div>
                 </div>
-                <span className="material-symbols-outlined text-outline text-[16px]">chevron_right</span>
+                <span className="material-symbols-outlined text-outline text-[16px]" aria-hidden="true">chevron_right</span>
               </button>
 
               <button
@@ -500,7 +500,7 @@ export const HardwareTopologyScreen: React.FC = () => {
                 type="button"
               >
                 <div className="flex items-center gap-2.5">
-                  <span className="material-symbols-outlined text-error text-[18px]">
+                  <span className="material-symbols-outlined text-error text-[18px]" aria-hidden="true">
                     restart_alt
                   </span>
                   <div>
@@ -508,7 +508,7 @@ export const HardwareTopologyScreen: React.FC = () => {
                     <div className="font-mono text-[10px] text-outline">Rebind amdgpu kernel module</div>
                   </div>
                 </div>
-                <span className="material-symbols-outlined text-outline text-[16px]">chevron_right</span>
+                <span className="material-symbols-outlined text-outline text-[16px]" aria-hidden="true">chevron_right</span>
               </button>
 
               <button
@@ -518,7 +518,7 @@ export const HardwareTopologyScreen: React.FC = () => {
                 type="button"
               >
                 <div className="flex items-center gap-2.5">
-                  <span className="material-symbols-outlined text-primary text-[18px]">
+                  <span className="material-symbols-outlined text-primary text-[18px]" aria-hidden="true">
                     download_for_offline
                   </span>
                   <div>
@@ -526,7 +526,7 @@ export const HardwareTopologyScreen: React.FC = () => {
                     <div className="font-mono text-[10px] text-outline">Hardware allocation manifest</div>
                   </div>
                 </div>
-                <span className="material-symbols-outlined text-outline text-[16px]">chevron_right</span>
+                <span className="material-symbols-outlined text-outline text-[16px]" aria-hidden="true">chevron_right</span>
               </button>
             </div>
 

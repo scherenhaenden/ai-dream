@@ -242,17 +242,6 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
   });
   filteredRef.current = filtered;
 
-  useEffect(() => {
-    if (!isOpen) return;
-    const onPaletteKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'ArrowDown' && filtered.length) { event.preventDefault(); setSelectedIndex((i) => (i + 1) % filtered.length); }
-      if (event.key === 'ArrowUp' && filtered.length) { event.preventDefault(); setSelectedIndex((i) => (i - 1 + filtered.length) % filtered.length); }
-      if (event.key === 'Enter' && filtered.length) { event.preventDefault(); filtered[Math.min(selectedIndex, filtered.length - 1)]?.action(); }
-    };
-    window.addEventListener('keydown', onPaletteKeyDown);
-    return () => window.removeEventListener('keydown', onPaletteKeyDown);
-  }, [isOpen, filtered, selectedIndex]);
-
   if (!isOpen) return null;
 
   return (
@@ -310,7 +299,7 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
                 }`}
               >
                 <div className="flex items-center gap-3">
-                  <span className="material-symbols-outlined text-base text-primary">
+                  <span className="material-symbols-outlined text-base text-primary" aria-hidden="true">
                     {item.icon}
                   </span>
                   <div>

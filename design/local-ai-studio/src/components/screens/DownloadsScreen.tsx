@@ -108,7 +108,7 @@ export const DownloadsScreen: React.FC = () => {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-outline-variant">
         <div>
           <h1 className="text-xl font-bold tracking-tight text-on-surface flex items-center gap-2">
-            <span className="material-symbols-outlined text-primary">download</span>
+            <span className="material-symbols-outlined text-primary" aria-hidden="true">download</span>
             Downloads · sample queue
           </h1>
           <p className="text-xs text-on-surface-variant mt-1 font-mono">
@@ -120,7 +120,7 @@ export const DownloadsScreen: React.FC = () => {
           <button disabled title="Preview only · start downloads from the connected Model Hubs flow"
             className="px-4 py-2 bg-primary hover:bg-primary-fixed-dim text-on-primary rounded-lg text-xs font-semibold flex items-center gap-2 shadow-lg shadow-primary/20"
           >
-            <span className="material-symbols-outlined text-sm">add_link</span>
+            <span className="material-symbols-outlined text-sm" aria-hidden="true">add_link</span>
             Add Download URL
           </button>
         </div>
@@ -130,7 +130,7 @@ export const DownloadsScreen: React.FC = () => {
       {isAdding && (
         <form onSubmit={(e) => e.preventDefault()} className="bg-surface-container-low border border-outline-variant p-4 rounded-xl space-y-3">
           <label className="text-xs font-bold text-on-surface font-mono flex items-center gap-2">
-            <span className="material-symbols-outlined text-sm text-primary">link</span>
+            <span className="material-symbols-outlined text-sm text-primary" aria-hidden="true">link</span>
             Direct Model GGUF / SafeTensors URL
           </label>
           <div className="flex gap-3">
@@ -205,7 +205,7 @@ export const DownloadsScreen: React.FC = () => {
                     <button disabled title="Preview only · live queue supports cancellation, not pause/resume"
                       className="px-3 py-1.5 bg-surface-container-low hover:bg-surface-container-high border border-outline-variant rounded-lg text-xs font-mono text-on-surface flex items-center gap-1.5"
                     >
-                      <span className="material-symbols-outlined text-sm">
+                      <span className="material-symbols-outlined text-sm" aria-hidden="true">
                         {job.status === 'DOWNLOADING' ? 'pause' : 'play_arrow'}
                       </span>
                       {job.status === 'DOWNLOADING' ? 'Pause' : 'Resume'}
@@ -213,7 +213,7 @@ export const DownloadsScreen: React.FC = () => {
                   )}
                   {job.status === 'COMPLETED' && (
                     <span className="text-xs font-mono text-tertiary flex items-center gap-1">
-                      <span className="material-symbols-outlined text-sm">verified</span>
+                      <span className="material-symbols-outlined text-sm" aria-hidden="true">verified</span>
                       Example checksum label
                     </span>
                   )}

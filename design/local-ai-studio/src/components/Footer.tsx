@@ -2,11 +2,13 @@ import React from 'react';
 
 interface FooterProps {
   onToggleInspector?: () => void;
+  inspectorOpen?: boolean;
   onToggleConsole?: () => void;
 }
 
 export const Footer: React.FC<FooterProps> = ({
   onToggleInspector,
+  inspectorOpen = false,
   onToggleConsole,
 }) => {
   return (
@@ -20,10 +22,11 @@ export const Footer: React.FC<FooterProps> = ({
       <div className="flex items-center gap-3 flex-shrink-0">
         <button
           type="button" aria-label="Toggle runtime inspector"
+          aria-pressed={inspectorOpen}
           onClick={onToggleInspector}
           className="flex items-center gap-1 text-on-surface-variant hover:text-primary transition-colors cursor-pointer"
         >
-          <span className="material-symbols-outlined text-[13px]">vertical_split</span>
+          <span className="material-symbols-outlined text-[13px]" aria-hidden="true">vertical_split</span>
           <span className="hidden sm:inline">Inspector</span>
         </button>
         <button
@@ -31,7 +34,7 @@ export const Footer: React.FC<FooterProps> = ({
           onClick={onToggleConsole}
           className="flex items-center gap-1 text-on-surface-variant hover:text-primary transition-colors cursor-pointer"
         >
-          <span className="material-symbols-outlined text-[13px]">terminal</span>
+          <span className="material-symbols-outlined text-[13px]" aria-hidden="true">terminal</span>
           <span className="hidden sm:inline">Logs</span>
         </button>
       </div>

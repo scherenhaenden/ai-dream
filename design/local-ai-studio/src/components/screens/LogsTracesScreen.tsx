@@ -92,7 +92,7 @@ export const LogsTracesScreen: React.FC = () => {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-outline-variant">
         <div>
           <h1 className="text-xl font-bold tracking-tight text-on-surface flex items-center gap-2">
-            <span className="material-symbols-outlined text-primary">terminal</span>
+            <span className="material-symbols-outlined text-primary" aria-hidden="true">terminal</span>
             Logs & Traces · sample data
           </h1>
           <p className="text-xs text-on-surface-variant mt-1 font-sans">
@@ -108,13 +108,13 @@ export const LogsTracesScreen: React.FC = () => {
                 : 'bg-surface-container-low text-on-surface-variant border-outline-variant'
             }`}
           >
-            <span className="material-symbols-outlined text-sm">vertical_align_bottom</span>
+            <span className="material-symbols-outlined text-sm" aria-hidden="true">vertical_align_bottom</span>
             Sample stream · unavailable
           </button>
           <button disabled title="Export is unavailable because these sample rows are not real logs"
             className="px-3 py-1.5 bg-surface-container-low hover:bg-surface-container-high border border-outline-variant rounded-lg text-xs text-on-surface flex items-center gap-1.5"
           >
-            <span className="material-symbols-outlined text-sm">download</span>
+            <span className="material-symbols-outlined text-sm" aria-hidden="true">download</span>
             Export .log
           </button>
         </div>
@@ -128,6 +128,7 @@ export const LogsTracesScreen: React.FC = () => {
             <button
               key={lvl}
               onClick={() => setLevelFilter(lvl)}
+              aria-pressed={levelFilter === lvl}
               className={`px-2.5 py-1 rounded font-bold text-[11px] ${
                 levelFilter === lvl
                   ? 'bg-primary text-on-primary'

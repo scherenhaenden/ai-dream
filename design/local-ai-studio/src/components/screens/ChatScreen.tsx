@@ -137,7 +137,7 @@ void main() {
       {/* Toast popup */}
       {toastMessage && (
         <div className="fixed bottom-12 right-6 z-50 px-3 py-2 rounded-lg bg-surface-container-high border border-primary/40 text-on-surface shadow-2xl flex items-center gap-2 text-[12px] font-mono animate-bounce">
-          <span className="material-symbols-outlined text-tertiary text-[16px]">check_circle</span>
+          <span className="material-symbols-outlined text-tertiary text-[16px]" aria-hidden="true">check_circle</span>
           <span>{toastMessage}</span>
         </div>
       )}
@@ -152,7 +152,7 @@ void main() {
           {/* Title & Main Identifiers */}
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="w-8 h-8 rounded-lg bg-surface-container-high flex items-center justify-center text-primary shrink-0 shadow-sm border border-outline-variant/30">
-              <span className="material-symbols-outlined text-[20px]">smart_toy</span>
+              <span className="material-symbols-outlined text-[20px]" aria-hidden="true">smart_toy</span>
             </div>
             <div className="flex flex-col min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
@@ -176,6 +176,7 @@ void main() {
             <div className="flex flex-wrap items-center bg-surface-container-lowest p-0.5 rounded-lg border border-outline-variant/30 text-[11px] font-mono">
               <button
                 onClick={() => setViewMode('standard')}
+                aria-pressed={viewMode === 'standard'}
                 className={`px-2.5 py-1 rounded transition-colors ${
                   viewMode === 'standard'
                     ? 'bg-surface-container-high text-primary font-semibold shadow-sm'
@@ -186,6 +187,7 @@ void main() {
               </button>
               <button
                 onClick={() => setViewMode('split-canvas')}
+                aria-pressed={viewMode === 'split-canvas'}
                 className={`px-2.5 py-1 rounded transition-colors ${
                   viewMode === 'split-canvas'
                     ? 'bg-surface-container-high text-primary font-semibold shadow-sm'
@@ -201,7 +203,7 @@ void main() {
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface text-[12px] transition-colors border border-outline-variant/30"
               type="button"
             >
-              <span className="material-symbols-outlined text-[15px]">tune</span>
+              <span className="material-symbols-outlined text-[15px]" aria-hidden="true">tune</span>
               <span>Model Settings</span>
             </button>
             <button
@@ -209,11 +211,12 @@ void main() {
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-error-container/30 hover:bg-error-container/50 text-error text-[12px] transition-colors border border-error/30"
               type="button"
             >
-              <span className="material-symbols-outlined text-[15px]">eject</span>
+              <span className="material-symbols-outlined text-[15px]" aria-hidden="true">eject</span>
               <span>Unload Model</span>
             </button>
             <button
               onClick={onToggleInspector}
+              aria-pressed={inspectorOpen}
               className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border transition-colors ${
                 inspectorOpen
                   ? 'bg-surface-container-high text-primary border-primary/40'
@@ -222,7 +225,7 @@ void main() {
               title="Toggle Inspector Panel"
               type="button"
             >
-              <span className="material-symbols-outlined text-[16px]">dock_to_left</span>
+              <span className="material-symbols-outlined text-[16px]" aria-hidden="true">dock_to_left</span>
             </button>
           </div>
         </div>
@@ -246,7 +249,7 @@ void main() {
               Dual GPU Split (60/40)
             </span>
             <span className="px-2 py-0.5 rounded bg-surface-container-highest text-on-surface font-medium flex items-center gap-1">
-              <span className="material-symbols-outlined text-tertiary text-[13px]">check</span> Flash
+              <span className="material-symbols-outlined text-tertiary text-[13px]" aria-hidden="true">check</span> Flash
               Attention
             </span>
           </div>
@@ -268,7 +271,7 @@ void main() {
               <span className="text-outline text-[10px]">[GPU0: 14.4G • GPU1: 9.8G]</span>
             </div>
             <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-tertiary/10 border border-tertiary/20 text-tertiary font-bold">
-              <span className="material-symbols-outlined text-[13px]">speed</span>
+              <span className="material-symbols-outlined text-[13px]" aria-hidden="true">speed</span>
               <span>{streamSpeed} tok/s</span>
             </div>
           </div>
@@ -307,7 +310,7 @@ void main() {
             {/* USER MESSAGE ITEM */}
             <div className="flex gap-3 items-start group">
               <div className="w-8 h-8 rounded-lg bg-surface-container-high border border-outline-variant/30 flex items-center justify-center text-primary shrink-0 shadow-sm">
-                <span className="material-symbols-outlined text-[18px]">person</span>
+                <span className="material-symbols-outlined text-[18px]" aria-hidden="true">person</span>
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
@@ -327,7 +330,7 @@ void main() {
                     className="text-outline hover:text-on-surface font-mono text-[11px] inline-flex items-center gap-1"
                     type="button"
                   >
-                    <span className="material-symbols-outlined text-[13px]">edit</span> Edit
+                    <span className="material-symbols-outlined text-[13px]" aria-hidden="true">edit</span> Edit
                   </button>
                   <button
                     onClick={() => {
@@ -337,7 +340,7 @@ void main() {
                     className="text-outline hover:text-on-surface font-mono text-[11px] inline-flex items-center gap-1"
                     type="button"
                   >
-                    <span className="material-symbols-outlined text-[13px]">content_copy</span> Copy
+                    <span className="material-symbols-outlined text-[13px]" aria-hidden="true">content_copy</span> Copy
                   </button>
                 </div>
               </div>
@@ -346,7 +349,7 @@ void main() {
             {/* ASSISTANT MESSAGE ITEM */}
             <div className="flex gap-3 items-start">
               <div className="w-8 h-8 rounded-lg bg-primary text-on-surface flex items-center justify-center shrink-0 shadow-md">
-                <span className="material-symbols-outlined text-[18px]">terminal</span>
+                <span className="material-symbols-outlined text-[18px]" aria-hidden="true">terminal</span>
               </div>
               <div className="flex-1 min-w-0 space-y-3">
                 <div className="flex items-center gap-2">
@@ -361,7 +364,7 @@ void main() {
                 <details className="group bg-surface-container-low rounded-lg p-2.5 transition-all border border-outline-variant/30 open:bg-surface-container" open>
                   <summary className="flex items-center justify-between cursor-pointer list-none select-none">
                     <div className="flex items-center gap-2 font-mono text-[11px] text-primary">
-                      <span className="material-symbols-outlined text-[16px] transition-transform group-open:rotate-90">
+                      <span className="material-symbols-outlined text-[16px] transition-transform group-open:rotate-90" aria-hidden="true">
                         arrow_right
                       </span>
                       <span className="font-semibold">Thinking Process</span>
@@ -400,7 +403,7 @@ void main() {
                   <div className="rounded-xl overflow-hidden bg-surface-container-lowest border border-outline-variant/30 shadow-md">
                     <div className="px-4 py-2 bg-surface-container-high flex items-center justify-between font-mono text-[11px] border-b border-outline-variant/30">
                       <div className="flex items-center gap-2 text-on-surface-variant font-mono">
-                        <span className="material-symbols-outlined text-tertiary text-[14px]">code</span>
+                        <span className="material-symbols-outlined text-tertiary text-[14px]" aria-hidden="true">code</span>
                         <span>gemm_heterogeneous_vulkan.comp</span>
                         <span className="text-outline">• GLSL Vulkan 1.3</span>
                       </div>
@@ -410,7 +413,7 @@ void main() {
                           className="hover:text-on-surface text-outline inline-flex items-center gap-1 transition-colors"
                           type="button"
                         >
-                          <span className="material-symbols-outlined text-[14px]">content_copy</span> Copy Code
+                          <span className="material-symbols-outlined text-[14px]" aria-hidden="true">content_copy</span> Copy Code
                         </button>
                         <button
                           onClick={() => {
@@ -425,7 +428,7 @@ void main() {
                           className="hover:text-on-surface text-outline inline-flex items-center gap-1 transition-colors"
                           type="button"
                         >
-                          <span className="material-symbols-outlined text-[14px]">file_download</span> Download
+                          <span className="material-symbols-outlined text-[14px]" aria-hidden="true">file_download</span> Download
                         </button>
                       </div>
                     </div>
@@ -504,7 +507,7 @@ void main() {
                       title="Copy Code"
                       type="button"
                     >
-                      <span className="material-symbols-outlined text-[16px]">code</span>
+                      <span className="material-symbols-outlined text-[16px]" aria-hidden="true">code</span>
                     </button>
                     <button
                       onClick={() => showToast('Markdown copied')}
@@ -512,21 +515,21 @@ void main() {
                       title="Copy Raw Markdown"
                       type="button"
                     >
-                      <span className="material-symbols-outlined text-[16px]">content_copy</span>
+                      <span className="material-symbols-outlined text-[16px]" aria-hidden="true">content_copy</span>
                     </button>
                     <button
                       disabled title="Regenerate with seed · preview only; inference is not connected to the local API"
                       className="p-1 hover:text-on-surface text-outline transition-colors"
                       type="button"
                     >
-                      <span className="material-symbols-outlined text-[16px]">refresh</span>
+                      <span className="material-symbols-outlined text-[16px]" aria-hidden="true">refresh</span>
                     </button>
                     <button
                       disabled title="Preview only · conversation branching is unavailable"
                       className="p-1 hover:text-on-surface text-outline transition-colors"
                       type="button"
                     >
-                      <span className="material-symbols-outlined text-[16px]">fork_right</span>
+                      <span className="material-symbols-outlined text-[16px]" aria-hidden="true">fork_right</span>
                     </button>
                   </div>
                 </div>
@@ -544,23 +547,25 @@ void main() {
                     className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-surface-container hover:bg-surface-container-high text-on-surface border border-outline-variant/30 transition-colors"
                     type="button"
                   >
-                    <span className="material-symbols-outlined text-[14px]">attach_file</span>
+                    <span className="material-symbols-outlined text-[14px]" aria-hidden="true">attach_file</span>
                     <span>Attach Context</span>
                   </button>
                   <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-surface-container text-outline border border-outline-variant/20">
-                    <span className="material-symbols-outlined text-[14px] text-tertiary">psychology</span>
+                    <span className="material-symbols-outlined text-[14px] text-tertiary" aria-hidden="true">psychology</span>
                     <span className="text-on-surface font-medium truncate max-w-[200px]">
                       System: Linux Kernel &amp; GPU Specialist
                     </span>
-                    <span
+                    <button
+                      type="button"
+                      aria-label="Remove context tag"
                       onClick={() => showToast('Removed context tag')}
-                      className="material-symbols-outlined text-[12px] cursor-pointer hover:text-on-surface"
+                      className="cursor-pointer hover:text-on-surface"
                     >
-                      close
-                    </span>
+                      <span className="material-symbols-outlined text-[12px]" aria-hidden="true">close</span>
+                    </button>
                   </div>
                   <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-surface-container text-outline border border-outline-variant/20">
-                    <span className="material-symbols-outlined text-[14px] text-primary">tune</span>
+                    <span className="material-symbols-outlined text-[14px] text-primary" aria-hidden="true">tune</span>
                     <span className="text-on-surface font-medium">Preset: Code / Precise (0.2)</span>
                   </div>
                 </div>
@@ -594,21 +599,21 @@ void main() {
                       className="p-1.5 text-outline hover:text-on-surface rounded hover:bg-surface-container-high transition-colors"
                       type="button"
                     >
-                      <span className="material-symbols-outlined text-[16px]">data_array</span>
+                      <span className="material-symbols-outlined text-[16px]" aria-hidden="true">data_array</span>
                     </button>
                     <button
                       disabled title="Preview only · prompt history is not connected"
                       className="p-1.5 text-outline hover:text-on-surface rounded hover:bg-surface-container-high transition-colors"
                       type="button"
                     >
-                      <span className="material-symbols-outlined text-[16px]">history</span>
+                      <span className="material-symbols-outlined text-[16px]" aria-hidden="true">history</span>
                     </button>
                     <button
                       disabled title="Preview only · code formatting is unavailable"
                       className="p-1.5 text-outline hover:text-on-surface rounded hover:bg-surface-container-high transition-colors"
                       type="button"
                     >
-                      <span className="material-symbols-outlined text-[16px]">integration_instructions</span>
+                      <span className="material-symbols-outlined text-[16px]" aria-hidden="true">integration_instructions</span>
                     </button>
                   </div>
                   <div className="flex items-center gap-2">
@@ -618,7 +623,7 @@ void main() {
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-error font-body-sm text-[12px] border border-error/30 transition-colors"
                         type="button"
                       >
-                        <span className="material-symbols-outlined text-[16px]">stop_circle</span>
+                        <span className="material-symbols-outlined text-[16px]" aria-hidden="true">stop_circle</span>
                         <span>Stop</span>
                       </button>
                     )}
@@ -628,7 +633,7 @@ void main() {
                       type="button"
                     >
                       <span>{isGenerating ? 'Stop' : 'Generate'}</span>
-                      <span className="material-symbols-outlined text-[16px]">
+                      <span className="material-symbols-outlined text-[16px]" aria-hidden="true">
                         {isGenerating ? 'pause' : 'arrow_forward'}
                       </span>
                     </button>
@@ -648,13 +653,14 @@ void main() {
               <div className="flex items-center h-full gap-2">
                 <button
                   onClick={() => setCanvasSubTab('editor')}
+                  aria-pressed={canvasSubTab === 'editor'}
                   className={`h-full px-3 flex items-center gap-1.5 text-[12px] font-semibold border-b-2 transition-colors ${
                     canvasSubTab === 'editor'
                       ? 'border-primary text-primary bg-surface-container-lowest'
                       : 'border-transparent text-outline hover:text-on-surface'
                   }`}
                 >
-                  <span className="material-symbols-outlined text-[16px]">code</span>
+                  <span className="material-symbols-outlined text-[16px]" aria-hidden="true">code</span>
                   <span>Canvas / Code View</span>
                   <span className="w-1.5 h-1.5 rounded-full bg-primary ml-1"></span>
                 </button>
@@ -662,7 +668,7 @@ void main() {
                   onClick={() => setViewMode('standard')}
                   className="h-full px-3 flex items-center gap-1.5 text-[12px] text-outline hover:text-on-surface transition-colors"
                 >
-                  <span className="material-symbols-outlined text-[16px]">analytics</span>
+                  <span className="material-symbols-outlined text-[16px]" aria-hidden="true">analytics</span>
                   <span>Runtime Inspector</span>
                 </button>
               </div>
@@ -671,7 +677,7 @@ void main() {
                   disabled title="Preview only · pop-out editor is unavailable"
                   className="p-1 text-on-surface-variant hover:text-on-surface rounded"
                 >
-                  <span className="material-symbols-outlined text-[16px]">open_in_new</span>
+                  <span className="material-symbols-outlined text-[16px]" aria-hidden="true">open_in_new</span>
                 </button>
               </div>
             </div>
@@ -679,7 +685,7 @@ void main() {
             {/* File Meta Bar */}
             <div className="px-4 py-2 bg-surface-container border-b border-outline-variant/30 flex items-center justify-between">
               <div className="flex items-center gap-2 min-w-0">
-                <span className="material-symbols-outlined text-[16px] text-tertiary">memory</span>
+                <span className="material-symbols-outlined text-[16px] text-tertiary" aria-hidden="true">memory</span>
                 <span className="font-mono text-[12px] text-on-surface font-bold truncate">
                   vulkan_gemm.comp
                 </span>
@@ -723,14 +729,14 @@ void main() {
                   onClick={copyCode}
                   className="flex items-center gap-1 px-3 py-1.5 bg-surface-container-high hover:bg-surface-bright rounded text-on-surface font-mono text-[11px] font-semibold transition-colors"
                 >
-                  <span className="material-symbols-outlined text-[15px]">save</span>
+                  <span className="material-symbols-outlined text-[15px]" aria-hidden="true">save</span>
                   <span>Save</span>
                 </button>
                 <button
                   disabled title="Preview only · no benchmark is run by this reference"
                   className="flex items-center gap-1 px-3 py-1.5 bg-primary text-on-surface rounded font-mono text-[11px] font-semibold hover:bg-primary-fixed-dim transition-colors"
                 >
-                  <span className="material-symbols-outlined text-[15px]">speed</span>
+                  <span className="material-symbols-outlined text-[15px]" aria-hidden="true">speed</span>
                   <span>Benchmark Dual RX 9070</span>
                 </button>
               </div>
@@ -743,13 +749,14 @@ void main() {
             {/* INSPECTOR HEADER & MODE TOGGLE */}
             <div className="h-11 px-4 flex items-center justify-between bg-surface-container border-b border-outline-variant/30">
               <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-primary text-[17px]">tune</span>
+                <span className="material-symbols-outlined text-primary text-[17px]" aria-hidden="true">tune</span>
                 <span className="font-semibold text-on-surface text-[13px]">Runtime Inspector · sample</span>
               </div>
               {/* Segmented Mode Switcher */}
               <div className="flex items-center p-0.5 rounded-lg bg-surface-container-lowest border border-outline-variant/30 font-mono text-[11px]">
                 <button
                   onClick={() => setInspectorTab('simple')}
+                  aria-pressed={inspectorTab === 'simple'}
                   className={`px-2.5 py-0.5 rounded transition-colors ${
                     inspectorTab === 'simple'
                       ? 'bg-surface-container-high text-primary font-semibold shadow-sm'
@@ -761,6 +768,7 @@ void main() {
                 </button>
                 <button
                   onClick={() => setInspectorTab('advanced')}
+                  aria-pressed={inspectorTab === 'advanced'}
                   className={`px-2.5 py-0.5 rounded transition-colors ${
                     inspectorTab === 'advanced'
                       ? 'bg-surface-container-high text-primary font-semibold shadow-sm'

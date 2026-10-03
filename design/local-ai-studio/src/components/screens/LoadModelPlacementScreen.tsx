@@ -60,7 +60,7 @@ export const LoadModelPlacementScreen: React.FC<LoadModelPlacementScreenProps> =
       {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed bottom-12 right-6 z-50 px-3 py-2 rounded-lg bg-surface-container-high border border-primary/40 text-on-surface shadow-2xl flex items-center gap-2 text-[12px] font-mono animate-bounce">
-          <span className="material-symbols-outlined text-tertiary text-[16px]">check_circle</span>
+          <span className="material-symbols-outlined text-tertiary text-[16px]" aria-hidden="true">check_circle</span>
           <span>{toastMessage}</span>
         </div>
       )}
@@ -137,7 +137,7 @@ export const LoadModelPlacementScreen: React.FC<LoadModelPlacementScreenProps> =
                   <div className="text-[12px] text-on-surface font-semibold truncate">Device Placement</div>
                 </div>
               </div>
-              <span className="material-symbols-outlined text-primary text-[16px]">tune</span>
+              <span className="material-symbols-outlined text-primary text-[16px]" aria-hidden="true">tune</span>
             </div>
 
             {/* Step 4 */}
@@ -151,7 +151,7 @@ export const LoadModelPlacementScreen: React.FC<LoadModelPlacementScreenProps> =
                   <div className="text-[12px] text-on-surface-variant truncate">FlashAttn / mlock</div>
                 </div>
               </div>
-              <span className="material-symbols-outlined text-outline text-[14px]">arrow_forward</span>
+              <span className="material-symbols-outlined text-outline text-[14px]" aria-hidden="true">arrow_forward</span>
             </div>
 
             {/* Step 5 */}
@@ -165,7 +165,7 @@ export const LoadModelPlacementScreen: React.FC<LoadModelPlacementScreenProps> =
                   <div className="text-[12px] text-on-surface-variant truncate">Deploy Process</div>
                 </div>
               </div>
-              <span className="material-symbols-outlined text-outline text-[14px]">rocket_launch</span>
+              <span className="material-symbols-outlined text-outline text-[14px]" aria-hidden="true">rocket_launch</span>
             </div>
           </div>
         </div>
@@ -185,6 +185,7 @@ export const LoadModelPlacementScreen: React.FC<LoadModelPlacementScreenProps> =
                   setAllocationMode('auto');
                   applyAutoPreset();
                 }}
+                aria-pressed={allocationMode === 'auto'}
                 className={`px-3 py-1 rounded text-[12px] transition-colors flex items-center gap-1.5 ${
                   allocationMode === 'auto'
                     ? 'bg-surface-container-high text-primary font-semibold shadow-sm'
@@ -192,11 +193,12 @@ export const LoadModelPlacementScreen: React.FC<LoadModelPlacementScreenProps> =
                 }`}
                 type="button"
               >
-                <span className="material-symbols-outlined text-[15px]">auto_mode</span>
+                <span className="material-symbols-outlined text-[15px]" aria-hidden="true">auto_mode</span>
                 <span>Automatic Placement</span>
               </button>
               <button
                 onClick={() => setAllocationMode('manual')}
+                aria-pressed={allocationMode === 'manual'}
                 className={`px-3 py-1 rounded text-[12px] transition-colors flex items-center gap-1.5 ${
                   allocationMode === 'manual'
                     ? 'bg-surface-container-high text-primary font-semibold shadow-sm'
@@ -204,7 +206,7 @@ export const LoadModelPlacementScreen: React.FC<LoadModelPlacementScreenProps> =
                 }`}
                 type="button"
               >
-                <span className="material-symbols-outlined text-[15px] text-primary">linear_scale</span>
+                <span className="material-symbols-outlined text-[15px] text-primary" aria-hidden="true">linear_scale</span>
                 <span>Manual Custom Distribution</span>
               </button>
             </div>
@@ -212,7 +214,7 @@ export const LoadModelPlacementScreen: React.FC<LoadModelPlacementScreenProps> =
 
           {/* Live VRAM Guard Badge */}
           <div className="flex items-center gap-2 px-3 py-1.5 bg-tertiary-container/10 border border-tertiary/30 rounded-lg">
-            <span className="material-symbols-outlined text-tertiary text-[18px]">verified_user</span>
+            <span className="material-symbols-outlined text-tertiary text-[18px]" aria-hidden="true">verified_user</span>
             <div className="font-mono text-[11px] text-tertiary font-medium">
               Safety Check: <strong className="font-bold">PASSED</strong> • 0 VRAM Overflow • 1.4 GB Headroom Buffer
             </div>
@@ -222,7 +224,7 @@ export const LoadModelPlacementScreen: React.FC<LoadModelPlacementScreenProps> =
         {/* Automatic Reference Profile Card */}
         <div className="bg-surface-container-lowest border border-outline-variant/30 px-4 py-2.5 rounded-xl flex flex-wrap items-center justify-between gap-3 font-mono text-[11px]">
           <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-primary text-[18px]">lightbulb</span>
+            <span className="material-symbols-outlined text-primary text-[18px]" aria-hidden="true">lightbulb</span>
             <span className="text-on-surface-variant font-medium">Auto-Tuning Reference Profile:</span>
             <span className="text-on-surface">Calculated by llama.cpp Vulkan • Split GPU 0 (60%) / GPU 1 (40%)</span>
           </div>
@@ -231,7 +233,7 @@ export const LoadModelPlacementScreen: React.FC<LoadModelPlacementScreenProps> =
               Estimated Alloc: <span className="text-primary font-semibold">14.6 GB + 10.1 GB</span>
             </span>
             <span className="text-tertiary font-semibold flex items-center gap-1">
-              <span className="material-symbols-outlined text-[14px]">speed</span>42.4+ tok/s
+              <span className="material-symbols-outlined text-[14px]" aria-hidden="true">speed</span>42.4+ tok/s
             </span>
             <button
               onClick={applyAutoPreset}
@@ -249,7 +251,7 @@ export const LoadModelPlacementScreen: React.FC<LoadModelPlacementScreenProps> =
           <div className="lg:col-span-7 flex flex-col gap-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5 font-mono text-[12px] text-on-surface font-semibold uppercase tracking-wider">
-                <span className="material-symbols-outlined text-primary text-[18px]">developer_board</span>
+                <span className="material-symbols-outlined text-primary text-[18px]" aria-hidden="true">developer_board</span>
                 <span>Hardware Devices &amp; Split Allocator</span>
               </div>
               <div className="font-mono text-[11px] text-outline">
@@ -447,7 +449,7 @@ export const LoadModelPlacementScreen: React.FC<LoadModelPlacementScreenProps> =
                   <p className="text-[12px] text-outline mt-1 font-mono">4,096 MB (4.0 GB VRAM)</p>
                 </div>
                 <div className="mt-3 bg-surface-container-lowest border border-outline-variant/20 p-2 rounded font-mono text-[10px] text-outline flex items-center gap-1.5">
-                  <span className="material-symbols-outlined text-[14px]">block</span>
+                  <span className="material-symbols-outlined text-[14px]" aria-hidden="true">block</span>
                   <span className="truncate">Excluded: Insufficient VRAM bandwidth</span>
                 </div>
               </div>
@@ -457,7 +459,7 @@ export const LoadModelPlacementScreen: React.FC<LoadModelPlacementScreenProps> =
                 <div>
                   <div className="flex items-center justify-between font-mono text-[11px]">
                     <div className="flex items-center gap-1.5 text-on-surface font-semibold">
-                      <span className="material-symbols-outlined text-tertiary text-[15px]">memory</span>
+                      <span className="material-symbols-outlined text-tertiary text-[15px]" aria-hidden="true">memory</span>
                       <span>AMD Ryzen 9 7950X</span>
                     </div>
                     <span className="text-tertiary font-semibold">0 Offload Layers</span>
@@ -480,7 +482,7 @@ export const LoadModelPlacementScreen: React.FC<LoadModelPlacementScreenProps> =
             <div className="bg-surface-container-low border border-outline-variant/30 p-4 rounded-xl flex flex-col gap-3 shadow-sm">
               <div className="flex items-center justify-between">
                 <span className="font-mono text-[11px] text-on-surface font-semibold uppercase tracking-wider flex items-center gap-1.5">
-                  <span className="material-symbols-outlined text-primary text-[17px]">hub</span>
+                  <span className="material-symbols-outlined text-primary text-[17px]" aria-hidden="true">hub</span>
                   <span>Layer Partition Topology</span>
                 </span>
                 <span className="font-mono text-[10px] text-tertiary font-semibold flex items-center gap-1">
@@ -520,7 +522,7 @@ export const LoadModelPlacementScreen: React.FC<LoadModelPlacementScreenProps> =
                 {/* Interconnect Bridge */}
                 <div className="flex items-center justify-between px-3 py-1 bg-surface-container-high rounded text-[11px] font-mono border border-outline-variant/20">
                   <div className="flex items-center gap-1.5 text-outline">
-                    <span className="material-symbols-outlined text-primary text-[15px]">swap_vert</span>
+                    <span className="material-symbols-outlined text-primary text-[15px]" aria-hidden="true">swap_vert</span>
                     <span>PCIe Gen4 x16 Direct P2P Bridge</span>
                   </div>
                   <span className="text-tertiary font-semibold">28.0 GB/s</span>
@@ -571,7 +573,7 @@ export const LoadModelPlacementScreen: React.FC<LoadModelPlacementScreenProps> =
             <div className="bg-surface-container-low border border-outline-variant/30 p-4 rounded-xl flex flex-col gap-3 shadow-sm">
               <div className="flex items-center justify-between">
                 <span className="font-mono text-[11px] text-on-surface font-semibold uppercase tracking-wider flex items-center gap-1.5">
-                  <span className="material-symbols-outlined text-outline text-[16px]">
+                  <span className="material-symbols-outlined text-outline text-[16px]" aria-hidden="true">
                     settings_input_component
                   </span>
                   <span>Advanced Split Flags</span>
@@ -585,6 +587,7 @@ export const LoadModelPlacementScreen: React.FC<LoadModelPlacementScreenProps> =
                 <div className="grid grid-cols-2 gap-1 bg-surface-container-lowest p-1 rounded-lg border border-outline-variant/30 font-mono text-[11px]">
                   <button
                     onClick={() => setSplitStrategy('layer')}
+                    aria-pressed={splitStrategy === 'layer'}
                     className={`py-1 px-2 rounded transition-colors ${
                       splitStrategy === 'layer'
                         ? 'bg-surface-container-high text-primary font-bold shadow-sm'
@@ -596,6 +599,7 @@ export const LoadModelPlacementScreen: React.FC<LoadModelPlacementScreenProps> =
                   </button>
                   <button
                     onClick={() => setSplitStrategy('tensor')}
+                    aria-pressed={splitStrategy === 'tensor'}
                     className={`py-1 px-2 rounded transition-colors ${
                       splitStrategy === 'tensor'
                         ? 'bg-surface-container-high text-primary font-bold shadow-sm'
@@ -671,7 +675,7 @@ export const LoadModelPlacementScreen: React.FC<LoadModelPlacementScreenProps> =
               className="px-3 py-1.5 rounded-lg text-outline hover:text-on-surface text-[12px] transition-colors flex items-center gap-1 cursor-pointer"
               type="button"
             >
-              <span className="material-symbols-outlined text-[16px]">close</span>
+              <span className="material-symbols-outlined text-[16px]" aria-hidden="true">close</span>
               <span>Cancel</span>
             </button>
             <span className="text-outline-variant">|</span>
@@ -680,7 +684,7 @@ export const LoadModelPlacementScreen: React.FC<LoadModelPlacementScreenProps> =
               className="px-3 py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface text-[12px] transition-colors flex items-center gap-1.5 border border-outline-variant/30 cursor-pointer"
               type="button"
             >
-              <span className="material-symbols-outlined text-[16px]">arrow_back</span>
+              <span className="material-symbols-outlined text-[16px]" aria-hidden="true">arrow_back</span>
               <span>Back: Runtime</span>
             </button>
           </div>
@@ -692,7 +696,7 @@ export const LoadModelPlacementScreen: React.FC<LoadModelPlacementScreenProps> =
               className="px-3 py-1.5 rounded-lg bg-surface-container text-on-surface-variant text-[12px] flex items-center gap-1.5 border border-outline-variant/30 cursor-not-allowed opacity-60"
               type="button"
             >
-              <span className="material-symbols-outlined text-[16px]">bookmark</span>
+              <span className="material-symbols-outlined text-[16px]" aria-hidden="true">bookmark</span>
               <span>Save as Hardware Profile...</span>
             </button>
             <button

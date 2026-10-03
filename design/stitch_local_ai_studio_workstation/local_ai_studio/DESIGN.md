@@ -31,7 +31,6 @@ colors:
   on-tertiary: '#003824'
   tertiary-container: '#00a572'
   on-tertiary-container: '#00311f'
-  warning: '#f59e0b'
   on-warning: '#201200'
   error: '#ffb4ab'
   on-error: '#690005'
@@ -52,7 +51,6 @@ colors:
   background: '#0e131d'
   on-background: '#dee2f1'
   surface-variant: '#303540'
-  scrim: '#000000'
 typography:
   headline-lg:
     fontFamily: Inter
@@ -120,6 +118,7 @@ rounded:
   md: 0.375rem
   lg: 0.5rem
   xl: 0.75rem
+  2xl: 1rem
   full: 9999px
 spacing:
   gutter: 0.5rem
@@ -204,7 +203,7 @@ The React stylesheet contains one alpha-colored text utility, for the disabled T
 
 ## Typography
 
-The typographic hierarchy distinguishes operational interface controls from telemetry and code artifacts.
+The typographic hierarchy distinguishes operational interface controls from telemetry and code artifacts. `index.html` loads Inter and JetBrains Mono from Google Fonts; the CSS variables provide system/monospace fallbacks if that request is unavailable. The current reference therefore depends on network access for the named fonts; no local font files are included.
 
 - **Interface Shell (`Inter`):** Delivers clean geometry and high readability in tight, dense arrangements such as property grids, tree views, context menus, and global app bars.
 - **Data & Telemetry Engine (`JetBrains Mono`):** Applied to prompt inputs, token matrices, memory addresses, latency figures (tokens/sec, TTFT), and keybinding annotations. Tabular figures (`tnum`) should be enabled for changing numeric readouts to prevent layout shift.
@@ -236,12 +235,23 @@ This design system avoids heavy drop shadows and faux real-world lighting in fav
 
 ## Shapes
 
-The shape system uses the YAML `rounded` scale as its only radius contract, preserving structure for high-density desktop layouts.
+The YAML `rounded` scale mirrors the Tailwind radius utilities used by the reference (`rounded-sm` through `rounded-2xl`, plus `rounded-full`). Source inspection found `rounded-lg` to be the most common panel/control radius (122 uses), followed by `rounded-md` (54), `rounded-xl` (37), and `rounded-2xl` (1, command palette). Smaller radius guidance below describes compact telemetry elements; it is not a claim that all dock panels currently use the smallest radius.
 
-- **Dock panels & splitters:** `rounded.sm`.
-- **Interactive controls:** `rounded.DEFAULT` or `rounded.md`.
-- **Status chips:** `rounded.DEFAULT`; use `rounded.full` only where a pill shape is intentional.
-- **Floating overlays & modals:** `rounded.lg` maximum.
+- **Dock panels & cards:** commonly `rounded.lg`; compact nested containers use `rounded.md`.
+- **Interactive controls:** `rounded.md` or `rounded.lg`, according to control size.
+- **Status chips:** `rounded.DEFAULT` or `rounded.lg`; use `rounded.full` only where a pill shape is intentional.
+- **Floating overlays & modals:** `rounded.xl`; the command palette currently uses `rounded.2xl` as a single larger exception.
+
+## Source-alignment evidence and remaining review
+
+This is a source-level comparison of the design specification with the React reference, not visual sign-off.
+
+| Check | Evidence in the current reference | Remaining review |
+|---|---|---|
+| Color tokens | The 50 YAML color entries match the 50 `--color-*` values in `src/index.css`; the document front matter no longer repeats `warning` or `scrim`. The HTML body uses `bg-surface` and `text-on-surface` instead of duplicate hex literals. | Inspect rendered states in a browser, especially translucent borders/chips, disabled controls, SVG marks, and real foreground/background combinations. |
+| Shape scale | YAML includes the Tailwind radius steps used by the reference. Source counts show 122 `rounded-lg`, 54 `rounded-md`, 37 `rounded-xl`, and one `rounded-2xl` use; the command palette is that exception. | Compare the Stitch reference images and rendered screens side by side; the source snapshot alone cannot confirm visual fidelity. |
+| Typography | `index.html` imports Inter and JetBrains Mono from Google Fonts; CSS declares system and monospace fallbacks. | Check the loaded-font and offline states in-browser; no local font assets are present. |
+| Responsive/elevation | `accessibility.css` defines shell behavior below 1024px and 640px, and the React shell uses 18rem navigation, 3.5rem header, and 1.5rem footer dimensions. | Capture representative screens at narrow, tablet, desktop, and ultrawide sizes; screen-specific grids and overlays still need visual inspection. |
 
 ## Components
 

@@ -149,7 +149,8 @@ try {
     const failedResponsePromise = expectDownloadsResponse(page, 503);
     await page.goto(`${baseUrl}/downloads`);
     await failedResponsePromise;
-    await expect(page.getByRole('alert')).toContainText(/downloads api unavailable/i);
+    await expect(page.locator('section.hub-empty[role="alert"]'))
+      .toContainText(/downloads api unavailable/i);
     await page.screenshot({ path: path.join(artifactDir, 'downloads-error.png'), fullPage: true });
 
     const retryResponsePromise = expectDownloadsResponse(page, 200);
