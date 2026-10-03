@@ -16,7 +16,7 @@ import socket
 import ssl
 import tempfile
 import threading
-from typing import Any, Mapping, Protocol
+from typing import Any, Iterator, Mapping, Protocol
 from urllib.parse import urlsplit, urlunsplit
 import uuid
 import http.client
@@ -178,7 +178,7 @@ class OpenAICompatibleTransport:
             addresses.append(result)
         return addresses
 
-    def list_models(self, base_url: str, api_key: str) -> ProviderResponse:
+    def _connect(self, base_url: str, timeout: float | None = None) -> tuple[socket.socket, http.client.HTTPConnection, str]:
         safe_url = validate_base_url(base_url)
         parts = urlsplit(safe_url)
         host = parts.hostname or ""
@@ -189,33 +189,63 @@ class OpenAICompatibleTransport:
         except ValueError:
             pass
         addresses = self._addresses(host, port, loopback_allowed=loopback_allowed)
-        # Pin the socket to the vetted address to avoid a second DNS lookup.
+        effective_timeout = self.timeout if timeout is None else timeout
         family, socktype, proto, _canonname, sockaddr = addresses[0]
         sock = socket.socket(family, socktype, proto)
-        sock.settimeout(self.timeout)
+        sock.settimeout(effective_timeout)
         try:
             sock.connect(sockaddr)
             if parts.scheme == "https":
                 sock = ssl.create_default_context().wrap_socket(sock, server_hostname=host)
-            target = (parts.path.rstrip("/") or "") + "/models"
-            connection = http.client.HTTPConnection(host, port, timeout=self.timeout)
+            connection = http.client.HTTPConnection(host, port, timeout=effective_timeout)
             connection.sock = sock
-            connection.request("GET", target, headers={
-                "Authorization": f"Bearer {api_key}",
+            base_path = parts.path.rstrip("/") or ""
+            return sock, connection, base_path
+        except (OSError, ssl.SSLError, http.client.HTTPException) as exc:
+            try:
+                sock.close()
+            except OSError:
+                pass
+            raise ProviderConnectionError("Provider connection failed") from exc
+
+    def request(self, method: str, base_url: str, endpoint: str, *,
+                api_key: str | None = None, json_body: Any = None,
+                headers: Mapping[str, str] | None = None,
+                timeout: float | None = None,
+                max_bytes: int = MAX_RESPONSE_BYTES) -> ProviderResponse:
+        sock, connection, base_path = self._connect(base_url, timeout=timeout)
+        try:
+            clean_endpoint = endpoint if endpoint.startswith("/") else f"/{endpoint}"
+            target = base_path + clean_endpoint
+            req_headers = {
                 "Accept": "application/json",
                 "User-Agent": "AI-Dream/0.1",
                 "Connection": "close",
-            })
+            }
+            if api_key:
+                req_headers["Authorization"] = f"Bearer {api_key}"
+            if headers:
+                req_headers.update(headers)
+
+            req_body = None
+            if json_body is not None:
+                req_body = json.dumps(json_body).encode("utf-8")
+                req_headers["Content-Type"] = "application/json"
+                req_headers["Content-Length"] = str(len(req_body))
+
+            connection.request(method.upper(), target, body=req_body, headers=req_headers)
             response = connection.getresponse()
-            body = response.read(MAX_RESPONSE_BYTES + 1)
-            if len(body) > MAX_RESPONSE_BYTES:
+            body = response.read(max_bytes + 1)
+            if len(body) > max_bytes:
                 raise ProviderConnectionError("Provider response exceeded the size limit")
             if 300 <= response.status < 400:
                 raise ProviderConnectionError("Provider redirects are not followed")
             try:
                 decoded = json.loads(body.decode("utf-8")) if body else None
             except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-                raise ProviderConnectionError("Provider returned an invalid model-list response") from exc
+                if endpoint.strip("/") == "models":
+                    raise ProviderConnectionError("Provider returned an invalid model-list response") from exc
+                raise ProviderConnectionError("Provider returned an invalid JSON response") from exc
             return ProviderResponse(response.status, decoded if isinstance(decoded, Mapping) else None)
         except ProviderConnectionError:
             raise
@@ -226,6 +256,74 @@ class OpenAICompatibleTransport:
                 sock.close()
             except OSError:
                 pass
+
+    def stream_request(self, method: str, base_url: str, endpoint: str, *,
+                       api_key: str | None = None, json_body: Any = None,
+                       headers: Mapping[str, str] | None = None,
+                       timeout: float | None = None) -> Iterator[str]:
+        sock, connection, base_path = self._connect(base_url, timeout=timeout)
+        try:
+            clean_endpoint = endpoint if endpoint.startswith("/") else f"/{endpoint}"
+            target = base_path + clean_endpoint
+            req_headers = {
+                "Accept": "text/event-stream",
+                "User-Agent": "AI-Dream/0.1",
+                "Connection": "close",
+            }
+            if api_key:
+                req_headers["Authorization"] = f"Bearer {api_key}"
+            if headers:
+                req_headers.update(headers)
+
+            req_body = None
+            if json_body is not None:
+                req_body = json.dumps(json_body).encode("utf-8")
+                req_headers["Content-Type"] = "application/json"
+                req_headers["Content-Length"] = str(len(req_body))
+
+            connection.request(method.upper(), target, body=req_body, headers=req_headers)
+            response = connection.getresponse()
+            if 300 <= response.status < 400:
+                raise ProviderConnectionError("Provider redirects are not followed")
+            if response.status < 200 or response.status >= 300:
+                err_body = response.read(1024).decode("utf-8", errors="replace")
+                raise ProviderConnectionError(f"Provider returned HTTP {response.status}: {err_body}")
+
+            fp = sock.makefile("rb")
+            try:
+                for line in fp:
+                    decoded_line = line.decode("utf-8", errors="replace").strip()
+                    if not decoded_line:
+                        continue
+                    if decoded_line.startswith("data:"):
+                        payload = decoded_line[5:].strip()
+                        if payload == "[DONE]":
+                            break
+                        try:
+                            data = json.loads(payload)
+                            if isinstance(data, dict):
+                                choices = data.get("choices")
+                                if isinstance(choices, list) and choices:
+                                    delta = choices[0].get("delta", {})
+                                    content = delta.get("content")
+                                    if content:
+                                        yield content
+                        except json.JSONDecodeError:
+                            continue
+            finally:
+                fp.close()
+        except ProviderConnectionError:
+            raise
+        except (OSError, ssl.SSLError, http.client.HTTPException) as exc:
+            raise ProviderConnectionError("Provider streaming failed") from exc
+        finally:
+            try:
+                sock.close()
+            except OSError:
+                pass
+
+    def list_models(self, base_url: str, api_key: str) -> ProviderResponse:
+        return self.request("GET", base_url, "/models", api_key=api_key)
 
 
 class ProviderConnectionStore:
@@ -438,7 +536,7 @@ class ProviderConnections:
             self.secret_store.delete(item["secret_ref"])
         return result
 
-    def _models(self, connection_id: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    def get_connection_and_key(self, connection_id: str) -> tuple[dict[str, Any], str]:
         item = self.store.get(self._validate_id(connection_id))
         if not item["enabled"]:
             raise ProviderConnectionError("Provider connection is disabled")
@@ -448,6 +546,32 @@ class ProviderConnections:
         api_key = self.secret_store.get(reference)
         if not api_key:
             raise SecretStoreUnavailable("The secure credential is unavailable; save it again")
+        return item, api_key
+
+    def request(self, connection_id: str, method: str, endpoint: str, *,
+                json_body: Any = None, headers: Mapping[str, str] | None = None,
+                timeout: float | None = None) -> ProviderResponse:
+        item, api_key = self.get_connection_and_key(connection_id)
+        if hasattr(self.transport, "request"):
+            return self.transport.request(method, item["base_url"], endpoint,
+                                          api_key=api_key, json_body=json_body,
+                                          headers=headers, timeout=timeout)
+        if method.upper() == "GET" and endpoint.strip("/") == "models":
+            return self.transport.list_models(item["base_url"], api_key)
+        raise ProviderConnectionError("Transport does not support custom requests")
+
+    def stream_request(self, connection_id: str, method: str, endpoint: str, *,
+                       json_body: Any = None, headers: Mapping[str, str] | None = None,
+                       timeout: float | None = None) -> Iterator[str]:
+        item, api_key = self.get_connection_and_key(connection_id)
+        if hasattr(self.transport, "stream_request"):
+            return self.transport.stream_request(method, item["base_url"], endpoint,
+                                                 api_key=api_key, json_body=json_body,
+                                                 headers=headers, timeout=timeout)
+        raise ProviderConnectionError("Transport does not support streaming requests")
+
+    def _models(self, connection_id: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        item, api_key = self.get_connection_and_key(connection_id)
         try:
             response = self.transport.list_models(item["base_url"], api_key)
         except ProviderConnectionError:

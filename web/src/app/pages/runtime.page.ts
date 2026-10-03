@@ -171,8 +171,31 @@ export class RuntimePage implements OnInit {
   }
   returnToModels(){const modelId=this.modelId();void this.router.navigate(['/models'],{queryParams:{model_id:modelId||null,profile_id:this.selectedProfileId()||(modelId===this.requestedModelId?this.requestedProfileId:'')||null}});}
   private statusSnapshot():Record<string,any>{const value=this.status();const root=value&&typeof value==='object'?value as Record<string,any>:{};const data=root['data']&&typeof root['data']==='object'?root['data']:root;const status=data['status']&&typeof data['status']==='object'?data['status']:data;return status&&typeof status==='object'?status:{};}
-  detectedLoadedModel():ModelRecord|null{const status=this.statusSnapshot();const path=typeof status['model_path']==='string'?status['model_path']:status['model'];if(status['loaded']===false||typeof path!=='string')return null;return this.models().find(model=>this.sameModelPath(model.path,path))??null;}
-  isLoadedModel(model:ModelRecord):boolean{return this.detectedLoadedModel()?.id===model.id;}
+  detectedLoadedModel():ModelRecord|null{
+    const status=this.statusSnapshot();
+    if(status['loaded']===false)return null;
+    const path=typeof status['model_path']==='string'?status['model_path']:status['model'];
+    const modelId=typeof status['model_id']==='string'?status['model_id']:(typeof status['model']==='string'?status['model']:null);
+    const direct=this.models().find(model=>(modelId&&model.id===modelId)||(path&&(model.id===path||this.sameModelPath(model.path,path))));
+    if(direct)return direct;
+    if(Array.isArray(status['models'])){
+      for(const m of status['models']){
+        const mid=m?.model_id; const mpath=m?.model_path;
+        const match=this.models().find(model=>(mid&&model.id===mid)||(mpath&&(model.id===mpath||this.sameModelPath(model.path,mpath))));
+        if(match)return match;
+      }
+    }
+    return null;
+  }
+  isLoadedModel(model:ModelRecord):boolean{
+    const status=this.statusSnapshot();
+    if(status['loaded']===false)return false;
+    if(this.detectedLoadedModel()?.id===model.id)return true;
+    if(Array.isArray(status['models'])){
+      return status['models'].some((m:any)=>m?.model_id===model.id||(m?.model_path&&(m.model_path===model.id||this.sameModelPath(model.path,m.model_path))));
+    }
+    return false;
+  }
   private selectLoadedModelWhenUntouched(){if(this.modelSelectionTouched)return;const model=this.detectedLoadedModel();if(model)this.modelId.set(model.id);}
   private sameModelPath(left:string,right:string){const normalize=(value:string)=>value.replaceAll('\\','/').replace(/\/+$/,'');return normalize(left)===normalize(right);}
   private get backend(){return this.backends().find(b=>b.name===this.backendName()) as BackendWithOptions|undefined;}
@@ -216,7 +239,7 @@ export class RuntimePage implements OnInit {
     return {model_id:this.modelId(),backend:this.installation?(this.installation.backend||undefined):this.backendName(),runtime_id:this.runtimeId()||undefined,placement,load};
   }
   async load(){this.busy.set(true);this.error.set('');this.notice.set('Loading model…');this.command.set('');try{this.status.set(await this.runtime.load(this.payload()));this.notice.set('Model loaded.');await this.refreshStatus();}catch(e){this.notice.set('');this.error.set(errorMessage(e));}finally{this.busy.set(false);}}
-  async unload(){this.busy.set(true);this.error.set('');try{this.status.set(await this.runtime.unload());this.notice.set('Model unloaded.');}catch(e){this.error.set(errorMessage(e));}finally{this.busy.set(false);}}
+  async unload(){this.busy.set(true);this.error.set('');try{const targetId=this.modelId()||this.detectedLoadedModel()?.id;this.status.set(await this.runtime.unload(targetId));this.notice.set('Model unloaded.');await this.refreshStatus();}catch(e){this.error.set(errorMessage(e));}finally{this.busy.set(false);}}
   async refreshStatus(){try{this.status.set(await this.runtime.status());this.selectLoadedModelWhenUntouched();}catch(e){this.error.set(errorMessage(e));}}
   async showCommand(){try{const result=await this.runtime.command(this.payload());this.command.set(result.data.command);}catch(e){this.error.set(errorMessage(e));}}
   async addInstallation(event:Event){event.preventDefault();const executable=this.runtimeExecutable().trim();if(!executable)return;this.managerBusy.set('add');this.error.set('');try{const value=await this.runtime.addInstallation({executable,...(this.runtimeName().trim()?{name:this.runtimeName().trim()}:{})});this.installations.update(items=>[...items.filter(item=>item.id!==value.id),value]);this.runtimeExecutable.set('');this.runtimeName.set('');this.setInstallation(value.id);this.notice.set(`Registered and probed ${value.name}.`);}catch(e){this.error.set(errorMessage(e));}finally{this.managerBusy.set('');}}

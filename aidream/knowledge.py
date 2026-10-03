@@ -149,6 +149,52 @@ class SQLiteKnowledgeIndex:
             raise KnowledgeError("SQLite FTS5 is unavailable for the local knowledge index") from exc
         return self._metadata(row)
 
+    def add_sqlite_document(self, name: str, size_bytes: int, text: str, doc_id: str | None = None) -> dict:
+        if not isinstance(name, str) or len(name) > MAX_DOCUMENT_NAME_CHARS:
+            raise KnowledgeError(f"Document name must be at most {MAX_DOCUMENT_NAME_CHARS} characters")
+        if "\x00" in text:
+            raise KnowledgeError("Document text contains a NUL character")
+
+        doc_id = doc_id or uuid.uuid4().hex
+        created_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        try:
+            with self._connection() as connection:
+                connection.execute(
+                    "INSERT OR REPLACE INTO knowledge_documents(id,name,media_type,size_bytes,char_count,truncated,created_at,text) "
+                    "VALUES(?,?,?,?,?,?,?,?)",
+                    (doc_id, name, "application/x-sqlite3", int(size_bytes),
+                     len(text), 0, created_at, text),
+                )
+                connection.execute(
+                    "DELETE FROM knowledge_fts WHERE document_id=?", (doc_id,)
+                )
+                connection.execute(
+                    "INSERT INTO knowledge_fts(document_id,name,text) VALUES(?,?,?)",
+                    (doc_id, name, text),
+                )
+                row = connection.execute(
+                    "SELECT id,name,media_type,size_bytes,char_count,truncated,created_at "
+                    "FROM knowledge_documents WHERE id=?", (doc_id,),
+                ).fetchone()
+        except sqlite3.OperationalError as exc:
+            raise KnowledgeError("SQLite FTS5 is unavailable for the local knowledge index") from exc
+        return self._metadata(row)
+
+    def get_document(self, doc_id: str) -> dict | None:
+        if not isinstance(doc_id, str) or not _ID_RE.fullmatch(doc_id):
+            raise KnowledgeError("Invalid knowledge document id")
+        try:
+            with self._connection() as connection:
+                row = connection.execute(
+                    "SELECT id,name,media_type,size_bytes,char_count,truncated,created_at,text "
+                    "FROM knowledge_documents WHERE id=?", (doc_id,),
+                ).fetchone()
+                if row is None:
+                    return None
+                return {**self._metadata(row[:7]), "text": row[7]}
+        except sqlite3.OperationalError as exc:
+            raise KnowledgeError("SQLite FTS5 is unavailable for the local knowledge index") from exc
+
     def delete_document(self, doc_id: str) -> bool:
         if not isinstance(doc_id, str) or not _ID_RE.fullmatch(doc_id):
             raise KnowledgeError("Invalid knowledge document id")

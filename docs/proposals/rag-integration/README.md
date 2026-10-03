@@ -10,6 +10,7 @@ Stop re-implementing the same LLM-provider and RAG code in every program. `ai-dr
 
 | Document | Covers |
 |---|---|
+| [Agile Priorities & Implementation Plan](AGILE-PRIORITIES.md) | User-centric, prioritized iteration rounds delivering demonstrable improvements at the end of every round |
 | [01 Gap analysis](01-gap-analysis.md) | How providers are used across both projects, which `my-rag` functions are missing from `ai-dream`, and the proposed shared `aidream/providers/` package with a migration order |
 | [02 SQLite and drag-and-drop](02-sqlite-and-drag-drop.md) | Ingesting SQLite files and dropped files into RAG: current state, three-layer design, safe SQL tools, upload path, drag-and-drop UI, problems found, work plan, test plan |
 | [03 Context window](03-context-window.md) | Per-model context window with defaults (local and remote models), token budgeting, UI, tasks |

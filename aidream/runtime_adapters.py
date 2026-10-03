@@ -130,7 +130,10 @@ class BackendRuntimeAdapter:
             "tensor_split": "placement.tensor_parallel",
             "context_size": "context.configurable",
         }
-        return frozenset(feature for attr, feature in names.items() if getattr(caps, attr, False))
+        features = set(feature for attr, feature in names.items() if getattr(caps, attr, False))
+        if getattr(caps, "multi_resident", False) or getattr(self.backend, "_multi_resident", False):
+            features.add("models.multi_resident")
+        return frozenset(features)
 
     def probe(self) -> RuntimeDescriptor:
         caps = self.backend.capabilities()
@@ -177,7 +180,11 @@ class BackendRuntimeAdapter:
     def load(self, prepared: PreparedLaunch) -> RuntimeHandle:
         self._require_runtime(prepared.runtime_id)
         with self._state_lock:
-            if self._handle is not None:
+            model_key = getattr(prepared.model, "id", None) or getattr(prepared.model, "path", None) or str(prepared.model)
+            if hasattr(self, "_loaded_models") and model_key in self._loaded_models:
+                raise RuntimeFailure(RuntimeErrorCode.INVALID_REQUEST,
+                                     "A model is already loaded; unload it before loading another")
+            if "models.multi_resident" not in self.probe().features and self._handle is not None:
                 raise RuntimeFailure(RuntimeErrorCode.INVALID_REQUEST,
                                      "A model is already loaded; unload it before loading another")
             try:
@@ -186,8 +193,15 @@ class BackendRuntimeAdapter:
                 raise RuntimeFailure(RuntimeErrorCode.INVALID_REQUEST, str(exc)) from exc
             except RuntimeError as exc:
                 raise RuntimeFailure(RuntimeErrorCode.FAILED, str(exc), retryable=True) from exc
-            self._handle = RuntimeHandle(self.runtime_id, uuid.uuid4().hex)
-            return self._handle
+            handle = RuntimeHandle(self.runtime_id, uuid.uuid4().hex)
+            if not hasattr(self, "_handles"):
+                self._handles = {}
+            if not hasattr(self, "_loaded_models"):
+                self._loaded_models = {}
+            self._handles[handle.token] = (handle, prepared.model, model_key)
+            self._loaded_models[model_key] = handle.token
+            self._handle = handle
+            return handle
 
     def invoke(self, handle: RuntimeHandle, request: RuntimeRequest) -> RuntimeOutput:
         self._require_handle(handle)
@@ -198,6 +212,11 @@ class BackendRuntimeAdapter:
         if not isinstance(prompt, str) or not prompt.strip():
             raise RuntimeFailure(RuntimeErrorCode.INVALID_REQUEST, "A non-empty prompt is required")
         options = dict(request.options)
+        if "model" not in options and hasattr(self, "_handles") and handle.token in self._handles:
+            model = self._handles[handle.token][1]
+            model_path = getattr(model, "path", None)
+            if model_path:
+                options["model"] = str(model_path)
         # Validated image attachments are passed through the existing backend
         # image path. The adapter does not accept paths or load media itself.
         if "images" in request.inputs:
@@ -243,8 +262,23 @@ class BackendRuntimeAdapter:
         with self._invoke_lock:
             with self._state_lock:
                 self._require_handle(handle)
-                self.backend.unload()
-                self._handle = None
+                model_to_unload = None
+                if hasattr(self, "_handles") and handle.token in self._handles:
+                    _, model_to_unload, model_key = self._handles.pop(handle.token)
+                    if hasattr(self, "_loaded_models"):
+                        self._loaded_models.pop(model_key, None)
+                if model_to_unload is not None and hasattr(self.backend, "unload"):
+                    try:
+                        self.backend.unload(model=model_to_unload)
+                    except TypeError:
+                        self.backend.unload()
+                else:
+                    self.backend.unload()
+                if self._handle == handle:
+                    if hasattr(self, "_handles") and self._handles:
+                        self._handle = next(iter(self._handles.values()))[0]
+                    else:
+                        self._handle = None
 
     def health(self, handle: RuntimeHandle | None = None) -> HealthState:
         if handle is not None:
@@ -258,7 +292,7 @@ class BackendRuntimeAdapter:
             process = self.backend._process
             loaded = bool(process is not None and process.poll() is None)
             return HealthState(loaded, loaded, "Loaded" if loaded else "No model loaded")
-        loaded = self._handle is not None
+        loaded = bool(getattr(self, "_handles", {})) or (self._handle is not None)
         return HealthState(loaded, loaded, "Loaded" if loaded else "No model loaded")
 
     def _require_runtime(self, runtime_id: str) -> None:
@@ -266,16 +300,30 @@ class BackendRuntimeAdapter:
             raise RuntimeFailure(RuntimeErrorCode.INVALID_REQUEST, "Prepared launch belongs to another runtime")
 
     def _require_handle(self, handle: RuntimeHandle) -> None:
-        if handle != self._handle or handle.runtime_id != self.runtime_id:
+        if handle.runtime_id != self.runtime_id:
+            raise RuntimeFailure(RuntimeErrorCode.NOT_LOADED, "Runtime handle belongs to another runtime")
+        if hasattr(self, "_handles") and handle.token in self._handles:
+            return
+        if handle != self._handle:
             raise RuntimeFailure(RuntimeErrorCode.NOT_LOADED, "Runtime handle is not active")
 
 
 class LlamaCppRuntimeAdapter(BackendRuntimeAdapter):
     kind = "llama.cpp"
 
+    def _features(self) -> frozenset[str]:
+        features = set(super()._features())
+        features.add("models.multi_resident")
+        return frozenset(features)
+
 
 class VLLMRuntimeAdapter(BackendRuntimeAdapter):
     kind = "vllm"
+
+    def _features(self) -> frozenset[str]:
+        features = set(super()._features())
+        features.add("models.multi_resident")
+        return frozenset(features)
 
 
 class FakeRuntimeAdapter:
@@ -309,12 +357,23 @@ class FakeRuntimeAdapter:
         self.calls.append("load")
         if prepared.runtime_id != self.runtime_id:
             raise RuntimeFailure(RuntimeErrorCode.INVALID_REQUEST, "wrong runtime")
-        if self._active_handle is not None:
+        model_key = str(prepared.model)
+        if hasattr(self, "_loaded_models") and model_key in self._loaded_models:
+            raise RuntimeFailure(RuntimeErrorCode.INVALID_REQUEST,
+                                 "A model is already loaded; unload it before loading another")
+        if "models.multi_resident" not in self.features and self._active_handle is not None:
             raise RuntimeFailure(RuntimeErrorCode.INVALID_REQUEST,
                                  "A model is already loaded; unload it before loading another")
         self.loaded = True
-        self._active_handle = RuntimeHandle(self.runtime_id, uuid.uuid4().hex)
-        return self._active_handle
+        handle = RuntimeHandle(self.runtime_id, uuid.uuid4().hex)
+        if not hasattr(self, "_handles"):
+            self._handles = {}
+        if not hasattr(self, "_loaded_models"):
+            self._loaded_models = set()
+        self._handles[handle.token] = (handle, model_key)
+        self._loaded_models.add(model_key)
+        self._active_handle = handle
+        return handle
 
     def invoke(self, handle: RuntimeHandle, request: RuntimeRequest) -> RuntimeOutput:
         self.calls.append("invoke")
@@ -333,8 +392,16 @@ class FakeRuntimeAdapter:
     def unload(self, handle: RuntimeHandle) -> None:
         self.calls.append("unload")
         self._check(handle)
-        self.loaded = False
-        self._active_handle = None
+        if hasattr(self, "_handles") and handle.token in self._handles:
+            _, model_key = self._handles.pop(handle.token)
+            if hasattr(self, "_loaded_models"):
+                self._loaded_models.discard(model_key)
+        if hasattr(self, "_handles") and not self._handles:
+            self.loaded = False
+            self._active_handle = None
+        elif not hasattr(self, "_handles"):
+            self.loaded = False
+            self._active_handle = None
 
     def health(self, handle: RuntimeHandle | None = None) -> HealthState:
         self.calls.append("health")
@@ -343,5 +410,9 @@ class FakeRuntimeAdapter:
         return HealthState(True, self.loaded, "Loaded" if self.loaded else "No model loaded")
 
     def _check(self, handle: RuntimeHandle) -> None:
-        if handle.runtime_id != self.runtime_id or not handle.token or handle != getattr(self, "_active_handle", None):
+        if handle.runtime_id != self.runtime_id or not handle.token:
+            raise RuntimeFailure(RuntimeErrorCode.NOT_LOADED, "invalid handle")
+        if hasattr(self, "_handles") and handle.token in self._handles:
+            return
+        if handle != getattr(self, "_active_handle", None):
             raise RuntimeFailure(RuntimeErrorCode.NOT_LOADED, "invalid handle")

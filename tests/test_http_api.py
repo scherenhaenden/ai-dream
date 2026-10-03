@@ -1039,6 +1039,46 @@ class HTTPAPITests(unittest.TestCase):
             self.assertEqual(scheduler.residency(), ())
             api.close()
 
+    def test_runtime_multi_resident_concurrent_loading_and_individual_unload(self):
+        class MultiResidentBackend(FakeChatBackend):
+            def capabilities(self):
+                return SimpleNamespace(available=True, multi_resident=True)
+            def unload(self, model=None):
+                self.unloaded += 1
+
+        with TemporaryDirectory() as temp:
+            backend = MultiResidentBackend()
+            api = ReadOnlyAPI(hardware=FakeHardware(),
+                              catalog=FakeModelCatalog([
+                                  SimpleNamespace(id="safe-model", path="/private/a.gguf"),
+                                  SimpleNamespace(id="alt-model", path="/private/b.gguf")]),
+                              runtimes=FakeRuntime(), chat_store=ChatStore(Path(temp) / "chats"))
+            api.runtimes = SimpleNamespace(list_backends=lambda: [backend])
+            api.load_model({"model_id": "safe-model"})
+            scheduler = api._orchestration_scheduler
+            self.assertEqual(backend.loaded, 1)
+            self.assertEqual(len(scheduler.residency()), 1)
+
+            # Load second model concurrently without evicting the first
+            api.load_model({"model_id": "alt-model"})
+            self.assertEqual(backend.loaded, 2)
+            self.assertEqual(backend.unloaded, 0)
+            self.assertEqual(sorted([item.model_id for item in scheduler.residency()]),
+                             ["alt-model", "safe-model"])
+            status = api.runtime_status()
+            self.assertEqual(status["loaded_count"], 2)
+
+            # Unload only safe-model
+            api.unload_model({"model_id": "safe-model"})
+            self.assertEqual(backend.unloaded, 1)
+            self.assertEqual([item.model_id for item in scheduler.residency()], ["alt-model"])
+
+            # Unload remaining
+            api.unload_model()
+            self.assertEqual(backend.unloaded, 2)
+            self.assertEqual(scheduler.residency(), ())
+            api.close()
+
     def test_direct_chat_stream_is_accounted_as_an_active_scheduler_call(self):
         with TemporaryDirectory() as temp:
             backend = FakeChatBackend()

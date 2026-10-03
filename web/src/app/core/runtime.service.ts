@@ -27,7 +27,7 @@ export class RuntimeService {
     const response = await this.api.request<{data?: {installations?: RuntimeInstallation[]}}>('/api/runtime/installations');
     return response.data?.installations ?? [];
   }
-  async unload() { return this.api.request('/api/runtime/unload', {}); }
+  async unload(modelId?: string) { return this.api.request('/api/runtime/unload', modelId ? { model_id: modelId } : {}); }
   async status() { return this.api.request('/api/runtime/status'); }
   async command(request: RuntimeSettingsRequest): Promise<RuntimeCommandResult> {
     return this.api.request<RuntimeCommandResult>('/api/runtime/command', request);

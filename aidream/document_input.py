@@ -15,7 +15,7 @@ import tempfile
 import time
 from collections.abc import Callable
 
-MAX_DOCUMENT_BYTES = 5 * 1024 * 1024
+MAX_DOCUMENT_BYTES = 100 * 1024 * 1024
 MAX_DOCUMENT_CHARS = 40_000
 MAX_TOTAL_DOCUMENT_CHARS = 80_000
 MAX_OCR_PAGES = 5

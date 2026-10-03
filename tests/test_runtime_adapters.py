@@ -158,6 +158,53 @@ class RuntimeAdapterContractTest(unittest.TestCase):
             adapter.invoke(handle, RuntimeRequest("text.chat", {"prompt": " "}))
         self.assertEqual(raised.exception.code, RuntimeErrorCode.INVALID_REQUEST)
 
+    def test_multi_resident_backend_loads_multiple_handles(self):
+        class MultiEngine(FakeEngine):
+            def __init__(self):
+                super().__init__()
+                self.loaded_models = []
+            def capabilities(self):
+                caps = super().capabilities()
+                caps.multi_resident = True
+                return caps
+            def can_load(self, model):
+                return True
+            def load(self, model, placement=None, options=None):
+                self.calls.append("load")
+                self.loaded_models.append(model)
+                self.loaded = True
+            def unload(self, model=None):
+                self.calls.append("unload")
+                if model:
+                    self.loaded_models = [m for m in self.loaded_models if m != model]
+                else:
+                    self.loaded_models.clear()
+                self.loaded = bool(self.loaded_models)
+            def status(self):
+                return {"loaded": self.loaded, "models": self.loaded_models}
+
+        engine = MultiEngine()
+        adapter = LlamaCppRuntimeAdapter(engine)
+        self.assertIn("models.multi_resident", adapter.probe().features)
+        handle1 = adapter.load(adapter.prepare({"model": "model-1.gguf"}))
+        handle2 = adapter.load(adapter.prepare({"model": "model-2.gguf"}))
+        self.assertNotEqual(handle1, handle2)
+        self.assertEqual(len(engine.loaded_models), 2)
+        self.assertTrue(adapter.health(handle1).loaded)
+        self.assertTrue(adapter.health(handle2).loaded)
+        adapter.unload(handle1)
+        self.assertEqual(len(engine.loaded_models), 1)
+        with self.assertRaises(RuntimeFailure) as raised:
+            adapter.health(handle1)
+        self.assertEqual(raised.exception.code, RuntimeErrorCode.NOT_LOADED)
+        self.assertTrue(adapter.health(handle2).loaded)
+        adapter.unload(handle2)
+        self.assertEqual(len(engine.loaded_models), 0)
+        with self.assertRaises(RuntimeFailure) as raised:
+            adapter.health(handle2)
+        self.assertEqual(raised.exception.code, RuntimeErrorCode.NOT_LOADED)
+        self.assertFalse(adapter.health().loaded)
+
 
 class FakeEngine:
     name = "fake-engine"

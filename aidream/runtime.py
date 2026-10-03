@@ -1,7 +1,7 @@
 """Persistent subprocess-backed inference using a local llama.cpp server."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import hashlib
 import json
 import os
@@ -58,6 +58,7 @@ class BackendCapabilities:
     device_listing: bool = False
     mlock: bool = False
     mmap_disable: bool = False
+    multi_resident: bool = False
 
 
 class InferenceBackend(Protocol):
@@ -69,8 +70,21 @@ class InferenceBackend(Protocol):
     def unload(self) -> None: ...
 
 
+@dataclass
+class _LlamaModelInstance:
+    path: Path
+    process: subprocess.Popen
+    log: Any
+    base_url: str
+    port: int
+    placement: list[str]
+    effective_command: list[str]
+    loaded_at: float
+    messages: list[dict[str, Any]] = field(default_factory=list)
+
+
 class LlamaCppBackend:
-    """Manage one persistent llama-server process and its OpenAI-compatible API."""
+    """Manage persistent llama-server process(es) and OpenAI-compatible API."""
     name = "llama.cpp"
     candidates = ("llama-server", "server")
 
@@ -95,6 +109,7 @@ class LlamaCppBackend:
         self._active_socket = None
         self._response_lock = threading.Lock()
         self._help = self._read_help() if self.executable else ""
+        self._instances: dict[Path, _LlamaModelInstance] = {}
 
     def _read_help(self) -> str:
         try:
@@ -131,6 +146,7 @@ class LlamaCppBackend:
             has("--list-devices", "--list_devices"),
             has("--mlock"),
             has("--no-mmap"),
+            multi_resident=True,
         )
 
     def list_devices(self) -> list[dict[str, str]]:
@@ -227,6 +243,10 @@ class LlamaCppBackend:
                         # Keep plain text if historical images cannot be restored.
                         pass
             restored.append(message)
+        if hasattr(self, "_instances") and self._loaded_model:
+            target_instance = self._instances.get(self._loaded_model)
+            if target_instance:
+                target_instance.messages = list(restored)
         self._messages = restored
 
     def validate_load(self, model: Any, placement: Any = None,
@@ -401,7 +421,13 @@ class LlamaCppBackend:
         runtime_options = self._load_options(options)
         if not (options and "fit" in options) and self.capabilities().fit:
             runtime_options.extend(("--fit", "off"))
-        selected_port = port if port is not None else (self.port or self._free_port())
+        if port:
+            selected_port = port
+        elif self.port:
+            used_ports = {inst.port for inst in getattr(self, "_instances", {}).values()}
+            selected_port = self.port if self.port not in used_ports else self._free_port()
+        else:
+            selected_port = self._free_port()
         path = self._path(model)
         command = [self.executable, "-m", str(path.resolve()), "--host", "127.0.0.1", "--port",
                    str(selected_port), *self._placement_options(placement), *runtime_options]
@@ -414,42 +440,114 @@ class LlamaCppBackend:
     def status(self) -> dict[str, Any]:
         """Describe the current persistent server state for UI/API status views."""
         running = bool(self._process and self._process.poll() is None and self._loaded_model)
-        return {"loaded": running, "model_path": str(self._loaded_model) if running else None,
+        models = [str(p) for p, inst in getattr(self, "_instances", {}).items()
+                  if inst.process and inst.process.poll() is None]
+        return {"loaded": running or bool(models),
+                "model_path": str(self._loaded_model) if running else (models[-1] if models else None),
                 "placement": list(self._placement) if running else [],
                 "command": list(self._effective_command) if running else [],
-                "uptime_seconds": max(0.0, time.monotonic() - self._loaded_at) if running and self._loaded_at else None}
+                "uptime_seconds": max(0.0, time.monotonic() - self._loaded_at) if running and self._loaded_at else None,
+                "models": models,
+                "loaded_count": len(models)}
+
+    def _sync_active_instance(self, instance: _LlamaModelInstance | None) -> None:
+        if instance is None:
+            self._process = None
+            self._log = None
+            self._base_url = None
+            self._loaded_model = None
+            self._placement = []
+            self._effective_command = []
+            self._loaded_at = None
+            self._messages = []
+        else:
+            self._process = instance.process
+            self._log = instance.log
+            self._base_url = instance.base_url
+            self._loaded_model = instance.path
+            self._placement = instance.placement
+            self._effective_command = instance.effective_command
+            self._loaded_at = instance.loaded_at
+            self._messages = instance.messages
+
+    @staticmethod
+    def _stop_instance(instance: _LlamaModelInstance) -> None:
+        proc = getattr(instance, "process", None)
+        if proc and proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=5)
+        log = getattr(instance, "log", None)
+        if log:
+            try:
+                log.close()
+            except Exception:
+                pass
+
+    def spawn_sibling(self) -> LlamaCppBackend:
+        """Create a sibling backend on an independent ephemeral port sharing executable and settings."""
+        return type(self)(
+            executable=self.executable,
+            timeout=self.timeout,
+            startup_timeout=self.startup_timeout,
+            runtime_id=self.runtime_id,
+            name=self.name,
+        )
 
     def load(self, model: Any, placement: Any = None, options: Mapping[str, Any] | None = None) -> None:
         self.validate_load(model, placement, options)
         path = self._path(model)
-        self.unload()
+        if path is None:
+            raise ValueError("Select an existing GGUF chat model.")
+        resolved = path.resolve()
+        if not hasattr(self, "_instances"):
+            self._instances = {}
+        if resolved in self._instances:
+            self.unload(model=resolved)
         command = self.effective_command(model, placement, options)
-        self._log = tempfile.TemporaryFile(mode="w+t", encoding="utf-8")
+        log = tempfile.TemporaryFile(mode="w+t", encoding="utf-8")
         try:
-            self._process = subprocess.Popen(command, stdout=self._log, stderr=subprocess.STDOUT, text=True)
+            process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, text=True)
         except OSError:
-            self._close_log()
+            try:
+                log.close()
+            except Exception:
+                pass
             raise
         command_port = command[command.index("--port") + 1]
-        self._base_url = f"http://127.0.0.1:{command_port}"
+        base_url = f"http://127.0.0.1:{command_port}"
         deadline = time.monotonic() + self.startup_timeout
         while time.monotonic() < deadline:
-            if self._process.poll() is not None:
-                log_text = self._log_text()
-                self.unload()
+            if process.poll() is not None:
+                log.seek(0)
+                log_text = log.read()
+                inst = _LlamaModelInstance(resolved, process, log, base_url, int(command_port), [], [], 0.0)
+                self._stop_instance(inst)
                 raise RuntimeError(f"llama-server exited during startup: {log_text}")
             try:
-                with urlopen(self._base_url + "/health", timeout=0.5) as response:
+                with urlopen(base_url + "/health", timeout=0.5) as response:
                     if 200 <= response.status < 300:
-                        self._loaded_model = path.resolve()
-                        self._placement = command[command.index("--port") + 2:]
-                        self._effective_command = list(command)
-                        self._loaded_at = time.monotonic()
-                        self._messages = []
+                        instance = _LlamaModelInstance(
+                            path=resolved,
+                            process=process,
+                            log=log,
+                            base_url=base_url,
+                            port=int(command_port),
+                            placement=command[command.index("--port") + 2:],
+                            effective_command=list(command),
+                            loaded_at=time.monotonic(),
+                            messages=[],
+                        )
+                        self._instances[resolved] = instance
+                        self._sync_active_instance(instance)
                         return
             except (OSError, URLError):
                 time.sleep(0.1)
-        self.unload()
+        inst = _LlamaModelInstance(resolved, process, log, base_url, int(command_port), [], [], 0.0)
+        self._stop_instance(inst)
         raise RuntimeError("Timed out waiting for llama-server readiness")
 
     def generate(self, prompt: str, options: Mapping[str, Any] | None = None) -> str:
@@ -475,11 +573,24 @@ class LlamaCppBackend:
                         on_delta=None, cancel_event: threading.Event | None = None) -> str:
         if cancel_event is not None and cancel_event.is_set():
             raise GenerationCancelled("Generation stopped")
-        if not self._process or self._process.poll() is not None or self._loaded_model is None or not self._base_url:
-            raise RuntimeError("No model is loaded")
         opts = {} if options is None else options
         if not isinstance(opts, Mapping):
             raise ValueError("generation options must be a mapping")
+        target_instance = None
+        if opts:
+            model_hint = opts.get("model") or opts.get("model_path")
+            if model_hint and hasattr(self, "_instances"):
+                target_path = self._path(model_hint)
+                if target_path:
+                    target_instance = self._instances.get(target_path.resolve())
+        if target_instance is None and self._loaded_model and hasattr(self, "_instances"):
+            target_instance = self._instances.get(self._loaded_model)
+
+        process = target_instance.process if target_instance else self._process
+        base_url = target_instance.base_url if target_instance else self._base_url
+        messages = target_instance.messages if target_instance else self._messages
+        if not process or process.poll() is not None or not base_url:
+            raise RuntimeError("No model is loaded")
         unknown = set(opts) - {"temperature", "max_tokens", "system_prompt", "stop", "images",
                                "top_p", "top_k", "min_p", "repeat_penalty", "seed"}
         if unknown:
@@ -547,8 +658,8 @@ class LlamaCppBackend:
             if not isinstance(stop, (list, tuple)) or not all(isinstance(x, str) for x in stop):
                 raise ValueError("stop must be a string or a list of strings")
             payload["stop"] = list(stop)
-        self._messages.append(user_message)
-        request = Request(self._base_url + "/v1/chat/completions", data=json.dumps(payload).encode(),
+        messages.append(user_message)
+        request = Request(base_url + "/v1/chat/completions", data=json.dumps(payload).encode(),
                           headers={"Content-Type": "application/json"}, method="POST")
         answer_parts: list[str] = []
         try:
@@ -558,10 +669,12 @@ class LlamaCppBackend:
                     self._active_socket = getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None)
                 answer = self._read_stream(response, cancel_event, answer_parts, on_delta)
         except GenerationCancelled:
-            self._messages.pop()
+            messages.pop()
+            self._messages = messages
             raise
         except (OSError, URLError, ValueError, KeyError, IndexError, TypeError, socket.timeout) as exc:
-            self._messages.pop()
+            messages.pop()
+            self._messages = messages
             if cancel_event is not None and cancel_event.is_set():
                 raise GenerationCancelled("Generation stopped") from exc
             raise RuntimeError(f"llama-server generation failed: {exc}") from exc
@@ -569,7 +682,8 @@ class LlamaCppBackend:
             with self._response_lock:
                 self._active_response = None
                 self._active_socket = None
-        self._messages.append({"role": "assistant", "content": answer})
+        messages.append({"role": "assistant", "content": answer})
+        self._messages = messages
         return answer
 
     @staticmethod
@@ -686,16 +800,31 @@ class LlamaCppBackend:
             self._log.close()
             self._log = None
 
-    def unload(self) -> None:
+    def unload(self, model: Any = None) -> None:
         """Stop the server and release its model; safe to call repeatedly."""
+        if not hasattr(self, "_instances"):
+            self._instances = {}
+        if model is not None:
+            target = self._path(model)
+            if target is not None:
+                resolved = target.resolve()
+                instance = self._instances.pop(resolved, None)
+                if instance is not None:
+                    self._stop_instance(instance)
+                if self._loaded_model == resolved:
+                    if self._instances:
+                        active = next(iter(self._instances.values()))
+                        self._sync_active_instance(active)
+                    else:
+                        self._sync_active_instance(None)
+            return
+
+        instances = list(self._instances.values())
+        self._instances.clear()
+        for inst in instances:
+            self._stop_instance(inst)
         process = self._process
-        self._process = None
-        self._base_url = None
-        self._loaded_model = None
-        self._placement = []
-        self._effective_command = []
-        self._loaded_at = None
-        self._messages = []
+        self._sync_active_instance(None)
         if process and process.poll() is None:
             process.terminate()
             try:

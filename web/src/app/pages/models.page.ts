@@ -364,7 +364,7 @@ export class ModelsPage implements OnInit {
     this.profilePurposeInput.set(''); this.profileCompanionArtifactsInput.set(''); this.profileClass.set('user');
     this.profileBackend.set(''); this.profileRuntimeId.set(''); this.profileError.set('');
     this.profileCapabilities.set(null); this.profileDevices.set([]); this.modelEvidence.set(null); this.modelEvidenceError.set('');
-    this.runtimeStatus.set(null); this.showRuntimeJson.set(false); this.error.set(''); void this.refreshProfiles(); void this.refreshModelEvidence(model.id);
+    this.runtimeStatus.set(null); this.showRuntimeJson.set(false); this.error.set(''); void this.refreshProfiles(); void this.refreshModelEvidence(model.id); void this.refreshRuntimeStatus();
   }
 
   async refreshModelEvidence(modelId: string): Promise<void> {
@@ -467,7 +467,10 @@ export class ModelsPage implements OnInit {
     await this.runRuntimeAction('Loading model…', () => this.runtime.load({ model_id: model.id, profile_id: this.selectedProfileId() || undefined, backend: this.profileBackend() || undefined, runtime_id: this.profileRuntimeId() || undefined, placement: this.profilePlacement(), load: this.profileLoad() }));
   }
   async reloadModel(): Promise<void> { await this.loadModel(); }
-  async unloadModel(): Promise<void> { await this.runRuntimeAction('Unloading model…', () => this.runtime.unload()); }
+  async unloadModel(): Promise<void> {
+    const model = this.selectedModel();
+    await this.runRuntimeAction('Unloading model…', () => this.runtime.unload(model?.id));
+  }
   async refreshRuntimeStatus(): Promise<void> { await this.runRuntimeAction('', () => this.runtime.status()); }
   profileSupports(key: string): boolean { return (this.profileCapabilities() as unknown as Record<string,unknown>|null)?.[key] === true; }
   manualDeviceError():string {

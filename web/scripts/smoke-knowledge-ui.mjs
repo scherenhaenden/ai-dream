@@ -45,6 +45,7 @@ try {
   await expect(page.getByText('No documents indexed. Add a local text document to begin.')).toHaveCount(0);
   await page.getByRole('button', { name: /Refresh/ }).click();
   await expect(page.getByText('No documents indexed. Add a local text document to begin.')).toBeVisible();
+  await expect(page.locator('.drop-zone')).toBeVisible();
 
   await page.getByLabel('Search indexed text').fill('nothing');
   await page.getByRole('button', { name: 'Search', exact: true }).click();

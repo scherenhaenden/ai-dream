@@ -49,7 +49,8 @@ MAX_HISTORY_CHARS = 32_768
 MAX_KNOWLEDGE_CONTEXT_CHARS = 6_000
 MAX_KNOWLEDGE_CONTEXT_RESULTS = 4
 MAX_REQUEST_BYTES = 32 * 1024
-MAX_KNOWLEDGE_REQUEST_BYTES = 8 * 1024 * 1024
+MAX_KNOWLEDGE_REQUEST_BYTES = 150 * 1024 * 1024
+MAX_SQLITE_REQUEST_BYTES = 700 * 1024 * 1024
 MAX_ARTIFACT_UPLOAD_BYTES = 32 * 1024 * 1024
 MAX_PROMPT_CHARS = 8_000
 MAX_CHAT_OUTPUT_CHARS = 64 * 1024
@@ -231,6 +232,8 @@ class ReadOnlyAPI:
             from aidream.provider_connections import ProviderConnections
             provider_connections = ProviderConnections()
         self.provider_connections = provider_connections
+        from aidream.providers.api import ProviderAPI
+        self.provider_api = ProviderAPI(self.provider_connections)
         # Keep an injectable registry for tests/alternate hosts, with an empty
         # default that the read-only API augments from observed local routes.
         if capability_registry is None:
@@ -278,6 +281,11 @@ class ReadOnlyAPI:
                 raise ValueError("Knowledge directory must not be a symbolic link")
             knowledge_index = SQLiteKnowledgeIndex(knowledge_dir / "index.sqlite3")
         self.knowledge_index = knowledge_index
+        from aidream.rag.source_store import SQLiteSourceStore
+        data_dir = Path(self.settings_store.get()["data_dir"]).expanduser().resolve()
+        self.sqlite_source_store = SQLiteSourceStore(data_dir / "knowledge", knowledge_index=self.knowledge_index)
+        from aidream.rag.qdrant_adapter import QdrantAdapter
+        self.qdrant_adapter = QdrantAdapter(base_dir=data_dir / "knowledge")
         from aidream.diagnostics import DiagnosticsLog
         self.diagnostics_log = diagnostics_log or DiagnosticsLog()
         if hub is None:
@@ -551,6 +559,187 @@ class ReadOnlyAPI:
                 raise APIUnavailable("The local full-text index is unavailable") from exc
             raise
 
+    def inspect_sqlite(self, path: str):
+        from aidream.rag.sqlite_inspector import inspect_sqlite_database, generate_schema_card, SQLiteInspectorError
+        try:
+            profile = inspect_sqlite_database(path)
+            card = generate_schema_card(profile)
+            return {"data": {"profile": profile.to_dict(), "schema_card": card}}
+        except SQLiteInspectorError as exc:
+            raise APIError(str(exc)) from exc
+
+    def list_sqlite_sources(self):
+        return {"data": {"sources": self.sqlite_source_store.list_sources()}}
+
+    def get_sqlite_source(self, source_id: str):
+        source = self.sqlite_source_store.get_source(source_id)
+        if source is None:
+            raise APINotFound("SQLite source not found")
+        return {"data": {"source": source}}
+
+    def add_sqlite_source(self, file_name: str, content_or_path, register_schema_card: bool = True):
+        from aidream.rag.source_store import SourceStoreError
+        from aidream.rag.sqlite_inspector import SQLiteInspectorError
+        try:
+            meta = self.sqlite_source_store.save_sqlite_source(
+                file_name, content_or_path, register_schema_card=register_schema_card)
+            return {"data": meta}
+        except (SourceStoreError, SQLiteInspectorError) as exc:
+            raise APIError(str(exc)) from exc
+
+    def delete_sqlite_source(self, source_id: str):
+        col_name = self.qdrant_adapter.collection_name_for_source(source_id)
+        self.qdrant_adapter.delete_collection(col_name)
+        deleted = self.sqlite_source_store.delete_source(source_id)
+        if not deleted:
+            raise APINotFound("SQLite source not found")
+        return {"data": {"deleted": True, "source_id": source_id}}
+
+    def query_sqlite_source(self, source_id: str, sql: str, max_rows: int = 100):
+        from aidream.rag.source_store import SourceStoreError
+        from aidream.rag.sqlite_inspector import SQLiteInspectorError, SQLiteSecurityError
+        try:
+            res = self.sqlite_source_store.query_source(source_id, sql, max_rows=max_rows)
+            return {"data": res}
+        except SQLiteSecurityError as exc:
+            raise APIError(f"Security error: {exc}") from exc
+        except (SourceStoreError, SQLiteInspectorError) as exc:
+            raise APIError(str(exc)) from exc
+
+    def _resolve_embedder_callable(self, model: str | None = None):
+        from aidream.providers.embeddings import resolve_embedder
+        from aidream.providers.errors import ProviderError
+
+        def _fallback_embedder(texts: list[str]) -> list[list[float]]:
+            import hashlib
+            import math
+            results = []
+            for text in texts:
+                vec = [0.0] * 64
+                tokens = text.lower().split()
+                for tok in tokens:
+                    h = int(hashlib.md5(tok.encode("utf-8")).hexdigest()[:8], 16)
+                    idx = h % 64
+                    vec[idx] += 1.0
+                norm = math.sqrt(sum(x * x for x in vec))
+                if norm > 0:
+                    vec = [x / norm for x in vec]
+                results.append(vec)
+            return results
+
+        try:
+            embedder = resolve_embedder(model, provider_connections=self.provider_connections)
+        except Exception:
+            return _fallback_embedder
+
+        def _embed_call(texts: list[str]) -> list[list[float]]:
+            try:
+                return embedder.embed(texts)
+            except ProviderError as exc:
+                if "sentence-transformers" in str(exc):
+                    return _fallback_embedder(texts)
+                raise
+        return _embed_call
+
+    def get_rag_status(self):
+        remote_active = self.qdrant_adapter._is_remote_active()
+        return {
+            "data": {
+                "vector_store": {
+                    "backend": "qdrant_remote" if remote_active else "qdrant_local_fallback",
+                    "url": self.qdrant_adapter.config.url,
+                    "connected": True,
+                },
+                "sources_count": len(self.sqlite_source_store.list_sources()),
+                "knowledge_documents_count": self.knowledge_index.list_documents().get("count", 0),
+            }
+        }
+
+    def get_indexing_progress(self, target_id: str | None = None):
+        if not hasattr(self, "_indexing_jobs"):
+            self._indexing_jobs = {}
+        if target_id:
+            info = self._indexing_jobs.get(target_id)
+            if not info:
+                return {"data": {"status": "idle", "target_id": target_id, "percent": 0.0}}
+            return {"data": info}
+        return {"data": {"jobs": self._indexing_jobs}}
+
+    def index_sqlite_source_semantic(self, source_id: str, model: str | None = None):
+        from aidream.rag.sqlite_vectors import index_sqlite_source, VectorIndexError
+        db_path = self.sqlite_source_store.get_database_path(source_id)
+        if db_path is None:
+            raise APINotFound("SQLite source not found")
+        embedder = self._resolve_embedder_callable(model)
+        if not hasattr(self, "_indexing_jobs"):
+            self._indexing_jobs = {}
+
+        source = self.sqlite_source_store.get_source(source_id)
+        doc_id = source.get("knowledge_doc_id") if source else None
+
+        def progress_cb(info):
+            self._indexing_jobs[source_id] = info
+            if doc_id:
+                self._indexing_jobs[doc_id] = info
+
+        try:
+            res = index_sqlite_source(db_path, source_id, embedder, self.qdrant_adapter, progress_callback=progress_cb)
+            self.sqlite_source_store.update_source_meta(source_id, {
+                "semantic_indexed": True,
+                "vectors_count": res["rows_indexed"],
+                "collection_name": res["collection_name"],
+            })
+            return {"data": res}
+        except VectorIndexError as exc:
+            raise APIError(str(exc)) from exc
+
+    def search_sqlite_source_semantic(self, source_id: str, query: str, limit: int = 10, table: str | None = None, model: str | None = None):
+        from aidream.rag.sqlite_vectors import search_sqlite_vectors
+        if not self.sqlite_source_store.get_source(source_id):
+            raise APINotFound("SQLite source not found")
+        embedder = self._resolve_embedder_callable(model)
+        results = search_sqlite_vectors(query, source_id, embedder, self.qdrant_adapter, limit=limit, table=table)
+        return {"data": {"results": results, "count": len(results)}}
+
+    def index_document_semantic(self, document_id: str, model: str | None = None):
+        from aidream.rag.sqlite_vectors import index_knowledge_document, index_sqlite_source, VectorIndexError
+        doc = self.knowledge_index.get_document(document_id)
+        if doc is None:
+            raise APINotFound("Document not found")
+        embedder = self._resolve_embedder_callable(model)
+        if not hasattr(self, "_indexing_jobs"):
+            self._indexing_jobs = {}
+
+        sqlite_source = next((s for s in self.sqlite_source_store.list_sources()
+                              if s.get("knowledge_doc_id") == document_id or s.get("id") == document_id), None)
+
+        def progress_cb(info):
+            self._indexing_jobs[document_id] = info
+            if sqlite_source:
+                self._indexing_jobs[sqlite_source["id"]] = info
+
+        try:
+            if sqlite_source:
+                db_path = self.sqlite_source_store.get_database_path(sqlite_source["id"])
+                if db_path and db_path.is_file():
+                    sql_res = index_sqlite_source(db_path, sqlite_source["id"], embedder, self.qdrant_adapter, progress_callback=progress_cb)
+                    self.sqlite_source_store.update_source_meta(sqlite_source["id"], {
+                        "semantic_indexed": True,
+                        "vectors_count": sql_res["rows_indexed"],
+                        "collection_name": sql_res["collection_name"],
+                    })
+
+            res = index_knowledge_document(document_id, doc["name"], doc["text"], embedder, self.qdrant_adapter, progress_callback=progress_cb)
+            return {"data": res}
+        except VectorIndexError as exc:
+            raise APIError(str(exc)) from exc
+
+    def search_knowledge_semantic(self, query: str, limit: int = 10, model: str | None = None):
+        from aidream.rag.sqlite_vectors import search_knowledge_documents
+        embedder = self._resolve_embedder_callable(model)
+        results = search_knowledge_documents(query, embedder, self.qdrant_adapter, limit=limit)
+        return {"data": {"results": results, "count": len(results)}}
+
     def _effective_runtime_defaults(self, settings=None):
         """Return persisted defaults plus a detected runtime when selectors are unset.
 
@@ -770,50 +959,112 @@ class ReadOnlyAPI:
                 active_healthy = (active_healthy and process is not None and process.poll() is None
                                   and getattr(backend, "_loaded_model", None) is not None)
             scheduler = self._direct_chat_scheduler(backend)
+            runtime_id = getattr(backend, "runtime_id", None) or backend.name
+            profile_id = scheduler_profile.get("profile_id")
             resident = any((record.model_id, record.runtime_id, record.profile_id) ==
-                           (model_id, getattr(backend, "runtime_id", None) or backend.name,
-                            scheduler_profile.get("profile_id"))
+                           (model_id, runtime_id, profile_id)
                            for record in scheduler.residency())
-            if not active_healthy or not resident:
-                self._unload_active()
-                history = []
-                total = 0
-                messages = session.get("messages", [])
-                if not isinstance(messages, list):
-                    raise APIError("Invalid chat history")
-                for item in reversed(messages):
-                    role, content = item.get("role"), item.get("content")
-                    if role not in {"user", "assistant"} or not isinstance(content, str) or not content.strip():
-                        continue
-                    cost = len(content)
-                    if len(history) >= MAX_HISTORY_MESSAGES or total + cost > MAX_HISTORY_CHARS:
-                        break
-                    history_item = {"role": role, "content": content}
-                    # These references come only from the persisted local chat;
-                    # callers cannot submit or modify them through this API.
-                    if item.get("attachments"):
-                        history_item["attachments"] = item["attachments"]
-                    history.append(history_item)
-                    total += cost
-                history.reverse()
-                lease = self._acquire_direct_chat_lease(
-                    scheduler, backend, model, scheduler_profile, chat_id)
-                try:
-                    backend.restore_history(history)
-                except Exception:
-                    scheduler.release(lease)
-                    scheduler.unload(model_id, getattr(backend, "runtime_id", None) or backend.name,
-                                     scheduler_profile.get("profile_id"))
-                    raise
-                self._active_backend = backend
-                self._active_binding = binding
-                self._direct_chat_lease = lease
+            adapter = scheduler.adapters.get(runtime_id)
+            is_multi = adapter is not None and "models.multi_resident" in adapter.probe().features
+            if not is_multi:
+                if not active_healthy or not resident:
+                    self._unload_active()
+                    history = []
+                    total = 0
+                    messages = session.get("messages", [])
+                    if not isinstance(messages, list):
+                        raise APIError("Invalid chat history")
+                    for item in reversed(messages):
+                        role, content = item.get("role"), item.get("content")
+                        if role not in {"user", "assistant"} or not isinstance(content, str) or not content.strip():
+                            continue
+                        cost = len(content)
+                        if len(history) >= MAX_HISTORY_MESSAGES or total + cost > MAX_HISTORY_CHARS:
+                            break
+                        history_item = {"role": role, "content": content}
+                        if item.get("attachments"):
+                            history_item["attachments"] = item["attachments"]
+                        history.append(history_item)
+                        total += cost
+                    history.reverse()
+                    lease = self._acquire_direct_chat_lease(
+                        scheduler, backend, model, scheduler_profile, chat_id)
+                    try:
+                        backend.restore_history(history)
+                    except Exception:
+                        scheduler.release(lease)
+                        scheduler.unload(model_id, getattr(backend, "runtime_id", None) or backend.name,
+                                         scheduler_profile.get("profile_id"))
+                        raise
+                    self._active_backend = backend
+                    self._active_binding = binding
+                    self._direct_chat_lease = lease
+                else:
+                    lease = self._acquire_direct_chat_lease(
+                        scheduler, backend, model, scheduler_profile, chat_id)
+                    self._active_backend = backend
+                    self._active_binding = binding
+                    self._direct_chat_lease = lease
             else:
-                # A prior turn released its lease but retained this resident
-                # binding. Reacquire it before exposing the backend to chat.
-                lease = self._acquire_direct_chat_lease(
-                    scheduler, backend, model, scheduler_profile, chat_id)
-                self._direct_chat_lease = lease
+                if not resident:
+                    history = []
+                    total = 0
+                    messages = session.get("messages", [])
+                    if not isinstance(messages, list):
+                        raise APIError("Invalid chat history")
+                    for item in reversed(messages):
+                        role, content = item.get("role"), item.get("content")
+                        if role not in {"user", "assistant"} or not isinstance(content, str) or not content.strip():
+                            continue
+                        cost = len(content)
+                        if len(history) >= MAX_HISTORY_MESSAGES or total + cost > MAX_HISTORY_CHARS:
+                            break
+                        history_item = {"role": role, "content": content}
+                        if item.get("attachments"):
+                            history_item["attachments"] = item["attachments"]
+                        history.append(history_item)
+                        total += cost
+                    history.reverse()
+                    lease = self._acquire_direct_chat_lease(
+                        scheduler, backend, model, scheduler_profile, chat_id)
+                    try:
+                        backend.restore_history(history)
+                    except Exception:
+                        scheduler.release(lease)
+                        scheduler.unload(model_id, getattr(backend, "runtime_id", None) or backend.name,
+                                         scheduler_profile.get("profile_id"))
+                        raise
+                    self._active_backend = backend
+                    self._active_binding = binding
+                    self._direct_chat_lease = lease
+                else:
+                    lease = self._acquire_direct_chat_lease(
+                        scheduler, backend, model, scheduler_profile, chat_id)
+                    if not active_healthy:
+                        history = []
+                        total = 0
+                        messages = session.get("messages", [])
+                        if isinstance(messages, list):
+                            for item in reversed(messages):
+                                role, content = item.get("role"), item.get("content")
+                                if role not in {"user", "assistant"} or not isinstance(content, str) or not content.strip():
+                                    continue
+                                cost = len(content)
+                                if len(history) >= MAX_HISTORY_MESSAGES or total + cost > MAX_HISTORY_CHARS:
+                                    break
+                                history_item = {"role": role, "content": content}
+                                if item.get("attachments"):
+                                    history_item["attachments"] = item["attachments"]
+                                history.append(history_item)
+                                total += cost
+                            history.reverse()
+                            try:
+                                backend.restore_history(history)
+                            except Exception:
+                                pass
+                    self._active_backend = backend
+                    self._active_binding = binding
+                    self._direct_chat_lease = lease
             generation = {key: value for key, value in effective.get("generation", {}).items()
                           if value is not None}
             allowed_generation = {key: generation[key] for key in
@@ -839,9 +1090,7 @@ class ReadOnlyAPI:
         from aidream.agent_api import prepare_agent
         return prepare_agent(self, chat_id, model_id, prompt)
 
-    def _unload_active(self):
-        backend = self._active_backend
-        binding = self._active_binding
+    def _unload_active(self, model_id: str | None = None):
         lease = getattr(self, "_direct_chat_lease", None)
         scheduler = getattr(self, "_orchestration_scheduler", None)
         if lease is not None and scheduler is not None:
@@ -853,27 +1102,106 @@ class ReadOnlyAPI:
                     raise APIError(f"Could not release the active model lease: {exc}") from exc
                 raise
             self._direct_chat_lease = None
-        if backend is not None and binding is not None and scheduler is not None:
-            runtime_id = getattr(backend, "runtime_id", None) or backend.name
-            profile_id = binding[4] if len(binding) > 4 else None
-            resident = any((record.model_id, record.runtime_id, record.profile_id) ==
-                           (binding[1], runtime_id, profile_id)
-                           for record in scheduler.residency())
-            try:
-                if resident:
-                    scheduler.unload(binding[1], runtime_id, profile_id)
+
+        if model_id is not None:
+            unloaded_by_scheduler = False
+            # 1. Unload from scheduler residency if present
+            if scheduler is not None:
+                for record in tuple(scheduler.residency()):
+                    if record.model_id == model_id:
+                        try:
+                            scheduler.unload(record.model_id, record.runtime_id, record.profile_id, force=True)
+                            unloaded_by_scheduler = True
+                        except Exception as exc:
+                            from aidream.model_scheduler import SchedulerError
+                            if isinstance(exc, SchedulerError):
+                                raise APIError(f"Could not unload model {model_id}: {exc}") from exc
+                            raise
+
+            # 2. Look for model object to resolve path if needed
+            model_obj = next((m for m in self.catalog.list_models() if getattr(m, "id", None) == model_id), None)
+            model_path = getattr(model_obj, "path", None)
+
+            # 3. Unload from _active_backends only if scheduler did not already unload it
+            if hasattr(self, "_active_backends"):
+                target_backend = self._active_backends.pop(model_id, None)
+                if target_backend is not None and not unloaded_by_scheduler:
+                    try:
+                        if model_path is not None:
+                            target_backend.unload(model=model_path)
+                        else:
+                            target_backend.unload()
+                    except TypeError:
+                        target_backend.unload()
+                    except Exception:
+                        pass
+
+            if hasattr(self, "_active_bindings"):
+                self._active_bindings.pop(model_id, None)
+
+            # 4. Check _active_backend
+            if self._active_binding and self._active_binding[1] == model_id:
+                if self._active_backend is not None and not unloaded_by_scheduler:
+                    try:
+                        if model_path is not None:
+                            self._active_backend.unload(model=model_path)
+                        else:
+                            self._active_backend.unload()
+                    except TypeError:
+                        self._active_backend.unload()
+                    except Exception:
+                        pass
+                if hasattr(self, "_active_backends") and self._active_backends:
+                    remaining_id = next(iter(self._active_backends))
+                    self._active_binding = self._active_bindings.get(remaining_id)
+                    self._active_backend = self._active_backends.get(remaining_id)
                 else:
-                    # Compatibility for an adapter loaded before scheduler
-                    # ownership was established or injected by a legacy caller.
-                    backend.unload()
-            except Exception as exc:
-                from aidream.model_scheduler import SchedulerError
-                if isinstance(exc, SchedulerError):
-                    raise APIError(f"Could not unload the active model: {exc}") from exc
-                raise
-        elif backend is not None:
-            backend.unload()
-        self._active_backend = None
+                    self._active_binding = None
+                    self._active_backend = None
+            elif self._active_backend is not None and not unloaded_by_scheduler:
+                loaded_model = getattr(self._active_backend, "_loaded_model", None)
+                if loaded_model is not None and (str(loaded_model) == str(model_path) or str(loaded_model) == str(model_id)):
+                    try:
+                        self._active_backend.unload()
+                    except Exception:
+                        pass
+                    self._active_binding = None
+                    self._active_backend = None
+            return
+
+        # Unload ALL models when model_id is None
+        unloaded_models = set()
+        if scheduler is not None:
+            for record in tuple(scheduler.residency()):
+                try:
+                    scheduler.unload(record.model_id, record.runtime_id, record.profile_id, force=True)
+                    unloaded_models.add(record.model_id)
+                except Exception as exc:
+                    from aidream.model_scheduler import SchedulerError
+                    if isinstance(exc, SchedulerError):
+                        raise APIError(f"Could not unload model: {exc}") from exc
+                    raise
+
+        if hasattr(self, "_active_backends"):
+            for mid, b in list(self._active_backends.items()):
+                if mid not in unloaded_models:
+                    try:
+                        b.unload()
+                    except Exception:
+                        pass
+            self._active_backends.clear()
+
+        if hasattr(self, "_active_bindings"):
+            self._active_bindings.clear()
+
+        if self._active_backend is not None:
+            active_id = self._active_binding[1] if self._active_binding and len(self._active_binding) > 1 else None
+            if active_id not in unloaded_models:
+                try:
+                    self._active_backend.unload()
+                except Exception:
+                    pass
+            self._active_backend = None
         self._active_binding = None
 
     def _direct_chat_scheduler(self, backend):
@@ -929,13 +1257,75 @@ class ReadOnlyAPI:
         backend = self._active_backend
         details = backend.status() if backend is not None and callable(getattr(backend, "status", None)) else {}
         model = getattr(backend, "_loaded_model", None) if backend is not None else None
-        return {"loaded": bool(details.get("loaded", model is not None)),
-                "backend": getattr(backend, "name", None),
-                "runtime_id": getattr(backend, "runtime_id", None),
-                "model": details.get("model_path", str(model) if model is not None else None),
-                "command": list(details.get("command", ())),
-                "placement": details.get("placement", []),
-                "uptime_seconds": details.get("uptime_seconds")}
+
+        active_model_id = None
+        active_model_path = details.get("model_path", str(model) if model is not None else None)
+        if self._active_binding and len(self._active_binding) > 1:
+            active_model_id = self._active_binding[1]
+        elif active_model_path:
+            match = next((m for m in self.catalog.list_models()
+                          if str(getattr(m, "path", "")) == active_model_path or getattr(m, "id", None) == active_model_path), None)
+            if match:
+                active_model_id = match.id
+
+        is_loaded = bool(details.get("loaded", model is not None))
+
+        models_list = []
+        scheduler = getattr(self, "_orchestration_scheduler", None)
+        if scheduler is not None:
+            for r in scheduler.residency():
+                match = next((m for m in self.catalog.list_models() if getattr(m, "id", None) == r.model_id), None)
+                mpath = str(getattr(match, "path", "")) if match else None
+                models_list.append({
+                    "model_id": r.model_id,
+                    "model_path": mpath,
+                    "runtime_id": r.runtime_id,
+                    "profile_id": r.profile_id,
+                    "state": r.state,
+                    "pinned": r.pinned
+                })
+
+        active_backends = getattr(self, "_active_backends", {})
+        active_bindings = getattr(self, "_active_bindings", {})
+        existing_ids = {m["model_id"] for m in models_list}
+        for mid, b in active_backends.items():
+            if mid not in existing_ids:
+                match = next((m for m in self.catalog.list_models() if getattr(m, "id", None) == mid), None)
+                mpath = str(getattr(match, "path", "")) if match else None
+                b_status = b.status() if callable(getattr(b, "status", None)) else {}
+                binding = active_bindings.get(mid)
+                prof_id = binding[4] if (binding and len(binding) > 4) else None
+                models_list.append({
+                    "model_id": mid,
+                    "model_path": mpath or b_status.get("model_path"),
+                    "runtime_id": getattr(b, "runtime_id", None) or b.name,
+                    "profile_id": prof_id,
+                    "state": "active",
+                    "pinned": False
+                })
+
+        if models_list and not is_loaded:
+            is_loaded = True
+
+        if not active_model_id and models_list:
+            active_model_id = models_list[-1]["model_id"]
+            if not active_model_path:
+                active_model_path = models_list[-1].get("model_path")
+
+        res = {
+            "loaded": is_loaded,
+            "backend": getattr(backend, "name", None),
+            "runtime_id": getattr(backend, "runtime_id", None),
+            "model": active_model_id or active_model_path,
+            "model_id": active_model_id,
+            "model_path": active_model_path,
+            "command": list(details.get("command", ())),
+            "placement": details.get("placement", []),
+            "uptime_seconds": details.get("uptime_seconds"),
+            "models": models_list,
+            "loaded_count": len(models_list)
+        }
+        return res
 
     def load_model(self, body):
         if not isinstance(body, dict) or set(body) - {"model_id", "backend", "runtime_id", "profile_id", "placement", "load", "generation"} or "model_id" not in body:
@@ -960,26 +1350,45 @@ class ReadOnlyAPI:
                             and b.capabilities().available and b.can_load(model)), None)
             if backend is None:
                 raise APIError("No available backend can load this model")
-            self._unload_active()
             scheduler = self._direct_chat_scheduler(backend)
             profile = self._direct_chat_profile(effective, body.get("profile_id"))
+            runtime_id = str(getattr(backend, "runtime_id", None) or backend.name)
+            adapter = scheduler.adapters.get(runtime_id)
+            is_multi = adapter is not None and "models.multi_resident" in adapter.probe().features
+            if not is_multi:
+                self._unload_active()
+            else:
+                resident = any(record.model_id == model_id and record.runtime_id == runtime_id
+                               for record in scheduler.residency())
+                if resident:
+                    try:
+                        scheduler.unload(model_id, runtime_id, profile.get("profile_id"), force=True)
+                    except Exception:
+                        pass
             lease = self._acquire_direct_chat_lease(scheduler, backend, model, profile, "runtime-load")
             scheduler.release(lease)
             self._active_backend = backend
             from aidream.model_profiles import load_fingerprint
             self._active_binding = (id(backend), model_id, None, load_fingerprint(effective),
                                     profile.get("profile_id"))
+            if not hasattr(self, "_active_bindings"):
+                self._active_bindings = {}
+            if not hasattr(self, "_active_backends"):
+                self._active_backends = {}
+            self._active_bindings[model_id] = self._active_binding
+            self._active_backends[model_id] = backend
             return {"data": {"status": self.runtime_status()}}
         except (ValueError, RuntimeError, OSError) as exc:
             raise APIError(str(exc)) from exc
         finally:
             self._chat_lock.release()
 
-    def unload_model(self):
+    def unload_model(self, body=None):
         if not self._chat_lock.acquire(blocking=False):
             raise APIConflict("A model turn or runtime action is active")
         try:
-            self._unload_active()
+            model_id = body.get("model_id") if isinstance(body, dict) else None
+            self._unload_active(model_id=model_id)
             return {"data": {"status": self.runtime_status()}}
         finally:
             self._chat_lock.release()
@@ -1270,6 +1679,22 @@ class ReadOnlyAPI:
             if str(limit) != raw_limit or not 1 <= limit <= 20:
                 raise APIError("limit must be an integer from 1 to 20")
             return 200, self.search_knowledge(search_query, limit)
+        if path == "/api/rag/sqlite/sources":
+            return 200, self.list_sqlite_sources()
+        sqlite_source_match = re.fullmatch(r"/api/rag/sqlite/sources/([a-f0-9]{32})", path)
+        if sqlite_source_match:
+            return 200, self.get_sqlite_source(sqlite_source_match.group(1))
+        if path == "/api/rag/status":
+            return 200, self.get_rag_status()
+        if path == "/api/rag/indexing/progress":
+            target_id = None
+            if query:
+                params = parse_qs(query, keep_blank_values=True)
+                target_id = (params.get("target_id") or params.get("id") or [None])[0]
+            return 200, self.get_indexing_progress(target_id)
+        progress_path_match = re.fullmatch(r"/api/rag/indexing/progress/([a-f0-9]{32})", path)
+        if progress_path_match:
+            return 200, self.get_indexing_progress(progress_path_match.group(1))
         if path == "/api/agent/tools":
             from aidream.agent_api import (AGENT_MAX_OUTPUT_CHARS, AGENT_MAX_SECONDS,
                                            AGENT_MAX_TOOL_CALLS)
@@ -1347,6 +1772,15 @@ class ReadOnlyAPI:
             try:
                 return 200, {"data": {"connection": self.provider_connections.get(provider_connection_match.group(1))}}
             except ValueError as exc:
+                return getattr(exc, "status", 400), {"error": str(exc)}
+        if path == "/api/providers/models":
+            role = None
+            if query:
+                params = parse_qs(query)
+                role = params.get("role", [None])[0]
+            try:
+                return 200, {"data": self.provider_api.list_models(role=role)}
+            except Exception as exc:
                 return getattr(exc, "status", 400), {"error": str(exc)}
         if path == "/api/chats":
             return 200, self.list_chats()
@@ -2381,6 +2815,23 @@ class ReadOnlyAPI:
                 "id": "route_local_retrieval_search", "model_id": None,
                 "runtime_id": "local-knowledge-fts5", "preferred": True,
             })
+        try:
+            from aidream.providers.discovery import list_provider_models
+            if hasattr(self, "provider_connections") and self.provider_connections is not None:
+                embed_models = list_provider_models(self.provider_connections, role="embedding")
+                for em in embed_models:
+                    routes["embedding.create"].append({
+                        "id": f"route_provider_embed_{em['provider_model_id']}", "model_id": em["id"],
+                        "runtime_id": f"provider-{em['connection_id']}", "preferred": False,
+                    })
+                rerank_models = list_provider_models(self.provider_connections, role="rerank")
+                for rm in rerank_models:
+                    routes["rerank.score"].append({
+                        "id": f"route_provider_rerank_{rm['provider_model_id']}", "model_id": rm["id"],
+                        "runtime_id": f"provider-{rm['connection_id']}", "preferred": False,
+                    })
+        except Exception:
+            pass
 
         declarations = []
         for capability_id, capability_routes in routes.items():
@@ -2409,6 +2860,10 @@ class ReadOnlyAPI:
                     if capability_id == "document.parse" else
                     "Local SQLite FTS5 search is available; retrieval is lexical and does not use embeddings or reranking."
                     if capability_id == "retrieval.search" else
+                    "Remote embedding model is configured via provider connections; vector generation is available."
+                    if capability_id == "embedding.create" else
+                    "Remote/local reranker model is configured; semantic candidate scoring is available."
+                    if capability_id == "rerank.score" else
                     "Local whisper.cpp executable and an installed GGML model were detected; transcription has not been run."
                     if capability_id == "audio.transcribe" else
                     (f"Local {voice_readiness.get(capability_id, {}).get('provider')} synthesis is available "
@@ -3016,7 +3471,7 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
                 return
             if parsed.path == "/api" or parsed.path.startswith("/api/"):
                 if (parsed.path != self.path.split("?", 1)[0]
-                        or (parsed.query and parsed.path not in {"/api/hub/search", "/api/model-profiles", "/api/logs", "/api/diagnostics", "/api/knowledge/search", "/api/capabilities", "/api/capability-map", "/api/artifacts"}
+                        or (parsed.query and parsed.path not in {"/api/hub/search", "/api/model-profiles", "/api/logs", "/api/diagnostics", "/api/knowledge/search", "/api/capabilities", "/api/capability-map", "/api/artifacts", "/api/providers/models", "/api/rag/indexing/progress"}
                             and not re.fullmatch(r"/api/artifacts/art_[A-Za-z0-9_-]{1,75}/(?:metadata|content)", parsed.path)
                             and not re.fullmatch(r"/api/runs/[a-f0-9]{32}/events", parsed.path)
                             and "/api/hub/repos/" not in parsed.path)):
@@ -3031,7 +3486,7 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
                 elif re.fullmatch(r"/api/runs/[a-f0-9]{32}/events", parsed.path):
                     self._serve_run_events(parsed.path.split("/")[3], parsed.query)
                 else:
-                    if (parsed.query and parsed.path not in {"/api/model-profiles", "/api/logs", "/api/diagnostics", "/api/knowledge/search", "/api/capabilities", "/api/capability-map", "/api/artifacts"}
+                    if (parsed.query and parsed.path not in {"/api/model-profiles", "/api/logs", "/api/diagnostics", "/api/knowledge/search", "/api/capabilities", "/api/capability-map", "/api/artifacts", "/api/providers/models", "/api/rag/indexing/progress"}
                             and not re.fullmatch(r"/api/artifacts/art_[A-Za-z0-9_-]{1,75}/(?:metadata|content)", parsed.path)
                             and not re.fullmatch(r"/api/runs/[a-f0-9]{32}/events", parsed.path)):
                         self._send_json(400, {"error": "Query strings are not supported for this API path"})
@@ -3448,6 +3903,131 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
             if parsed.query or parsed.fragment or parsed.path != self.path:
                 self._send_json(400, {"error": "Query strings and encoded paths are not supported"})
                 return
+            if self.path == "/api/providers/embed":
+                try:
+                    body = self._read_json_body()
+                    texts = body.get("texts")
+                    model = body.get("model")
+                    result = self.server.services.provider_api.embed(texts, model=model)
+                    self._send_json(200, {"data": result})
+                except Exception as exc:
+                    self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
+                return
+            if self.path == "/api/providers/rerank":
+                try:
+                    body = self._read_json_body()
+                    query = body.get("query")
+                    documents = body.get("documents")
+                    model = body.get("model")
+                    top_k = body.get("top_k")
+                    result = self.server.services.provider_api.rerank(query, documents, model=model, top_k=top_k)
+                    self._send_json(200, {"data": result})
+                except Exception as exc:
+                    self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
+                return
+            if self.path == "/api/providers/chat":
+                try:
+                    body = self._read_json_body()
+                    model = body.get("model")
+                    messages = body.get("messages")
+                    options = {k: v for k, v in body.items() if k not in {"model", "messages"}}
+                    result = self.server.services.provider_api.chat(model, messages, **options)
+                    self._send_json(200, {"data": result})
+                except Exception as exc:
+                    self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
+                return
+            if self.path == "/api/rag/sqlite/inspect":
+                try:
+                    body = self._read_json_body()
+                    path = body.get("path")
+                    if not path or not isinstance(path, str):
+                        raise APIError("path is required and must be a string")
+                    result = self.server.services.inspect_sqlite(path)
+                    self._send_json(200, result)
+                except Exception as exc:
+                    self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
+                return
+            if self.path == "/api/rag/sqlite/sources":
+                try:
+                    body = self._read_json_body(MAX_SQLITE_REQUEST_BYTES)
+                    file_name = body.get("name") or body.get("file_name") or "database.sqlite"
+                    if "path" in body:
+                        meta = self.server.services.add_sqlite_source(file_name, body["path"])
+                    elif "content_base64" in body:
+                        import base64
+                        data = base64.b64decode(body["content_base64"])
+                        meta = self.server.services.add_sqlite_source(file_name, data)
+                    else:
+                        raise APIError("Either path or content_base64 is required")
+                    self._send_json(201, meta)
+                except Exception as exc:
+                    self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
+                return
+            sqlite_query_match = re.fullmatch(r"/api/rag/sqlite/sources/([a-f0-9]{32})/query", self.path)
+            if sqlite_query_match:
+                try:
+                    body = self._read_json_body()
+                    sql = body.get("sql")
+                    if not sql or not isinstance(sql, str):
+                        raise APIError("sql is required and must be a string")
+                    max_rows = body.get("max_rows", 100)
+                    result = self.server.services.query_sqlite_source(
+                        sqlite_query_match.group(1), sql, max_rows=max_rows)
+                    self._send_json(200, result)
+                except Exception as exc:
+                    self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
+                return
+            sqlite_index_semantic_match = re.fullmatch(r"/api/rag/sqlite/sources/([a-f0-9]{32})/index_semantic", self.path)
+            if sqlite_index_semantic_match:
+                try:
+                    body = self._read_json_body() if self.headers.get("Content-Length") and int(self.headers.get("Content-Length", 0)) > 0 else {}
+                    model = body.get("model") if isinstance(body, dict) else None
+                    result = self.server.services.index_sqlite_source_semantic(
+                        sqlite_index_semantic_match.group(1), model=model)
+                    self._send_json(200, result)
+                except Exception as exc:
+                    self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
+                return
+            sqlite_search_semantic_match = re.fullmatch(r"/api/rag/sqlite/sources/([a-f0-9]{32})/search_semantic", self.path)
+            if sqlite_search_semantic_match:
+                try:
+                    body = self._read_json_body()
+                    query = body.get("query")
+                    if not query or not isinstance(query, str):
+                        raise APIError("query is required and must be a string")
+                    limit = int(body.get("limit", 10))
+                    table = body.get("table")
+                    model = body.get("model")
+                    result = self.server.services.search_sqlite_source_semantic(
+                        sqlite_search_semantic_match.group(1), query, limit=limit, table=table, model=model)
+                    self._send_json(200, result)
+                except Exception as exc:
+                    self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
+                return
+            doc_index_semantic_match = re.fullmatch(r"/api/rag/knowledge/documents/([a-f0-9]{32})/index_semantic", self.path)
+            if doc_index_semantic_match:
+                try:
+                    body = self._read_json_body() if self.headers.get("Content-Length") and int(self.headers.get("Content-Length", 0)) > 0 else {}
+                    model = body.get("model") if isinstance(body, dict) else None
+                    result = self.server.services.index_document_semantic(
+                        doc_index_semantic_match.group(1), model=model)
+                    self._send_json(200, result)
+                except Exception as exc:
+                    self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
+                return
+            if self.path == "/api/rag/knowledge/search_semantic":
+                try:
+                    body = self._read_json_body()
+                    query = body.get("query")
+                    if not query or not isinstance(query, str):
+                        raise APIError("query is required and must be a string")
+                    limit = int(body.get("limit", 10))
+                    model = body.get("model")
+                    result = self.server.services.search_knowledge_semantic(query, limit=limit, model=model)
+                    self._send_json(200, result)
+                except Exception as exc:
+                    self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
+                return
             if self.path == "/api/provider-connections":
                 try:
                     connection = self.server.services.provider_connections.create(self._read_json_body())
@@ -3564,9 +4144,10 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
                 return
             if self.path == "/api/runtime/unload":
                 try:
-                    if self._read_json_body():
-                        raise APIError("unload accepts an empty object")
-                    self._send_json(200, self.server.services.unload_model())
+                    body = self._read_json_body()
+                    if body and not isinstance(body, dict):
+                        raise APIError("unload accepts an object with optional model_id")
+                    self._send_json(200, self.server.services.unload_model(body))
                 except (APIError, ValueError) as exc:
                     self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
                 return
@@ -3789,6 +4370,15 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
                     self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
                 except OSError:
                     self._send_json(503, {"error": "Could not update the local knowledge index"})
+                return
+            sqlite_source_match = re.fullmatch(r"/api/rag/sqlite/sources/([a-f0-9]{32})", self.path)
+            if sqlite_source_match:
+                try:
+                    self._send_json(200, self.server.services.delete_sqlite_source(sqlite_source_match.group(1)))
+                except (APIError, ValueError) as exc:
+                    self._send_json(getattr(exc, "status", 400), {"error": str(exc)})
+                except OSError:
+                    self._send_json(503, {"error": "Could not delete SQLite source"})
                 return
             match = re.fullmatch(r"/api/downloads/([a-f0-9]{32})/cancel", self.path)
             if match:
@@ -4116,7 +4706,7 @@ def create_server(port: int = DEFAULT_PORT, *, api: ReadOnlyAPI | None = None,
             if not self._write_origin_ok():
                 self._send_json(403, {"error": "A permitted Origin is required"})
                 return
-            if self.path not in {"/api/chat", "/api/agent", "/api/chats", "/api/downloads", "/api/diagnostics", "/api/knowledge/documents", "/api/model-sources", "/api/models/rescan", "/api/models/residency/actions", "/api/runtime/load", "/api/runtime/unload", "/api/runtime/chat", "/api/runtime/command", "/api/runtime/installations", "/api/model-profiles", "/api/settings", "/api/capability-preferences", "/api/runs", "/api/artifacts", "/api/provider-connections"} and not re.fullmatch(r"/api/runtime/installations/[a-f0-9]{32}(/probe)?", self.path) and not re.fullmatch(r"/api/model-profiles/[a-f0-9]{32}", self.path) and not re.fullmatch(r"/api/model-manifests/[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+/(preferences|verify)", self.path) and not re.fullmatch(r"/api/chats/[a-f0-9]{32}(/settings)?", self.path) and not re.fullmatch(r"/api/downloads/[a-f0-9]{32}/cancel", self.path) and not re.fullmatch(r"/api/runs/[a-f0-9]{32}/cancel", self.path) and not re.fullmatch(r"/api/skills/[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*/(plan|run|draft)", self.path) and not re.fullmatch(r"/api/artifacts/art_[A-Za-z0-9_-]{1,75}", self.path) and not re.fullmatch(r"/api/provider-connections/[a-f0-9]{32}(/test)?", self.path):
+            if self.path not in {"/api/chat", "/api/agent", "/api/chats", "/api/downloads", "/api/diagnostics", "/api/knowledge/documents", "/api/model-sources", "/api/models/rescan", "/api/models/residency/actions", "/api/runtime/load", "/api/runtime/unload", "/api/runtime/chat", "/api/runtime/command", "/api/runtime/installations", "/api/model-profiles", "/api/settings", "/api/capability-preferences", "/api/runs", "/api/artifacts", "/api/provider-connections", "/api/providers/embed", "/api/providers/rerank", "/api/providers/chat", "/api/providers/models", "/api/rag/sqlite/inspect", "/api/rag/sqlite/sources", "/api/rag/status", "/api/rag/indexing/progress", "/api/rag/knowledge/search_semantic"} and not re.fullmatch(r"/api/runtime/installations/[a-f0-9]{32}(/probe)?", self.path) and not re.fullmatch(r"/api/model-profiles/[a-f0-9]{32}", self.path) and not re.fullmatch(r"/api/model-manifests/[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+/(preferences|verify)", self.path) and not re.fullmatch(r"/api/chats/[a-f0-9]{32}(/settings)?", self.path) and not re.fullmatch(r"/api/downloads/[a-f0-9]{32}/cancel", self.path) and not re.fullmatch(r"/api/runs/[a-f0-9]{32}/cancel", self.path) and not re.fullmatch(r"/api/skills/[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*/(plan|run|draft)", self.path) and not re.fullmatch(r"/api/artifacts/art_[A-Za-z0-9_-]{1,75}", self.path) and not re.fullmatch(r"/api/provider-connections/[a-f0-9]{32}(/test)?", self.path) and not re.fullmatch(r"/api/rag/sqlite/sources/[a-f0-9]{32}(/query|/index_semantic|/search_semantic)?", self.path) and not re.fullmatch(r"/api/rag/knowledge/documents/[a-f0-9]{32}/index_semantic", self.path):
                 self._send_json(404, {"error": "Not found"})
                 return
             self.send_response(204)

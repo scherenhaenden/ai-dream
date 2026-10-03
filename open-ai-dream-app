@@ -4,11 +4,21 @@ set -u
 ROOT=$(CDPATH= cd -- "$(dirname -- "$(readlink -f -- "$0")")" && pwd) || exit 1
 cd "$ROOT" || exit 1
 
-PORT=8765
+PORT="${AIDREAM_PORT:-}"
+for arg in "$@"; do
+  if [[ "$arg" =~ ^--port=([0-9]+)$ ]]; then
+    PORT="${BASH_REMATCH[1]}"
+  elif [[ "$arg" == "--port" ]]; then
+    # Handled next or positional
+    :
+  fi
+done
+
 URL=""
 LOG_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/ai-dream"
 LOG_FILE="$LOG_DIR/web.log"
-APP_PROFILE="${XDG_DATA_HOME:-$HOME/.local/share}/ai-dream/chrome-profile"
+DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/ai-dream"
+APP_PROFILE="$DATA_DIR/chrome-profile"
 SERVER_PID=""
 
 show_error() {
@@ -16,11 +26,14 @@ show_error() {
     zenity --error --title="AI Dream" --text="$1" 2>/dev/null || true
   elif command -v notify-send >/dev/null 2>&1; then
     notify-send "AI Dream" "$1" 2>/dev/null || true
+  else
+    echo "AI Dream: $1" >&2
   fi
 }
 
 web_ready() {
-  python3 - "$1" <<'PY' >/dev/null 2>&1
+  local target_port="$1"
+  python3 - "$target_port" <<'PY' >/dev/null 2>&1
 import sys
 import urllib.request
 
@@ -35,7 +48,8 @@ PY
 }
 
 port_available() {
-  python3 - "$1" <<'PY' >/dev/null 2>&1
+  local target_port="$1"
+  python3 - "$target_port" <<'PY' >/dev/null 2>&1
 import socket
 import sys
 
@@ -57,42 +71,140 @@ with socket.socket() as sock:
 PY
 }
 
-if web_ready "$PORT"; then
+find_active_server_port() {
+  python3 - "$DATA_DIR" <<'PY'
+import os
+from pathlib import Path
+import sys
+import urllib.request
+
+def check(port):
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/chat", timeout=0.5) as r:
+            if r.status == 200 and b"<ai-root>" in r.read(65536):
+                return True
+    except Exception:
+        pass
+    return False
+
+# 1. Check PID files in data dir
+data_dir = Path(sys.argv[1])
+if data_dir.is_dir():
+    for pid_file in data_dir.glob("web-*.pid"):
+        stem = pid_file.stem
+        parts = stem.split("-")
+        if len(parts) == 2 and parts[1].isdigit():
+            p = int(parts[1])
+            if check(p):
+                print(p)
+                sys.exit(0)
+
+# 2. Check standard port 8765
+if check(8765):
+    print(8765)
+    sys.exit(0)
+
+sys.exit(1)
+PY
+}
+
+cleanup_stale_locks() {
+  local lock_file="$APP_PROFILE/SingletonLock"
+  if [[ -L "$lock_file" ]]; then
+    local target
+    target=$(readlink "$lock_file" || true)
+    local pid="${target##*-}"
+    if [[ -n "$pid" && "$pid" =~ ^[0-9]+$ ]]; then
+      if ! kill -0 "$pid" 2>/dev/null; then
+        rm -f "$APP_PROFILE"/Singleton* 2>/dev/null || true
+      fi
+    else
+      rm -f "$APP_PROFILE"/Singleton* 2>/dev/null || true
+    fi
+  elif [[ -e "$lock_file" ]]; then
+    rm -f "$APP_PROFILE"/Singleton* 2>/dev/null || true
+  fi
+}
+
+# 1. Discover already active server or determine port
+if [[ -n "$PORT" ]] && web_ready "$PORT"; then
   URL="http://127.0.0.1:$PORT"
 else
-  if ! port_available "$PORT"; then
+  ACTIVE_PORT=$(find_active_server_port 2>/dev/null || true)
+  if [[ -n "$ACTIVE_PORT" ]]; then
+    PORT="$ACTIVE_PORT"
+    URL="http://127.0.0.1:$PORT"
+  fi
+fi
+
+# 2. Start server if not already running
+if [[ -z "$URL" ]]; then
+  if [[ -z "$PORT" ]]; then
+    if port_available 8765; then
+      PORT=8765
+    else
+      PORT=$(free_port) || exit 1
+    fi
+  elif ! port_available "$PORT"; then
     PORT=$(free_port) || exit 1
   fi
-  mkdir -p "$APP_PROFILE" 2>/dev/null || true
+
+  mkdir -p "$DATA_DIR" "$APP_PROFILE" 2>/dev/null || true
   if ! mkdir -p "$LOG_DIR" 2>/dev/null || ! { : >>"$LOG_FILE"; } 2>/dev/null; then
     LOG_FILE=/dev/null
   fi
+
   python3 -u -m aidream web --port "$PORT" --no-open >>"$LOG_FILE" 2>&1 </dev/null &
   SERVER_PID=$!
+
   for _ in {1..50}; do
     if web_ready "$PORT"; then break; fi
     sleep 0.2
   done
+
   if ! web_ready "$PORT"; then
-    if [[ -n "$SERVER_PID" ]]; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi
+    if [[ -n "$SERVER_PID" ]]; then
+      kill "$SERVER_PID" 2>/dev/null || true
+      wait "$SERVER_PID" 2>/dev/null || true
+    fi
     show_error "AI Dream could not serve its application page on port $PORT. See $LOG_FILE for details."
     exit 1
   fi
   URL="http://127.0.0.1:$PORT"
 fi
 
-CHROME=$(command -v google-chrome || command -v google-chrome-stable || true)
-if [[ -z "$CHROME" ]]; then
-  if [[ -n "$SERVER_PID" ]]; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi
-  show_error "Google Chrome is required for the AI Dream application window."
-  exit 1
-fi
+# 3. Locate browser: prefer Chromium-family with app mode, fallback to default browser
+CHROME=$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser || command -v brave-browser || command -v brave || command -v microsoft-edge-stable || command -v microsoft-edge || true)
 
 mkdir -p "$APP_PROFILE" 2>/dev/null || true
-"$CHROME" --user-data-dir="$APP_PROFILE" --no-first-run --no-default-browser-check --app="$URL/chat" --class=AiDream --new-window
-status=$?
-if [[ -n "$SERVER_PID" ]]; then
+cleanup_stale_locks
+
+START_TIME=$(date +%s)
+if [[ -n "$CHROME" ]]; then
+  "$CHROME" --user-data-dir="$APP_PROFILE" --no-first-run --no-default-browser-check --app="$URL/chat" --class=AiDream --new-window
+  status=$?
+elif command -v xdg-open >/dev/null 2>&1; then
+  xdg-open "$URL/chat"
+  status=$?
+elif command -v python3 >/dev/null 2>&1; then
+  python3 -m webbrowser "$URL/chat"
+  status=$?
+else
+  if [[ -n "$SERVER_PID" ]]; then
+    kill "$SERVER_PID" 2>/dev/null || true
+    wait "$SERVER_PID" 2>/dev/null || true
+  fi
+  show_error "Could not find a web browser to open AI Dream."
+  exit 1
+fi
+END_TIME=$(date +%s)
+DURATION=$((END_TIME - START_TIME))
+
+# Only clean up SERVER_PID if Chrome stayed in the foreground and user closed the window.
+# If Chrome detached or delegated immediately (< 3s), keep server alive so the user can interact.
+if [[ -n "$SERVER_PID" && "$DURATION" -ge 3 ]]; then
   kill "$SERVER_PID" 2>/dev/null || true
   wait "$SERVER_PID" 2>/dev/null || true
 fi
+
 exit "$status"

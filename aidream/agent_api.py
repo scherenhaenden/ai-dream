@@ -139,7 +139,10 @@ def prepare_agent(api: Any, chat_id: str, model_id: str, prompt: str) -> AgentRu
         resident = any((record.model_id, record.runtime_id, record.profile_id) ==
                        (model_id, getattr(backend, "runtime_id", None) or backend.name, profile_id)
                        for record in scheduler.residency())
-        if not healthy or not resident:
+        runtime_id = getattr(backend, "runtime_id", None) or backend.name
+        adapter = scheduler.adapters.get(runtime_id)
+        is_multi = adapter is not None and "models.multi_resident" in adapter.probe().features
+        if not resident and not is_multi:
             api._unload_active()
         lease = api._acquire_direct_chat_lease(scheduler, backend, model, profile, chat_id)
         if not healthy or not resident:
