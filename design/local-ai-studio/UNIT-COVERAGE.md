@@ -36,14 +36,16 @@ real hardware, network services, downloads, or model inference.
 - The new `test:design-unit-pages` passed for its four routes in the 2026-10-03
   review. It exercises success and empty/unavailable/error states using fixtures,
   and fails on unexpected API requests or browser errors.
+- Every Unit had at least one mapped UI/API check rerun and passing in this
+  review. This includes fixture-backed browser checks and static contract checks;
+  it does not establish live hardware, service, or prototype/product parity.
 - The in-browser responsive pass navigated all 13 Units at 390×844, 768×1024,
   and 1440×900. **39/39 Unit/viewport combinations (100%)** had equal document,
   body, and viewport widths, so no page-level horizontal overflow was observed.
   Internal scroll regions, screenshot parity, and text legibility were not
   signed off by this width-only measurement.
-- **4/13 Units (31%)** had their dedicated route smoke rerun during this review;
-  evidence for the other nine checks is available in the package but those nine
-  were not rerun here.
+- **4/13 Units (31%)** gained and passed a new dedicated route smoke during this
+  review. The other nine had their existing mapped checks rerun successfully.
 - The progressive-navigation smoke covers discoverability and route changes;
   it does not substitute for page behavior checks.
 - No percentage of source-code line or branch coverage is claimed: the frontend
@@ -59,8 +61,11 @@ real hardware, network services, downloads, or model inference.
   check. API responses were fixture data.
 - Downloads UI: `npm run test:downloads-ui` — passed with fixture responses for
   populated, empty, loading, and error/retry states.
-- The named checks in the other nine rows were not all rerun for this snapshot.
-  See the readiness report for the exact boundary.
+- The Unit-mapped checks listed above were rerun in this review. The first
+  `test:hardware-settings-ui` attempt exposed a stale tab-role name; after
+  changing its selector from `Runtime defaults` to the current `Runtimes` label,
+  the Hardware/Settings/Resources smoke passed. See the readiness report for
+  the scope boundary of each result.
 
 The automated-check inventory is now 13/13 Units (100%), but that is not full
 behavioral readiness: **0/13 Units (0%)** have complete, verified behavioral

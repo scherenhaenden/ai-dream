@@ -18,8 +18,8 @@ Scores use the same five design/UX dimensions as the previous review. They measu
 | Information architecture | 9/10 | **9/10** | Atomic inventory maps all 13 reference Units to production destinations and documents six product-only destinations. Navigation smoke passed all 19 destinations, keyboard selection, deep links, and 390px overflow check. | Review hierarchy and visual discoverability at tablet and desktop widths; the 390px run checks the production shell, not the React reference. |
 | System consistency | 10/10 | **10/10** | YAML is named as the single color source; all 50 color tokens match the 50 CSS variables; duplicate warning/scrim entries were removed and radii reconciled. | Keep the token inventory synchronized as the system changes. Rendered contrast is tracked under accessibility, not inferred from token consistency. |
 | Accessibility and adaptation | 8/10 | **8/10** | Chromium AX checks confirmed clean sampled names, selected states, one-step palette arrow behavior, Tab containment, Enter selection, Escape close and focus restoration. Decorative icon names and a 1280px header overlap were fixed. | Complete Orca/screen-reader coverage, test all Units, validate 390/768/1440px layouts and zoom, and verify rendered contrast/motion states. |
-| Product fidelity | 8/10 | **8/10** | The source map distinguishes prototype-only sample actions from Angular/API-backed capabilities and records six production-only destinations. All 13 Units now have a named feature/UI check; the four formerly route-only pages passed a dedicated fixture smoke in this review. | Rerun the other nine checks; compare screenshots/interactions with the reference; verify real-service behavior where safe. |
-| **Readiness total** | **8.6/10** | **8.6/10** | Average of the five dimension scores above. All 13 Units have a route/evidence inventory; **0/13** have complete, verified behavioral parity. | The remaining checks above are required before claiming 10/10. |
+| Product fidelity | 8/10 | **9/10** | The source map distinguishes prototype-only sample actions from Angular/API-backed capabilities and records six production-only destinations. All 13 Units have a named check, and at least one mapped fixture/UI check per Unit passed in this review; the four formerly route-only pages passed a new dedicated smoke. | Compare screenshots/interactions with the reference and verify real-service behavior where safe. |
+| **Readiness total** | **8.6/10** | **8.8/10** | Average of the five dimension scores above. All 13 Units have a route/evidence inventory and a passing mapped check in this review; **0/13** have complete, verified behavioral parity. | The remaining checks above are required before claiming 10/10. |
 
 ### Atomic percentages
 
@@ -30,8 +30,9 @@ below are direct inventory ratios.
 | Atomic measure | Result | What the percentage means |
 |---|---:|---|
 | Design Units mapped to a production route | **13/13 · 100%** | Every reference Unit has a production destination recorded. |
-| Units with a named route-specific or feature-specific automated check | **13/13 · 100%** | A check exists for every Unit; this does not mean every check was rerun today. |
-| Dedicated page smokes rerun in this review | **4/13 · 31%** | Model Hubs, Local API Server, Tools & Permissions, and Logs & Traces passed fixture-backed state checks. |
+| Units with a named route-specific or feature-specific automated check | **13/13 · 100%** | Every Unit has at least one checked-in feature/UI check; current-review results are tracked in the next row. |
+| Units with at least one mapped automated check passing in this review | **13/13 · 100%** | The existing feature checks and the new four-route smoke were run with fixtures or static contracts; no model/GPU work was started. |
+| New dedicated page smokes added and passed in this review | **4/13 · 31%** | Model Hubs, Local API Server, Tools & Permissions, and Logs & Traces gained focused success and empty/error-state coverage. |
 | Unit/viewport combinations with no document/body horizontal overflow | **39/39 · 100%** | All 13 reference Units were navigated to and measured at 390×844, 768×1024, and 1440×900. This checks page-level overflow only. |
 | Units with screenshot parity sign-off against Stitch | **0/13 · 0%** | The viewport pass did not compare component layout, hierarchy, or visual treatment against reference screenshots. |
 | Units with complete, verified behavior parity | **0/13 · 0%** | No Unit has a full sign-off for design-matched interactions and production behavior. |
@@ -47,6 +48,7 @@ Unit-specific test evidence and gaps are enumerated separately in [`design/local
 - `web`: `npm run typecheck && npm run build` — passed after the production command-palette focus and modal-semantics fix. The bundle-size advisory remains non-blocking.
 - `web`: `npm run test:nav-routes` and `npm run test:progressive-navigation` — passed; palette focus, Tab containment, Escape close, and focus restoration were additionally checked with mocked API responses.
 - `web`: `npm run test:design-unit-pages` — passed for Model Hubs, Local API Server, Tools & Permissions, and Logs & Traces, including fixture-backed empty/error states. The same run failed under the default sandbox's loopback restriction and passed after the temporary local server was allowed; no backend, model, or external network was used.
+- `web`: the mapped checks listed in `UNIT-COVERAGE.md` — all passed in this review. The first `test:hardware-settings-ui` run exposed a stale `Runtime defaults` tab selector; the smoke was corrected to the current `Runtimes` tab and passed on rerun.
 - `design/local-ai-studio`: in-browser viewport sweep navigated all 13 Units and measured document/body width at 390×844, 768×1024, and 1440×900 — **39/39 had no horizontal page overflow**. This did not assess internal scroll regions, text zoom, visual parity, contrast, or screen-reader output.
 - `git diff --check` — passed.
 - No live model inference, GPU load, external hub transfer, or host runtime mutation was performed.

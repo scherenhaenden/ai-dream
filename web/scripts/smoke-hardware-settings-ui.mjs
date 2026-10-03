@@ -187,7 +187,7 @@ async function runSmokeTests() {
     await expect(page.getByRole('heading', { name: 'Application behavior' })).toBeVisible();
     await page.screenshot({ path: path.join(SCREENSHOT_DIR, 'settings-page-general.png'), fullPage: true });
 
-    await page.getByRole('tab', { name: 'Runtime defaults' }).click();
+    await page.getByRole('tab', { name: 'Runtimes' }).click();
     await expect(page.getByRole('heading', { name: 'Runtime defaults' })).toBeVisible();
     const backend = page.locator('label').filter({ hasText: 'Default backend' }).locator('select');
     const runtime = page.locator('label').filter({ hasText: 'Default runtime' }).locator('select');
