@@ -36,6 +36,11 @@ real hardware, network services, downloads, or model inference.
 - The new `test:design-unit-pages` passed for its four routes in the 2026-10-03
   review. It exercises success and empty/unavailable/error states using fixtures,
   and fails on unexpected API requests or browser errors.
+- The in-browser responsive pass navigated all 13 Units at 390×844, 768×1024,
+  and 1440×900. **39/39 Unit/viewport combinations (100%)** had equal document,
+  body, and viewport widths, so no page-level horizontal overflow was observed.
+  Internal scroll regions, screenshot parity, and text legibility were not
+  signed off by this width-only measurement.
 - **4/13 Units (31%)** had their dedicated route smoke rerun during this review;
   evidence for the other nine checks is available in the package but those nine
   were not rerun here.
