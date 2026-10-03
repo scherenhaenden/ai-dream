@@ -19,6 +19,7 @@ item is not an available feature until the corresponding implementation exists.
 | Interpret local GGUF metadata | [Local model metadata](model-metadata.md) |
 | Interpret Hub repository metadata | [Hugging Face metadata](huggingface-metadata.md) |
 | Understand capability, skill and multimodal orchestration design and implementation status | [Capability orchestration](capability-orchestration/README.md) |
+| Review proposed (not implemented) RAG work: shared provider core, SQLite sources, drag-and-drop, per-model context window | [RAG integration proposals](proposals/rag-integration/README.md) |
 
 The Python Tk interface and Angular browser interface share the backend and
 local files, but their controls differ. The feature tables in the architecture
